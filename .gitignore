@@ -1,0 +1,37 @@
+# Track only the DiscoverCars tool from this workspace.
+# The folder contains unrelated experiments, caches, generated files and outputs.
+*
+
+!.gitignore
+!package.json
+!package-lock.json
+!README.md
+!README-USER.txt
+!DISCOVERCARS_README.md
+!discovercars.config.example.json
+!install.ps1
+!setup.bat
+!start.bat
+!run-ui.ps1
+!run-tables.ps1
+!build-release.ps1
+
+!src/
+!src/**
+!tests/
+!tests/**
+
+# Always keep generated/heavy content out of Git.
+node_modules/
+output/
+outputs/
+artifacts/
+release/
+backups/
+.npm-cache/
+.venv/
+.codex/
+__pycache__/
+*.log
+*.tmp
+.env

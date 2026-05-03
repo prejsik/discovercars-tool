@@ -1,0 +1,15 @@
+{
+  "name": "discovercars-weekend-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "discovercars": "node src/index.js",
+    "test": "node src/index.js --json --locations=Warsaw",
+    "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File build-release.ps1"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

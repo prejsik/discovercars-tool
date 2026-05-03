@@ -1,0 +1,23 @@
+{
+  "locations": [
+    "Warsaw",
+    "Krakow",
+    "Gdansk",
+    "Poznan",
+    "Wroclaw",
+    "Katowice"
+  ],
+  "pickupDate": "2026-04-24",
+  "pickupTime": "10:00",
+  "dropoffDate": "2026-04-26",
+  "dropoffTime": "10:00",
+  "pickupWeekdays": ["thursday", "friday"],
+  "durationsDays": [2, 3],
+  "residenceCountry": "Poland",
+  "driverAge": 30,
+  "headless": true,
+  "timeoutMs": 45000,
+  "browserExecutablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "outputCsv": "output/discovercars-results.csv",
+  "artifactsDir": "artifacts/discovercars"
+}
