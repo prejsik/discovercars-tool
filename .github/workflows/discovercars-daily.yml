@@ -35,6 +35,8 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 env:
   # Scheduled run defaults: all local-tool cities, tomorrow only, rental durations 2..10.
@@ -48,6 +50,9 @@ jobs:
     name: Run DiscoverCars scraper
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    environment:
+      name: github-pages
+      url: ${{ steps.pages-deployment.outputs.page_url }}
 
     steps:
       - name: Check Warsaw schedule gate
@@ -144,6 +149,33 @@ jobs:
         if: steps.gate.outputs.should_run == 'true' && always()
         run: node src/reportHtml.js output/results-latest.json output/report.html
 
+      - name: Prepare GitHub Pages site
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          mkdir -p pages
+          cp output/report.html pages/index.html
+          cp output/report.html pages/report.html
+          cp output/results-latest.json pages/results-latest.json
+          cp output/run-log.txt pages/run-log.txt
+
+      - name: Configure GitHub Pages
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+
+      - name: Upload GitHub Pages artifact
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/upload-pages-artifact@v3
+        continue-on-error: true
+        with:
+          path: pages
+
+      - name: Deploy GitHub Pages
+        id: pages-deployment
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
       - name: Upload scraper results
         id: upload
         if: steps.gate.outputs.should_run == 'true' && always()
@@ -164,6 +196,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PAGE_URL: ${{ steps.pages-deployment.outputs.page_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -172,7 +205,11 @@ jobs:
             exit 0
           fi
 
-          message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$ARTIFACT_URL" "$RUN_URL")
+          if [[ -n "$PAGE_URL" ]]; then
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nRaport:\n%s\n\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$PAGE_URL" "$ARTIFACT_URL" "$RUN_URL")
+          else
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$ARTIFACT_URL" "$RUN_URL")
+          fi
 
           if ! curl --fail --show-error --silent \
             --request POST \

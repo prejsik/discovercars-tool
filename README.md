@@ -61,6 +61,7 @@ Jak dziala:
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 17:00,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
+- publikuje najnowszy `report.html` na GitHub Pages jako staly link do ostatnich wynikow.
 
 Domyslny zakres w chmurze:
 
@@ -86,9 +87,19 @@ Pliki w artifact:
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
 
+GitHub Pages:
+
+Workflow publikuje ostatni raport jako strone statyczna. Domyslny adres dla tego repozytorium to:
+
+```text
+https://prejsik.github.io/discovercars-tool/
+```
+
+Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Build and deployment` -> `Source` na `GitHub Actions`. Po kolejnym udanym runie strona pokaze najnowszy `report.html`.
+
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z linkiem do artifactu i linkiem do runa GitHub Actions. Link do artifactu dziala dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z linkiem do raportu na GitHub Pages, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego uzycia; link do artifactu dziala dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
