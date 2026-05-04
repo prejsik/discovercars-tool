@@ -145,6 +145,7 @@ jobs:
         run: node src/reportHtml.js output/results-latest.json output/report.html
 
       - name: Upload scraper results
+        id: upload
         if: steps.gate.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
@@ -156,3 +157,38 @@ jobs:
             output/state.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Notify Telegram
+        if: steps.gate.outputs.should_run == 'true' && steps.upload.outputs.artifact-url != ''
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            echo "::warning::Telegram secrets are missing; notification skipped."
+            exit 0
+          fi
+
+          message=$(
+            cat <<EOF
+DiscoverCars: wyniki sa gotowe.
+
+Artifact:
+$ARTIFACT_URL
+
+GitHub Actions run:
+$RUN_URL
+EOF
+          )
+
+          if ! curl --fail --show-error --silent \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            --data-urlencode "disable_web_page_preview=true"; then
+            echo "::warning::Telegram notification failed; scraper results were still uploaded."
+          fi

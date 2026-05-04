@@ -86,6 +86,27 @@ Pliki w artifact:
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
 
+Powiadomienie Telegram po zakonczeniu:
+
+Workflow moze wyslac wiadomosc Telegram z linkiem do artifactu i linkiem do runa GitHub Actions. Link do artifactu dziala dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+
+1. W Telegramie otworz `@BotFather`.
+2. Utworz bota komenda `/newbot` i skopiuj token.
+3. Napisz dowolna wiadomosc do nowego bota, np. `/start`.
+4. Otworz w przegladarce:
+
+```text
+https://api.telegram.org/bot<TWOJ_TOKEN>/getUpdates
+```
+
+5. W odpowiedzi znajdz `message.chat.id` i skopiuj jego wartosc.
+6. W repozytorium GitHub wejdz w `Settings` -> `Secrets and variables` -> `Actions`.
+7. Dodaj sekrety:
+   - `TELEGRAM_BOT_TOKEN` - token z `@BotFather`
+   - `TELEGRAM_CHAT_ID` - wartosc `message.chat.id`
+
+Jesli sekrety nie sa ustawione, workflow nie przerwie scrapera, tylko pominie powiadomienie Telegram.
+
 Lokalne wygenerowanie HTML z JSON:
 
 ```powershell
