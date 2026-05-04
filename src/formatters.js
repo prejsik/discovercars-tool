@@ -22,10 +22,34 @@ function highlightMmText(text) {
   };
 }
 
+function formatProviderRating(rating) {
+  const numeric = Number(rating);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "";
+  }
+
+  return numeric.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatProviderName(offerOrName, fallbackRating = null) {
+  const providerName =
+    typeof offerOrName === "object" && offerOrName
+      ? offerOrName.provider_name
+      : offerOrName;
+  const rating =
+    typeof offerOrName === "object" && offerOrName
+      ? offerOrName.provider_rating
+      : fallbackRating;
+  const normalizedProvider = String(providerName || "Not available").trim() || "Not available";
+  const formattedRating = formatProviderRating(rating);
+
+  return formattedRating ? `${normalizedProvider} (${formattedRating})` : normalizedProvider;
+}
+
 function toPrintableRow(result) {
   return {
     location: result.location,
-    provider_name: result.provider_name,
+    provider_name: formatProviderName(result),
     total_price: Number(result.total_price.toFixed(2)),
     currency: result.currency,
     rental_days: result.rental_days,
@@ -178,17 +202,17 @@ function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
     const top2 = top3[1] || null;
     const top3Offer = top3[2] || null;
 
-    const top1Name = top1?.provider_name || "Not available";
-    const top2Name = top2?.provider_name || "Not available";
-    const top3Name = top3Offer?.provider_name || "Not available";
+    const top1Name = formatProviderName(top1);
+    const top2Name = formatProviderName(top2);
+    const top3Name = formatProviderName(top3Offer);
 
     rows.push({
       location,
-      top1_company: isMmCarsProvider(top1Name) ? highlightMmText(top1Name) : top1Name,
+      top1_company: isMmCarsProvider(top1?.provider_name) ? highlightMmText(top1Name) : top1Name,
       top1_price: formatOfferPrice(top1),
-      top2_company: isMmCarsProvider(top2Name) ? highlightMmText(top2Name) : top2Name,
+      top2_company: isMmCarsProvider(top2?.provider_name) ? highlightMmText(top2Name) : top2Name,
       top2_price: formatOfferPrice(top2),
-      top3_company: isMmCarsProvider(top3Name) ? highlightMmText(top3Name) : top3Name,
+      top3_company: isMmCarsProvider(top3Offer?.provider_name) ? highlightMmText(top3Name) : top3Name,
       top3_price: formatOfferPrice(top3Offer),
       mm_cars_rental_price: mmOffer
         ? highlightMmText(formatOfferPrice(mmOffer))
@@ -216,11 +240,11 @@ function printTopThreePlusMmByLocation(top3ByLocation, mmCarsByLocation) {
 
     return {
       location,
-      top1_company: topOffers[0]?.provider_name || "Not available",
+      top1_company: formatProviderName(topOffers[0]),
       top1_price: formatOfferPrice(topOffers[0]),
-      top2_company: topOffers[1]?.provider_name || "Not available",
+      top2_company: formatProviderName(topOffers[1]),
       top2_price: formatOfferPrice(topOffers[1]),
-      top3_company: topOffers[2]?.provider_name || "Not available",
+      top3_company: formatProviderName(topOffers[2]),
       top3_price: formatOfferPrice(topOffers[2]),
       mm_cars_rental_price: formatOfferPrice(mmOffer)
     };
@@ -240,7 +264,7 @@ function printTopThreeByLocation(top3ByLocation) {
       rows.push({
         location,
         rank: index + 1,
-        provider_name: offer?.provider_name || "Not available",
+        provider_name: formatProviderName(offer),
         total_price: offer ? Number(offer.total_price.toFixed(2)) : null,
         currency: offer?.currency || "",
         car_name: offer?.car_name || ""
@@ -256,7 +280,7 @@ function printMmCarsByLocation(mmCarsByLocation) {
   const rows = Object.entries(mmCarsByLocation || {}).map(([location, offer]) => ({
     location,
     found: Boolean(offer),
-    provider_name: offer?.provider_name || "Not available",
+    provider_name: formatProviderName(offer),
     total_price: offer ? Number(offer.total_price.toFixed(2)) : null,
     currency: offer?.currency || "",
     car_name: offer?.car_name || ""
@@ -271,7 +295,7 @@ function stringifyOffer(offer) {
     return "Not available";
   }
 
-  return `${offer.location} | ${offer.provider_name} | ${offer.total_price.toFixed(2)} ${offer.currency} | ${
+  return `${offer.location} | ${formatProviderName(offer)} | ${offer.total_price.toFixed(2)} ${offer.currency} | ${
     offer.car_name || "n/a"
   }`;
 }

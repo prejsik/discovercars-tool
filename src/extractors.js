@@ -49,6 +49,39 @@ const CAR_CLASS_PATHS = [
   "category"
 ];
 
+const RATING_PATHS = [
+  "provider_rating",
+  "providerRating",
+  "supplier_rating",
+  "supplierRating",
+  "vendorRating",
+  "companyRating",
+  "partnerRating",
+  "rating",
+  "score",
+  "reviewScore",
+  "review_score",
+  "customerRating",
+  "customerScore",
+  "provider.rating",
+  "provider.score",
+  "supplier.rating",
+  "supplier.score",
+  "supplier.reviewScore",
+  "vendor.rating",
+  "company.rating",
+  "partner.rating",
+  "rentalCompany.rating",
+  "reviews.rating",
+  "reviews.score",
+  "reviews.average",
+  "review.rating",
+  "review.score",
+  "rating.value",
+  "rating.score",
+  "rating.average"
+];
+
 const PRICE_PATHS = [
   "total_price",
   "totalPrice",
@@ -111,6 +144,81 @@ function firstStringByPaths(candidate, paths) {
   }
 
   return "";
+}
+
+function normalizeRatingValue(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 10) {
+    return null;
+  }
+
+  return Number(parsed.toFixed(1));
+}
+
+function parseRatingValue(rawValue) {
+  if (rawValue == null) {
+    return null;
+  }
+
+  if (typeof rawValue === "number") {
+    return normalizeRatingValue(rawValue);
+  }
+
+  if (typeof rawValue === "string") {
+    const normalized = normalizeWhitespace(rawValue).replace(",", ".");
+    const matches = normalized.match(/\d+(?:\.\d+)?/g) || [];
+    for (const match of matches) {
+      const rating = normalizeRatingValue(match);
+      if (rating != null) {
+        return rating;
+      }
+    }
+    return null;
+  }
+
+  if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+    const preferredKeys = [
+      "rating",
+      "score",
+      "value",
+      "average",
+      "averageScore",
+      "reviewScore",
+      "supplierRating",
+      "providerRating"
+    ];
+
+    for (const key of preferredKeys) {
+      const rating = parseRatingValue(rawValue[key]);
+      if (rating != null) {
+        return rating;
+      }
+    }
+
+    for (const [key, value] of Object.entries(rawValue)) {
+      if (!/rating|score|review/i.test(key)) {
+        continue;
+      }
+      const rating = parseRatingValue(value);
+      if (rating != null) {
+        return rating;
+      }
+    }
+  }
+
+  return null;
+}
+
+function firstRatingByPaths(candidate, paths) {
+  for (const path of paths) {
+    const raw = getByPath(candidate, path);
+    const rating = parseRatingValue(raw);
+    if (rating != null) {
+      return rating;
+    }
+  }
+
+  return null;
 }
 
 function normalizeCurrencyCode(rawCurrency, fallback = "") {
@@ -301,10 +409,12 @@ function normalizeOfferCandidate(candidate, context) {
   const preferredCarName = firstStringByPaths(candidate, CAR_NAME_PATHS);
   const fallbackCarClass = firstStringByPaths(candidate, CAR_CLASS_PATHS);
   const carName = preferredCarName || fallbackCarClass || null;
+  const providerRating = firstRatingByPaths(candidate, RATING_PATHS);
 
   return {
     location: context.location,
     provider_name: providerName,
+    provider_rating: providerRating,
     total_price: price.value,
     currency: normalizeCurrencyCode(price.currency, context.currency || ""),
     pickup_date: context.pickup_date,
@@ -345,6 +455,7 @@ function dedupeOffers(offers) {
     unique.push({
       ...offer,
       provider_name: normalizeWhitespace(offer.provider_name),
+      provider_rating: Number.isFinite(offer.provider_rating) ? Number(offer.provider_rating) : null,
       car_name: offer.car_name ? normalizeWhitespace(offer.car_name) : null
     });
   }
@@ -407,10 +518,45 @@ async function extractOffersFromDom(page, context) {
 
     const output = [];
 
-    const addCandidate = (providerName, priceText, carName = null) => {
+    const parseRating = (value) => {
+      const text = normalize(value).replace(",", ".");
+      const matches = text.match(/\d+(?:\.\d+)?/g) || [];
+      for (const match of matches) {
+        const rating = Number.parseFloat(match);
+        if (Number.isFinite(rating) && rating > 0 && rating <= 10) {
+          return Number(rating.toFixed(1));
+        }
+      }
+      return null;
+    };
+
+    const findRatingText = (root) => {
+      const ratingSelectors = [
+        "[data-testid*='rating']",
+        "[data-testid*='score']",
+        "[class*='rating']",
+        "[class*='score']",
+        "[aria-label*='rating' i]",
+        "[aria-label*='score' i]"
+      ];
+
+      for (const selector of ratingSelectors) {
+        const element = root.querySelector(selector);
+        const text = normalize(element?.textContent || element?.getAttribute?.("aria-label") || "");
+        if (parseRating(text) != null) {
+          return text;
+        }
+      }
+
+      const lines = normalize(root.textContent).split(/\n+/).map(normalize).filter(Boolean);
+      return lines.find((line) => /(rating|score|excellent|very good|good)/i.test(line) && parseRating(line) != null) || "";
+    };
+
+    const addCandidate = (providerName, priceText, carName = null, ratingText = "") => {
       const provider = normalize(providerName);
       const price = normalize(priceText);
       const car = normalize(carName || "");
+      const rating = parseRating(ratingText);
 
       if (!provider || !price || !/\d/.test(price)) {
         return;
@@ -418,6 +564,7 @@ async function extractOffersFromDom(page, context) {
 
       output.push({
         provider_name: provider,
+        provider_rating: rating,
         price_text: price,
         car_name: car || null
       });
@@ -435,8 +582,9 @@ async function extractOffersFromDom(page, context) {
         row.querySelector(".SearchFiltersGroup-FilterLabel, [class*='FilterLabel']")?.textContent || "";
       const price =
         row.querySelector(".SearchFiltersGroup-FilterMinPrice, [class*='FilterMinPrice']")?.textContent || "";
+      const rating = findRatingText(row);
 
-      addCandidate(provider, price);
+      addCandidate(provider, price, null, rating);
     }
 
     const selectors = [
@@ -511,7 +659,7 @@ async function extractOffersFromDom(page, context) {
       );
       const carName = normalize(carNameElement?.textContent || "");
 
-      addCandidate(providerName, priceLine, carName);
+      addCandidate(providerName, priceLine, carName, findRatingText(card));
     }
 
     return output;
@@ -527,6 +675,7 @@ async function extractOffersFromDom(page, context) {
     offers.push({
       location: context.location,
       provider_name: normalizeWhitespace(raw.provider_name),
+      provider_rating: Number.isFinite(raw.provider_rating) ? Number(raw.provider_rating) : null,
       total_price: parsedPrice.value,
       currency: normalizeCurrencyCode(parsedPrice.currency, context.currency || ""),
       pickup_date: context.pickup_date,

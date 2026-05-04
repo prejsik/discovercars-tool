@@ -195,6 +195,7 @@ function toCsv(rows) {
     "pickup_date",
     "dropoff_date",
     "provider",
+    "provider_rating",
     "total_price",
     "currency",
     "source"
@@ -209,6 +210,7 @@ function toCsv(rows) {
         row.pickupDate ?? "",
         row.dropoffDate ?? "",
         row.provider,
+        Number.isFinite(row.providerRating) ? row.providerRating : "",
         row.totalPrice.toFixed(2),
         row.currency || "",
         row.source || ""

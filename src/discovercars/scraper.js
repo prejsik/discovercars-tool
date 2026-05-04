@@ -1042,6 +1042,34 @@ class DiscoverCarsScraper {
         candidate.partner?.name
       ])
     );
+    const providerRating = firstRating([
+      candidate.providerRating,
+      candidate.supplierRating,
+      candidate.vendorRating,
+      candidate.companyRating,
+      candidate.partnerRating,
+      candidate.rating,
+      candidate.score,
+      candidate.reviewScore,
+      candidate.review_score,
+      candidate.provider?.rating,
+      candidate.provider?.score,
+      candidate.supplier?.rating,
+      candidate.supplier?.score,
+      candidate.supplier?.reviewScore,
+      candidate.vendor?.rating,
+      candidate.company?.rating,
+      candidate.partner?.rating,
+      candidate.rentalCompany?.rating,
+      candidate.reviews?.rating,
+      candidate.reviews?.score,
+      candidate.reviews?.average,
+      candidate.review?.rating,
+      candidate.review?.score,
+      candidate.rating?.value,
+      candidate.rating?.score,
+      candidate.rating?.average
+    ]);
 
     const parsedMoney = firstMoney([
       candidate.totalPrice,
@@ -1086,6 +1114,7 @@ class DiscoverCarsScraper {
 
     return {
       provider,
+      providerRating,
       totalPrice: parsedMoney.value,
       currency: normalizeCurrency(parsedMoney.currency),
       location,
@@ -1097,15 +1126,51 @@ class DiscoverCarsScraper {
     const rawCandidates = await page.evaluate((defaultLocation) => {
       const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const results = [];
-      const addCandidate = (providerText, priceText) => {
+      const parseRating = (value) => {
+        const text = normalize(value).replace(",", ".");
+        const matches = text.match(/\d+(?:\.\d+)?/g) || [];
+        for (const match of matches) {
+          const rating = Number.parseFloat(match);
+          if (Number.isFinite(rating) && rating > 0 && rating <= 10) {
+            return Number(rating.toFixed(1));
+          }
+        }
+        return null;
+      };
+
+      const findRatingText = (root) => {
+        const ratingSelectors = [
+          "[data-testid*='rating']",
+          "[data-testid*='score']",
+          "[class*='rating']",
+          "[class*='score']",
+          "[aria-label*='rating' i]",
+          "[aria-label*='score' i]"
+        ];
+
+        for (const selector of ratingSelectors) {
+          const element = root.querySelector(selector);
+          const text = normalize(element?.textContent || element?.getAttribute?.("aria-label") || "");
+          if (parseRating(text) != null) {
+            return text;
+          }
+        }
+
+        const lines = normalize(root.textContent).split(/\n+/).map(normalize).filter(Boolean);
+        return lines.find((line) => /(rating|score|excellent|very good|good)/i.test(line) && parseRating(line) != null) || "";
+      };
+
+      const addCandidate = (providerText, priceText, ratingText = "") => {
         const provider = normalize(providerText);
         const price = normalize(priceText);
+        const providerRating = parseRating(ratingText);
         if (!provider || !price || !/\d/.test(price)) {
           return;
         }
 
         results.push({
           provider,
+          providerRating,
           priceText: price,
           location: defaultLocation
         });
@@ -1115,7 +1180,7 @@ class DiscoverCarsScraper {
       for (const row of supplierFilterRows) {
         const provider = row.querySelector(".SearchFiltersGroup-FilterLabel")?.textContent || "";
         const price = row.querySelector(".SearchFiltersGroup-FilterMinPrice")?.textContent || "";
-        addCandidate(provider, price);
+        addCandidate(provider, price, findRatingText(row));
       }
 
       if (results.length < 3) {
@@ -1152,7 +1217,7 @@ class DiscoverCarsScraper {
           continue;
         }
 
-          addCandidate(providerLine, priceLine);
+          addCandidate(providerLine, priceLine, findRatingText(node));
         }
       }
 
@@ -1167,6 +1232,7 @@ class DiscoverCarsScraper {
       }
       offers.push({
         provider: normalizeWhitespace(candidate.provider),
+        providerRating: Number.isFinite(candidate.providerRating) ? Number(candidate.providerRating) : null,
         totalPrice: money.value,
         currency: normalizeCurrency(money.currency),
         location: normalizeWhitespace(candidate.location) || fallbackLocation,
@@ -1197,6 +1263,78 @@ function firstDefinedString(values) {
     }
   }
   return "";
+}
+
+function normalizeRatingValue(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 10) {
+    return null;
+  }
+
+  return Number(parsed.toFixed(1));
+}
+
+function parseRatingValue(rawValue) {
+  if (rawValue == null) {
+    return null;
+  }
+
+  if (typeof rawValue === "number") {
+    return normalizeRatingValue(rawValue);
+  }
+
+  if (typeof rawValue === "string") {
+    const matches = normalizeWhitespace(rawValue).replace(",", ".").match(/\d+(?:\.\d+)?/g) || [];
+    for (const match of matches) {
+      const rating = normalizeRatingValue(match);
+      if (rating != null) {
+        return rating;
+      }
+    }
+    return null;
+  }
+
+  if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+    const preferredKeys = [
+      "rating",
+      "score",
+      "value",
+      "average",
+      "averageScore",
+      "reviewScore",
+      "supplierRating",
+      "providerRating"
+    ];
+
+    for (const key of preferredKeys) {
+      const rating = parseRatingValue(rawValue[key]);
+      if (rating != null) {
+        return rating;
+      }
+    }
+
+    for (const [key, value] of Object.entries(rawValue)) {
+      if (!/rating|score|review/i.test(key)) {
+        continue;
+      }
+      const rating = parseRatingValue(value);
+      if (rating != null) {
+        return rating;
+      }
+    }
+  }
+
+  return null;
+}
+
+function firstRating(values) {
+  for (const value of values) {
+    const rating = parseRatingValue(value);
+    if (rating != null) {
+      return rating;
+    }
+  }
+  return null;
 }
 
 function firstMoney(values) {
@@ -1268,6 +1406,7 @@ function dedupeOffers(offers) {
     unique.push({
       ...offer,
       provider,
+      providerRating: Number.isFinite(offer.providerRating) ? Number(offer.providerRating) : null,
       location: normalizeWhitespace(offer.location)
     });
   }
@@ -1286,6 +1425,7 @@ function selectBestOffersByProvider(offers, fallbackLocation, maxProviders, forc
 
     const normalizedOffer = {
       provider,
+      providerRating: Number.isFinite(offer.providerRating) ? Number(offer.providerRating) : null,
       totalPrice: offer.totalPrice,
       currency: normalizeCurrency(offer.currency),
       location: normalizeWhitespace(fallbackLocation || offer.location),

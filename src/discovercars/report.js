@@ -16,7 +16,7 @@ function printResultsTable(results) {
     pickup_day: toWeekdayName(item.pickupDate),
     duration_days: item.durationDays ?? "",
     location: item.location,
-    provider: item.provider,
+    provider: formatProviderForDisplay(item.provider, item.providerRating),
     total_price: formatMoney(item.totalPrice, item.currency)
   }));
 
@@ -174,7 +174,7 @@ function printScenarioRankings(sortedRows, topLimit, forcedProviderName) {
       topRows.map((row) => ({
         location: row.location,
         rank: row.rank,
-        provider: formatProviderForDisplay(row.provider),
+        provider: formatProviderForDisplay(row.provider, row.providerRating),
         mm_focus: isMmCarsRental(row.provider) ? "<<< MM >>>" : "",
         total_price: formatMoney(row.totalPrice, row.currency),
         source: row.source || ""
@@ -183,11 +183,21 @@ function printScenarioRankings(sortedRows, topLimit, forcedProviderName) {
   }
 }
 
-function formatProviderForDisplay(provider) {
-  if (isMmCarsRental(provider)) {
-    return "[MM CARS RENTAL]";
+function formatProviderRating(rating) {
+  const numeric = Number(rating);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "";
   }
-  return provider;
+  return numeric.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatProviderForDisplay(provider, rating = null) {
+  const ratingText = formatProviderRating(rating);
+  const suffix = ratingText ? ` (${ratingText})` : "";
+  if (isMmCarsRental(provider)) {
+    return `[MM CARS RENTAL]${suffix}`;
+  }
+  return `${provider}${suffix}`;
 }
 
 function isMmCarsRental(provider) {

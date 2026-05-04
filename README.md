@@ -16,6 +16,7 @@ Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 - zwraca najtansza oferte per lokalizacja oraz najtansza oferte ogolem.
 - zwraca top 3 najtansze firmy per lokalizacja.
 - pokazuje cene dla firmy `MM Cars Rental` per lokalizacja (jesli wystepuje).
+- pokazuje ocene firmy przy nazwie firmy, np. `MM Cars Rental (8.8)`, jesli DiscoverCars zwroci rating.
 - obsluguje wiele opcji dat: domyslny tryb rolling i opcjonalny tryb weekday (czwartek/piatek).
 - w trybie konsolowym pokazuje jedna krotka tabele na scenariusz (Top1/Top2/Top3 + `MM Cars Rental`).
 
@@ -262,12 +263,14 @@ W trybie konsolowym:
 
 - dla kazdego scenariusza dat jest wyswietlana jedna tabela,
 - nad tabela jest informacja o okresie (`pickup -> dropoff`),
+- ocena firmy jest pokazywana obok nazwy firmy w kolumnach `top*_company`,
 - `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_price`.
 
 Kazdy rekord sukcesu zawiera:
 
 - `location`
 - `provider_name`
+- `provider_rating` (number lub `null`, jesli rating nie jest dostepny)
 - `total_price` (number)
 - `currency`
 - `pickup_date`

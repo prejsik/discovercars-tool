@@ -122,6 +122,7 @@ function normalizeOutputOffer(offer, fallbackCurrency) {
   return {
     location: offer.location,
     provider_name: offer.provider_name,
+    provider_rating: Number.isFinite(offer.provider_rating) ? Number(offer.provider_rating) : null,
     total_price: Number(offer.total_price),
     currency: offer.currency || fallbackCurrency || "PLN",
     pickup_date: offer.pickup_date,
@@ -312,6 +313,7 @@ async function runLegacyFallbackBatch(options) {
     offersByLocation.get(key).push({
       location: legacy.location || "",
       provider_name: legacy.provider,
+      provider_rating: Number.isFinite(legacy.providerRating) ? Number(legacy.providerRating) : null,
       total_price: Number(legacy.totalPrice),
       currency: legacy.currency || options.currency || "PLN",
       pickup_date: options.weekend.pickupIso,
@@ -406,6 +408,7 @@ async function runLegacyFallbackForLocation(location, options) {
     .map((legacy) => ({
       location: legacy.location || location,
       provider_name: legacy.provider,
+      provider_rating: Number.isFinite(legacy.providerRating) ? Number(legacy.providerRating) : null,
       total_price: Number(legacy.totalPrice),
       currency: legacy.currency || options.currency || "PLN",
       pickup_date: options.weekend.pickupIso,

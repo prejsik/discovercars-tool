@@ -54,14 +54,15 @@ runTest("toCsv writes stable header and row data", () => {
     {
       location: "Warsaw",
       provider: "Alamo",
+      providerRating: 8.7,
       totalPrice: 199.99,
       currency: "EUR",
       source: "network"
     }
   ]);
 
-  assert.match(csv, /^location,provider,total_price,currency,source/);
-  assert.match(csv, /Warsaw,Alamo,199\.99,EUR,network/);
+  assert.match(csv, /^location,duration_days,pickup_date,dropoff_date,provider,provider_rating,total_price,currency,source/);
+  assert.match(csv, /Warsaw,,,,Alamo,8\.7,199\.99,EUR,network/);
 });
 
 if (!process.exitCode) {
