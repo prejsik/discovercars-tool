@@ -54,7 +54,7 @@ jobs:
   discovercars:
     name: Run DiscoverCars scraper
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
     environment:
       name: github-pages
       url: ${{ steps.pages-deployment.outputs.page_url }}
