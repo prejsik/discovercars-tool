@@ -159,12 +159,12 @@ jobs:
           retention-days: 14
 
       - name: Notify Telegram
-        if: steps.gate.outputs.should_run == 'true' && steps.upload.outputs.artifact-url != ''
+        if: steps.gate.outputs.should_run == 'true' && steps.upload.outputs['artifact-url'] != ''
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
@@ -172,17 +172,7 @@ jobs:
             exit 0
           fi
 
-          message=$(
-            cat <<EOF
-DiscoverCars: wyniki sa gotowe.
-
-Artifact:
-$ARTIFACT_URL
-
-GitHub Actions run:
-$RUN_URL
-EOF
-          )
+          message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$ARTIFACT_URL" "$RUN_URL")
 
           if ! curl --fail --show-error --silent \
             --request POST \
