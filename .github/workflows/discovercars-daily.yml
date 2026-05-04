@@ -141,6 +141,10 @@ jobs:
             --reset-state \
             | tee output/run-log.txt
 
+      - name: Generate HTML report
+        if: steps.gate.outputs.should_run == 'true' && always()
+        run: node src/reportHtml.js output/results-latest.json output/report.html
+
       - name: Upload scraper results
         if: steps.gate.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@v4
@@ -148,6 +152,7 @@ jobs:
           name: discovercars-results-${{ github.run_number }}
           path: |
             output/results-latest.json
+            output/report.html
             output/run-log.txt
             output/state.json
           if-no-files-found: warn

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "discovercars": "node src/index.js",
+    "report": "node src/reportHtml.js output/results-latest.json output/report.html",
     "test": "node src/index.js --json --locations=Warsaw",
     "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File build-release.ps1"
   },

@@ -60,7 +60,7 @@ Jak dziala:
 - GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`15:00` i `16:00 UTC`) oraz bramke, ktora realnie puszcza scraper tylko wtedy, gdy w Warszawie jest `17:00`,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 17:00,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
 
 Domyslny zakres w chmurze jest celowo maly do pierwszego testu:
 
@@ -79,6 +79,22 @@ Jak przetestowac recznie:
 4. Kliknij `Run workflow`.
 5. Zostaw domyslne parametry na pierwszy test.
 6. Po zakonczeniu wejdz w zakonczony run i pobierz artifact `discovercars-results-...`.
+7. Rozpakuj artifact ZIP i otworz `report.html` w przegladarce, zeby zobaczyc kolorowe tabele.
+
+Pliki w artifact:
+
+- `report.html` - najlepszy do ogladania wynikow, ma kolorowe tabele jak lokalna konsola,
+- `results-latest.json` - dane techniczne do dalszego przetwarzania,
+- `run-log.txt` - surowy log z uruchomienia,
+- `state.json` - checkpoint, jesli zostal utworzony.
+
+Lokalne wygenerowanie HTML z JSON:
+
+```powershell
+node src/reportHtml.js output/results-latest.json output/report.html
+```
+
+Potem otworz plik `output/report.html` w przegladarce.
 
 Tryb z widoczna przegladarka (headful):
 
