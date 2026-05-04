@@ -346,15 +346,16 @@ Jak to dziala:
 2. Potem uruchamia `start.bat`.
 3. Pojawi sie okno z wyboru:
    - **dlugosci wynajmu**,
-   - **konkretnych dat startu** (dzien/miesiac/rok) z mozliwoscia dodania wielu dat.
+   - **dat startu** przez zakres `From-To` albo konkretne daty wpisane naraz,
+   - **trybu szybkosci**.
 4. Dla dlugosci:
    - opcja `2-10 (all)`,
    - oraz pojedyncze opcje `2` ... `10`,
    - mozna zaznaczyc kilka naraz.
 5. Dla start-date:
-   - wybierasz date,
-   - klikasz `Add date`,
-   - mozesz dodac wiele dat i usuwac zaznaczone.
+   - domyslnie wybierasz zakres `From` i `To`, a narzedzie samo tworzy wszystkie daty z tego przedzialu,
+   - alternatywnie zaznaczasz `Specific dates` i wklejasz wiele dat naraz, np. `2026-05-05, 2026-05-07, 2026-05-10`,
+   - nie trzeba klikac `Add date` dla kazdej pojedynczej daty.
 6. Po kliknieciu `Run` narzedzie uruchamia sie automatycznie i pokazuje tabele.
 
 Uwagi:

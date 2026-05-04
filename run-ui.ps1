@@ -90,54 +90,90 @@ function Show-RunPicker {
   $startDatesLabel.Left = 20
   $startDatesLabel.Top = 345
   $startDatesLabel.Width = 500
-  $startDatesLabel.Height = 40
-  $startDatesLabel.Text = "Select specific pickup start dates (day / month / year).`nYou can add multiple start dates."
+  $startDatesLabel.Height = 44
+  $startDatesLabel.Text = "Choose pickup start dates. Use a date range, or paste specific dates at once.`nNo Add date button needed."
   $form.Controls.Add($startDatesLabel)
 
-  $datePicker = New-Object System.Windows.Forms.DateTimePicker
-  $datePicker.Left = 20
-  $datePicker.Top = 392
-  $datePicker.Width = 170
-  $datePicker.Format = [System.Windows.Forms.DateTimePickerFormat]::Custom
-  $datePicker.CustomFormat = "yyyy-MM-dd"
-  $datePicker.Value = (Get-Date).Date.AddDays(1)
-  $form.Controls.Add($datePicker)
+  $rangeRadio = New-Object System.Windows.Forms.RadioButton
+  $rangeRadio.Left = 20
+  $rangeRadio.Top = 398
+  $rangeRadio.Width = 220
+  $rangeRadio.Height = 24
+  $rangeRadio.Text = "Date range (from - to)"
+  $rangeRadio.Checked = $true
+  $form.Controls.Add($rangeRadio)
 
-  $addDateButton = New-Object System.Windows.Forms.Button
-  $addDateButton.Left = 205
-  $addDateButton.Top = 390
-  $addDateButton.Width = 95
-  $addDateButton.Height = 30
-  $addDateButton.Text = "Add date"
-  $form.Controls.Add($addDateButton)
+  $specificRadio = New-Object System.Windows.Forms.RadioButton
+  $specificRadio.Left = 280
+  $specificRadio.Top = 398
+  $specificRadio.Width = 220
+  $specificRadio.Height = 24
+  $specificRadio.Text = "Specific dates"
+  $form.Controls.Add($specificRadio)
 
-  $removeDateButton = New-Object System.Windows.Forms.Button
-  $removeDateButton.Left = 315
-  $removeDateButton.Top = 390
-  $removeDateButton.Width = 95
-  $removeDateButton.Height = 30
-  $removeDateButton.Text = "Remove"
-  $form.Controls.Add($removeDateButton)
+  $fromLabel = New-Object System.Windows.Forms.Label
+  $fromLabel.Left = 20
+  $fromLabel.Top = 438
+  $fromLabel.Width = 80
+  $fromLabel.Height = 22
+  $fromLabel.Text = "From:"
+  $form.Controls.Add($fromLabel)
 
-  $clearDatesButton = New-Object System.Windows.Forms.Button
-  $clearDatesButton.Left = 425
-  $clearDatesButton.Top = 390
-  $clearDatesButton.Width = 95
-  $clearDatesButton.Height = 30
-  $clearDatesButton.Text = "Clear all"
-  $form.Controls.Add($clearDatesButton)
+  $fromDatePicker = New-Object System.Windows.Forms.DateTimePicker
+  $fromDatePicker.Left = 95
+  $fromDatePicker.Top = 432
+  $fromDatePicker.Width = 150
+  $fromDatePicker.Format = [System.Windows.Forms.DateTimePickerFormat]::Custom
+  $fromDatePicker.CustomFormat = "yyyy-MM-dd"
+  $fromDatePicker.Value = (Get-Date).Date.AddDays(1)
+  $form.Controls.Add($fromDatePicker)
 
-  $datesList = New-Object System.Windows.Forms.ListBox
-  $datesList.Left = 20
-  $datesList.Top = 432
-  $datesList.Width = 500
-  $datesList.Height = 180
-  $datesList.SelectionMode = [System.Windows.Forms.SelectionMode]::MultiExtended
-  $form.Controls.Add($datesList)
+  $toLabel = New-Object System.Windows.Forms.Label
+  $toLabel.Left = 280
+  $toLabel.Top = 438
+  $toLabel.Width = 50
+  $toLabel.Height = 22
+  $toLabel.Text = "To:"
+  $form.Controls.Add($toLabel)
+
+  $toDatePicker = New-Object System.Windows.Forms.DateTimePicker
+  $toDatePicker.Left = 330
+  $toDatePicker.Top = 432
+  $toDatePicker.Width = 150
+  $toDatePicker.Format = [System.Windows.Forms.DateTimePickerFormat]::Custom
+  $toDatePicker.CustomFormat = "yyyy-MM-dd"
+  $toDatePicker.Value = (Get-Date).Date.AddDays(1)
+  $form.Controls.Add($toDatePicker)
+
+  $specificDatesLabel = New-Object System.Windows.Forms.Label
+  $specificDatesLabel.Left = 20
+  $specificDatesLabel.Top = 485
+  $specificDatesLabel.Width = 500
+  $specificDatesLabel.Height = 32
+  $specificDatesLabel.Text = "Specific dates: paste many dates separated by comma, space, semicolon or new line."
+  $form.Controls.Add($specificDatesLabel)
+
+  $specificDatesTextBox = New-Object System.Windows.Forms.TextBox
+  $specificDatesTextBox.Left = 20
+  $specificDatesTextBox.Top = 520
+  $specificDatesTextBox.Width = 500
+  $specificDatesTextBox.Height = 88
+  $specificDatesTextBox.Multiline = $true
+  $specificDatesTextBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+  $specificDatesTextBox.Text = (Get-Date).Date.AddDays(1).ToString("yyyy-MM-dd")
+  $form.Controls.Add($specificDatesTextBox)
+
+  $dateModeHint = New-Object System.Windows.Forms.Label
+  $dateModeHint.Left = 20
+  $dateModeHint.Top = 612
+  $dateModeHint.Width = 500
+  $dateModeHint.Height = 22
+  $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
+  $form.Controls.Add($dateModeHint)
 
   $speedLabel = New-Object System.Windows.Forms.Label
   $speedLabel.Left = 20
-  $speedLabel.Top = 625
+  $speedLabel.Top = 645
   $speedLabel.Width = 500
   $speedLabel.Height = 32
   $speedLabel.Text = "Speed mode. Use safe to return to the previous stable behavior."
@@ -145,7 +181,7 @@ function Show-RunPicker {
 
   $speedCombo = New-Object System.Windows.Forms.ComboBox
   $speedCombo.Left = 20
-  $speedCombo.Top = 660
+  $speedCombo.Top = 680
   $speedCombo.Width = 250
   $speedCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
   [void]$speedCombo.Items.Add("fast")
@@ -154,40 +190,95 @@ function Show-RunPicker {
   $speedCombo.SelectedIndex = 0
   $form.Controls.Add($speedCombo)
 
-  function Add-DateToList([datetime]$value) {
-    $iso = $value.ToString("yyyy-MM-dd")
-    if ($datesList.Items.Contains($iso)) {
-      return
+  function Format-IsoDate([datetime]$value) {
+    return $value.Date.ToString("yyyy-MM-dd")
+  }
+
+  function Get-DateRangeIso {
+    param(
+      [Parameter(Mandatory = $true)]
+      [datetime]$Start,
+      [Parameter(Mandatory = $true)]
+      [datetime]$End
+    )
+
+    $dates = @()
+    $cursor = $Start.Date
+    $last = $End.Date
+    while ($cursor -le $last) {
+      $dates += (Format-IsoDate -value $cursor)
+      $cursor = $cursor.AddDays(1)
     }
 
-    [void]$datesList.Items.Add($iso)
-    $sorted = @($datesList.Items | ForEach-Object { [string]$_ } | Sort-Object)
-    $datesList.Items.Clear()
-    foreach ($item in $sorted) {
-      [void]$datesList.Items.Add($item)
+    return $dates
+  }
+
+  function Parse-SpecificStartDates {
+    param(
+      [Parameter(Mandatory = $true)]
+      [string]$Text
+    )
+
+    $tokens = @(
+      $Text -split "[,\s;|]+" |
+        ForEach-Object { [string]$_ } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+
+    $dates = New-Object System.Collections.Generic.List[string]
+    $invalid = New-Object System.Collections.Generic.List[string]
+    foreach ($token in $tokens) {
+      if ($token -notmatch "^\d{4}-\d{2}-\d{2}$") {
+        [void]$invalid.Add($token)
+        continue
+      }
+
+      $parsedDate = [datetime]::MinValue
+      $ok = [datetime]::TryParseExact(
+        $token,
+        "yyyy-MM-dd",
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::None,
+        [ref]$parsedDate
+      )
+
+      if (-not $ok) {
+        [void]$invalid.Add($token)
+        continue
+      }
+
+      [void]$dates.Add((Format-IsoDate -value $parsedDate))
+    }
+
+    return [PSCustomObject]@{
+      dates = @($dates | Sort-Object -Unique)
+      invalid = @($invalid)
     }
   }
 
-  Add-DateToList -value $datePicker.Value
+  function Update-DateModeControls {
+    $rangeMode = $rangeRadio.Checked
+    $fromLabel.Enabled = $rangeMode
+    $fromDatePicker.Enabled = $rangeMode
+    $toLabel.Enabled = $rangeMode
+    $toDatePicker.Enabled = $rangeMode
+    $specificDatesLabel.Enabled = -not $rangeMode
+    $specificDatesTextBox.Enabled = -not $rangeMode
 
-  $addDateButton.Add_Click({
-    Add-DateToList -value $datePicker.Value
-  })
-
-  $removeDateButton.Add_Click({
-    $selectedDates = @($datesList.SelectedItems | ForEach-Object { [string]$_ })
-    foreach ($selectedDate in $selectedDates) {
-      [void]$datesList.Items.Remove($selectedDate)
+    if ($rangeMode) {
+      $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
+    } else {
+      $dateModeHint.Text = "Specific mode uses only pasted dates in YYYY-MM-DD format."
     }
-  })
+  }
 
-  $clearDatesButton.Add_Click({
-    $datesList.Items.Clear()
-  })
+  $rangeRadio.Add_CheckedChanged({ Update-DateModeControls })
+  $specificRadio.Add_CheckedChanged({ Update-DateModeControls })
+  Update-DateModeControls
 
   $runButton = New-Object System.Windows.Forms.Button
   $runButton.Left = 20
-  $runButton.Top = 715
+  $runButton.Top = 740
   $runButton.Width = 170
   $runButton.Height = 30
   $runButton.Text = "Run"
@@ -195,7 +286,7 @@ function Show-RunPicker {
 
   $cancelButton = New-Object System.Windows.Forms.Button
   $cancelButton.Left = 210
-  $cancelButton.Top = 715
+  $cancelButton.Top = 740
   $cancelButton.Width = 170
   $cancelButton.Height = 30
   $cancelButton.Text = "Cancel"
@@ -217,16 +308,38 @@ function Show-RunPicker {
       return
     }
 
-    $pickedStartDates = @(
-      $datesList.Items |
-        ForEach-Object { [string]$_ } |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        Sort-Object -Unique
-    )
+    if ($rangeRadio.Checked) {
+      if ($fromDatePicker.Value.Date -gt $toDatePicker.Value.Date) {
+        [void][System.Windows.Forms.MessageBox]::Show(
+          "Start date range is invalid. 'From' must be before or equal to 'To'.",
+          "Validation",
+          [System.Windows.Forms.MessageBoxButtons]::OK,
+          [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        return
+      }
+
+      $pickedStartDates = @(
+        Get-DateRangeIso -Start $fromDatePicker.Value -End $toDatePicker.Value
+      )
+    } else {
+      $parsedSpecificDates = Parse-SpecificStartDates -Text $specificDatesTextBox.Text
+      if (@($parsedSpecificDates.invalid).Count -gt 0) {
+        [void][System.Windows.Forms.MessageBox]::Show(
+          "Invalid start date(s): $(@($parsedSpecificDates.invalid) -join ', '). Use YYYY-MM-DD format.",
+          "Validation",
+          [System.Windows.Forms.MessageBoxButtons]::OK,
+          [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        return
+      }
+
+      $pickedStartDates = @($parsedSpecificDates.dates)
+    }
 
     if ($pickedStartDates.Count -eq 0) {
       [void][System.Windows.Forms.MessageBox]::Show(
-        "Add at least one start date.",
+        "Choose at least one start date.",
         "Validation",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Warning
