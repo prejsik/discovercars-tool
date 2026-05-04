@@ -62,7 +62,7 @@ function Show-RunPicker {
   $form.Text = "DiscoverCars - Options"
   $form.StartPosition = "CenterScreen"
   $form.Width = 560
-  $form.Height = 835
+  $form.Height = 910
   $form.TopMost = $true
 
   $durationsLabel = New-Object System.Windows.Forms.Label
@@ -150,22 +150,38 @@ function Show-RunPicker {
   $specificDatesLabel.Top = 485
   $specificDatesLabel.Width = 500
   $specificDatesLabel.Height = 32
-  $specificDatesLabel.Text = "Specific dates: paste many dates separated by comma, space, semicolon or new line."
+  $specificDatesLabel.Text = "Specific dates: click dates in the calendar to add/remove them, or paste dates manually."
   $form.Controls.Add($specificDatesLabel)
 
+  $specificCalendar = New-Object System.Windows.Forms.MonthCalendar
+  $specificCalendar.Left = 20
+  $specificCalendar.Top = 520
+  $specificCalendar.MaxSelectionCount = 1
+  $specificCalendar.SelectionStart = (Get-Date).Date.AddDays(1)
+  $specificCalendar.SelectionEnd = (Get-Date).Date.AddDays(1)
+  $form.Controls.Add($specificCalendar)
+
   $specificDatesTextBox = New-Object System.Windows.Forms.TextBox
-  $specificDatesTextBox.Left = 20
+  $specificDatesTextBox.Left = 285
   $specificDatesTextBox.Top = 520
-  $specificDatesTextBox.Width = 500
-  $specificDatesTextBox.Height = 88
+  $specificDatesTextBox.Width = 235
+  $specificDatesTextBox.Height = 92
   $specificDatesTextBox.Multiline = $true
   $specificDatesTextBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
   $specificDatesTextBox.Text = (Get-Date).Date.AddDays(1).ToString("yyyy-MM-dd")
   $form.Controls.Add($specificDatesTextBox)
 
+  $clearSpecificDatesButton = New-Object System.Windows.Forms.Button
+  $clearSpecificDatesButton.Left = 285
+  $clearSpecificDatesButton.Top = 625
+  $clearSpecificDatesButton.Width = 170
+  $clearSpecificDatesButton.Height = 28
+  $clearSpecificDatesButton.Text = "Clear selected dates"
+  $form.Controls.Add($clearSpecificDatesButton)
+
   $dateModeHint = New-Object System.Windows.Forms.Label
   $dateModeHint.Left = 20
-  $dateModeHint.Top = 612
+  $dateModeHint.Top = 690
   $dateModeHint.Width = 500
   $dateModeHint.Height = 22
   $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
@@ -173,7 +189,7 @@ function Show-RunPicker {
 
   $speedLabel = New-Object System.Windows.Forms.Label
   $speedLabel.Left = 20
-  $speedLabel.Top = 645
+  $speedLabel.Top = 720
   $speedLabel.Width = 500
   $speedLabel.Height = 32
   $speedLabel.Text = "Speed mode. Use safe to return to the previous stable behavior."
@@ -181,7 +197,7 @@ function Show-RunPicker {
 
   $speedCombo = New-Object System.Windows.Forms.ComboBox
   $speedCombo.Left = 20
-  $speedCombo.Top = 680
+  $speedCombo.Top = 755
   $speedCombo.Width = 250
   $speedCombo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
   [void]$speedCombo.Items.Add("fast")
@@ -211,6 +227,14 @@ function Show-RunPicker {
     }
 
     return $dates
+  }
+
+  function Set-SpecificDateText {
+    param(
+      [string[]]$Dates
+    )
+
+    $specificDatesTextBox.Text = (@($Dates) | Sort-Object -Unique) -join ", "
   }
 
   function Parse-SpecificStartDates {
@@ -263,22 +287,55 @@ function Show-RunPicker {
     $toLabel.Enabled = $rangeMode
     $toDatePicker.Enabled = $rangeMode
     $specificDatesLabel.Enabled = -not $rangeMode
+    $specificCalendar.Enabled = -not $rangeMode
     $specificDatesTextBox.Enabled = -not $rangeMode
+    $clearSpecificDatesButton.Enabled = -not $rangeMode
 
     if ($rangeMode) {
       $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
     } else {
-      $dateModeHint.Text = "Specific mode uses only pasted dates in YYYY-MM-DD format."
+      $dateModeHint.Text = "Specific mode: click a date to add it, click it again to remove it."
     }
   }
 
   $rangeRadio.Add_CheckedChanged({ Update-DateModeControls })
   $specificRadio.Add_CheckedChanged({ Update-DateModeControls })
+  $specificCalendar.Add_MouseDown({
+    param($sender, $eventArgs)
+
+    if (-not $specificRadio.Checked) {
+      $specificRadio.Checked = $true
+    }
+
+    $hit = $sender.HitTest($eventArgs.X, $eventArgs.Y)
+    if ([string]$hit.HitArea -ne "Date") {
+      return
+    }
+
+    $selectedIsoDate = Format-IsoDate -value $hit.Time
+    $parsedSpecificDates = Parse-SpecificStartDates -Text $specificDatesTextBox.Text
+    $dateSet = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($date in @($parsedSpecificDates.dates)) {
+      [void]$dateSet.Add([string]$date)
+    }
+
+    if ($dateSet.Contains($selectedIsoDate)) {
+      [void]$dateSet.Remove($selectedIsoDate)
+    } else {
+      [void]$dateSet.Add($selectedIsoDate)
+    }
+
+    Set-SpecificDateText -Dates @($dateSet)
+  })
+  $clearSpecificDatesButton.Add_Click({
+    $specificRadio.Checked = $true
+    $specificDatesTextBox.Clear()
+  })
   Update-DateModeControls
 
   $runButton = New-Object System.Windows.Forms.Button
   $runButton.Left = 20
-  $runButton.Top = 740
+  $runButton.Top = 815
   $runButton.Width = 170
   $runButton.Height = 30
   $runButton.Text = "Run"
@@ -286,7 +343,7 @@ function Show-RunPicker {
 
   $cancelButton = New-Object System.Windows.Forms.Button
   $cancelButton.Left = 210
-  $cancelButton.Top = 740
+  $cancelButton.Top = 815
   $cancelButton.Width = 170
   $cancelButton.Height = 30
   $cancelButton.Text = "Cancel"

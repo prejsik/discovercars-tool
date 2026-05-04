@@ -11,7 +11,9 @@ DiscoverCars Tool - quick start
    - choose rental durations (you can select many),
    - choose pickup start dates:
      range From-To creates all dates automatically,
-     or paste many specific dates at once,
+     or choose Specific dates and click days in the calendar,
+     click the same day again to remove it,
+     you can also paste many specific dates at once,
    - choose speed mode:
      fast = quicker default test,
      safe = previous stable behavior,

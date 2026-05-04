@@ -354,7 +354,9 @@ Jak to dziala:
    - mozna zaznaczyc kilka naraz.
 5. Dla start-date:
    - domyslnie wybierasz zakres `From` i `To`, a narzedzie samo tworzy wszystkie daty z tego przedzialu,
-   - alternatywnie zaznaczasz `Specific dates` i wklejasz wiele dat naraz, np. `2026-05-05, 2026-05-07, 2026-05-10`,
+   - alternatywnie zaznaczasz `Specific dates` i klikasz konkretne dni w kalendarzu,
+   - ponowne klikniecie tej samej daty usuwa ja z wyboru,
+   - nadal mozesz tez wkleic wiele dat naraz, np. `2026-05-05, 2026-05-07, 2026-05-10`,
    - nie trzeba klikac `Add date` dla kazdej pojedynczej daty.
 6. Po kliknieciu `Run` narzedzie uruchamia sie automatycznie i pokazuje tabele.
 
