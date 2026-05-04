@@ -16,6 +16,10 @@
 !run-tables.ps1
 !build-release.ps1
 
+!.github/
+!.github/workflows/
+!.github/workflows/**
+
 !src/
 !src/**
 !tests/

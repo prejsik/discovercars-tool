@@ -21,7 +21,7 @@ const {
 
 const DEFAULT_LOCATIONS = ["Warsaw", "Krakow", "Gdansk", "Katowice", "Wroclaw", "Poznan"];
 const DEFAULT_START_DAYS = ["friday"];
-const DEFAULT_RENTAL_DURATIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+const DEFAULT_RENTAL_DURATIONS = Array.from({ length: 9 }, (_, index) => index + 2);
 const ALL_START_DAYS = ["thursday", "friday"];
 const ALL_RENTAL_DURATIONS = [2, 3];
 const DEFAULT_SCENARIO_MODE = "rolling";
@@ -110,7 +110,7 @@ function parseRentalDurations(rawValue) {
     raw
       .split(/[,\s/;|]+/)
       .map((item) => Number.parseInt(item.trim(), 10))
-      .filter((value) => Number.isFinite(value) && value >= 2 && value <= 10)
+      .filter((value) => Number.isFinite(value) && value >= 2 && value <= 20)
   ).sort((left, right) => left - right);
 
   return parsed.length ? parsed : [...DEFAULT_RENTAL_DURATIONS];
@@ -1301,7 +1301,7 @@ Usage:
 Flags:
   --headful             Run browser with UI.
   --json                Print only JSON payload (without human table/summary logs).
-  --pick-durations      Interactive picker for durations (supports values 2..10).
+  --pick-durations      Interactive picker for durations (supports values 2..20).
   --durations-prompt    Alias for --pick-durations.
   --verbose             Print per-location attempt logs and fallback diagnostics.
   --save                Save JSON payload to ./results.json.
@@ -1315,7 +1315,7 @@ Flags:
                         Example: --start-dates=2026-05-01,2026-05-03
   --start-day=VALUE     Start day for pickup: friday|thursday|both (default: friday).
   --start=VALUE         Alias for --start-day.
-  --durations=A,B       Rental duration days list (default: 2..10). Example: --durations=2,3
+  --durations=A,B       Rental duration days list (default: 2..10, supports 2..20). Example: --durations=2,3
                         You can also use slash format: --durations=2/5/10
   --rental-days=A,B     Alias for --durations.
   --all-date-options    Shortcut for --start-day=both --durations=2,3.
@@ -1373,7 +1373,7 @@ async function chooseDurationsInteractively(currentDurations) {
     return current;
   }
 
-  console.log("Wybierz durations (dni najmu) z zakresu 2-10.");
+  console.log("Wybierz durations (dni najmu) z zakresu 2-20.");
   console.log(`Aktualny zestaw: ${current.join("/")}`);
   console.log("Przyklady: 2  lub  2/5/10  lub  2,5,10");
 

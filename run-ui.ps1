@@ -70,7 +70,7 @@ function Show-RunPicker {
   $durationsLabel.Top = 18
   $durationsLabel.Width = 500
   $durationsLabel.Height = 48
-  $durationsLabel.Text = "Select rental durations. You can select multiple options.`nOption '2-10 (all)' selects the full range."
+  $durationsLabel.Text = "Select rental durations. You can select multiple options.`nOptions '2-20 (all)' and '2-10 (all)' select common ranges."
   $form.Controls.Add($durationsLabel)
 
   $checkedList = New-Object System.Windows.Forms.CheckedListBox
@@ -79,11 +79,49 @@ function Show-RunPicker {
   $checkedList.Width = 500
   $checkedList.Height = 250
   $checkedList.CheckOnClick = $true
+  [void]$checkedList.Items.Add("2-20 (all)")
   [void]$checkedList.Items.Add("2-10 (all)")
-  foreach ($day in 2..10) {
+  foreach ($day in 2..20) {
     [void]$checkedList.Items.Add("$day")
   }
-  $checkedList.SetItemChecked(0, $true)
+  $checkedList.SetItemChecked(1, $true)
+  $checkedList.Tag = $false
+
+  $checkedList.Add_ItemCheck({
+    param($sender, $eventArgs)
+
+    if ($sender.Tag -eq $true) {
+      return
+    }
+
+    if ($eventArgs.NewValue -ne [System.Windows.Forms.CheckState]::Checked) {
+      return
+    }
+
+    try {
+      $sender.Tag = $true
+
+      if ($eventArgs.Index -eq 0) {
+        for ($i = 1; $i -lt $sender.Items.Count; $i++) {
+          $sender.SetItemChecked($i, $false)
+        }
+        return
+      }
+
+      if ($eventArgs.Index -eq 1) {
+        $sender.SetItemChecked(0, $false)
+        for ($i = 2; $i -lt $sender.Items.Count; $i++) {
+          $sender.SetItemChecked($i, $false)
+        }
+        return
+      }
+
+      $sender.SetItemChecked(0, $false)
+      $sender.SetItemChecked(1, $false)
+    } finally {
+      $sender.Tag = $false
+    }
+  })
   $form.Controls.Add($checkedList)
 
   $startDatesLabel = New-Object System.Windows.Forms.Label
@@ -442,8 +480,12 @@ function Resolve-Durations {
       Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
   )
 
+  if ($selectedTokens -contains "2-20 (all)") {
+    return @(2..20)
+  }
+
   if ($selectedTokens -contains "2-10 (all)") {
-    return @(2, 3, 4, 5, 6, 7, 8, 9, 10)
+    return @(2..10)
   }
 
   $unique = New-Object System.Collections.Generic.HashSet[int]
@@ -451,14 +493,14 @@ function Resolve-Durations {
     $raw = [string]$item
     if ($raw -match "^\s*(\d+)\s*$") {
       $value = [int]$matches[1]
-      if ($value -ge 2 -and $value -le 10) {
+      if ($value -ge 2 -and $value -le 20) {
         [void]$unique.Add($value)
       }
     }
   }
 
   if ($unique.Count -eq 0) {
-    return @(2, 3, 4, 5, 6, 7, 8, 9, 10)
+    return @(2..10)
   }
 
   return @($unique | Sort-Object)

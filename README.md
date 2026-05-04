@@ -4,7 +4,7 @@ Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 
 - oblicza dynamicznie zakresy dat w strefie `Europe/Warsaw`:
   - domyslnie: start najmu od jutra, a potem kazdego kolejnego dnia przez 30 dni,
-  - dla kazdego startu: wynajem na 2,3,4,5,6,7,8,9,10 dni,
+  - dla kazdego startu: domyslnie wynajem na 2..10 dni, z opcja wyboru do 20 dni,
 - szuka ofert na `https://www.discovercars.com/` dla lokalizacji `Warsaw`, `Krakow`, `Gdansk`, `Katowice`, `Wroclaw`, `Poznan`,
 - priorytetowo wyciaga oferty z odpowiedzi sieciowych JSON/API (backend DiscoverCars),
 - ma fallback do parsowania DOM, jesli payloady sieciowe nie zawieraja kompletnych danych,
@@ -44,11 +44,40 @@ npx playwright install chromium
 
 ## Uruchomienie
 
-Podstawowe uruchomienie (rolling, jutro + 30 dni, 2..10 dni):
+Podstawowe uruchomienie (rolling, jutro + 30 dni, domyslnie 2..10 dni):
 
 ```powershell
 node src/index.js
 ```
+
+## Automatyczne uruchamianie w GitHub Actions
+
+Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
+
+Jak dziala:
+
+- uruchamia scraper codziennie o `17:00` czasu `Europe/Warsaw`,
+- GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`15:00` i `16:00 UTC`) oraz bramke, ktora realnie puszcza scraper tylko wtedy, gdy w Warszawie jest `17:00`,
+- ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 17:00,
+- wynik zapisuje jako artifact GitHub Actions: `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
+
+Domyslny zakres w chmurze jest celowo maly do pierwszego testu:
+
+- `locations`: `Warsaw`
+- `rolling_days`: `1`
+- `durations`: `2`
+- `speed_mode`: `fast`
+
+Po pierwszym udanym tescie mozna zwiekszyc wartosci w sekcji `env` pliku workflow, np. na wszystkie miasta i wiecej duration.
+
+Jak przetestowac recznie:
+
+1. Wejdz w repozytorium na GitHub.
+2. Otworz zakladke `Actions`.
+3. Wybierz workflow `DiscoverCars daily run`.
+4. Kliknij `Run workflow`.
+5. Zostaw domyslne parametry na pierwszy test.
+6. Po zakonczeniu wejdz w zakonczony run i pobierz artifact `discovercars-results-...`.
 
 Tryb z widoczna przegladarka (headful):
 
@@ -288,7 +317,7 @@ Daty sa liczone dynamicznie (bez hardcode):
 - domyslnie:
   - pierwszy `pickup`: jutro o `10:00`,
   - kolejne pickupy: kazdego nastepnego dnia przez 30 dni,
-  - `rental_days`: 2..10 dla kazdego startu
+  - `rental_days`: domyslnie 2..10 dla kazdego startu, opcjonalnie do 20 dni
 - opcjonalnie (tryb weekday): start wg dnia tygodnia (`--scenario-mode=weekday --start-day=...`)
 - `rental_days` jest liczone na podstawie roznicy dat
 
@@ -349,8 +378,10 @@ Jak to dziala:
    - **dat startu** przez zakres `From-To` albo konkretne daty wpisane naraz,
    - **trybu szybkosci**.
 4. Dla dlugosci:
+   - domyslnie zaznaczona jest opcja `2-10 (all)`,
+   - opcja `2-20 (all)`,
    - opcja `2-10 (all)`,
-   - oraz pojedyncze opcje `2` ... `10`,
+   - oraz pojedyncze opcje `2` ... `20`,
    - mozna zaznaczyc kilka naraz.
 5. Dla start-date:
    - domyslnie wybierasz zakres `From` i `To`, a narzedzie samo tworzy wszystkie daty z tego przedzialu,
