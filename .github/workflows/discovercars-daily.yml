@@ -37,11 +37,10 @@ permissions:
   contents: read
 
 env:
-  # Scheduled run defaults. Keep these small for the first cloud test.
-  # After the first successful run, increase them if needed.
-  SCHEDULE_LOCATIONS: "Warsaw"
+  # Scheduled run defaults: all local-tool cities, tomorrow only, rental durations 2..10.
+  SCHEDULE_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
   SCHEDULE_ROLLING_DAYS: "1"
-  SCHEDULE_DURATIONS: "2"
+  SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10"
   SCHEDULE_SPEED_MODE: "fast"
 
 jobs:

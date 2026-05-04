@@ -62,14 +62,12 @@ Jak dziala:
 - uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
 
-Domyslny zakres w chmurze jest celowo maly do pierwszego testu:
+Domyslny zakres w chmurze:
 
-- `locations`: `Warsaw`
-- `rolling_days`: `1`
-- `durations`: `2`
+- `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
+- `rolling_days`: `1` (tylko jutro jako start date)
+- `durations`: `2,3,4,5,6,7,8,9,10`
 - `speed_mode`: `fast`
-
-Po pierwszym udanym tescie mozna zwiekszyc wartosci w sekcji `env` pliku workflow, np. na wszystkie miasta i wiecej duration.
 
 Jak przetestowac recznie:
 
