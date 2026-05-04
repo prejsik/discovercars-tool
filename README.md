@@ -89,13 +89,15 @@ Pliki w artifact:
 
 GitHub Pages:
 
-Workflow publikuje ostatni raport jako strone statyczna. Domyslny adres dla tego repozytorium to:
+Workflow potrafi opublikowac ostatni raport jako strone statyczna. Domyslny adres dla tego repozytorium to:
 
 ```text
 https://prejsik.github.io/discovercars-tool/
 ```
 
 Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Build and deployment` -> `Source` na `GitHub Actions`. Po kolejnym udanym runie strona pokaze najnowszy `report.html`.
+
+Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektorych planach GitHub. Wtedy workflow pominie publikacje Pages i zostawi link do artifactu jako backup.
 
 Powiadomienie Telegram po zakonczeniu:
 
