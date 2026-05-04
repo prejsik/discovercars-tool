@@ -265,6 +265,7 @@ W trybie konsolowym:
 - nad tabela jest informacja o okresie (`pickup -> dropoff`),
 - ocena firmy jest pokazywana obok nazwy firmy w kolumnach `top*_company`,
 - `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_price`.
+- `MM Cars Rental` ma inne, niebieskie podswietlenie, gdy jest drozsze maksymalnie o `10 PLN` na dobe od konkurenta na wyzszym miejscu.
 
 Kazdy rekord sukcesu zawiera:
 

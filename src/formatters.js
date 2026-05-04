@@ -4,6 +4,8 @@ const util = require("util");
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_MM = "\x1b[1;30;43m";
+const ANSI_MM_CLOSE = "\x1b[1;37;44m";
+const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -20,6 +22,18 @@ function highlightMmText(text) {
   return {
     [util.inspect.custom]: () => `${ANSI_MM}${text}${ANSI_RESET}`
   };
+}
+
+function highlightMmCloseText(text) {
+  return {
+    [util.inspect.custom]: () => `${ANSI_MM_CLOSE}${text}${ANSI_RESET}`
+  };
+}
+
+function colorMmText(text, isCloseToHigherRankedProvider = false) {
+  return isCloseToHigherRankedProvider
+    ? highlightMmCloseText(text)
+    : highlightMmText(text);
 }
 
 function formatProviderRating(rating) {
@@ -190,6 +204,60 @@ function formatOfferPrice(offer) {
   return `${offer.total_price.toFixed(2)} ${offer.currency || ""}`.trim();
 }
 
+function isSameCurrency(left, right) {
+  return String(left?.currency || "").trim().toUpperCase() === String(right?.currency || "").trim().toUpperCase();
+}
+
+function isPlnOffer(offer) {
+  return String(offer?.currency || "").trim().toUpperCase() === "PLN";
+}
+
+function getRentalDaysForComparison(mmOffer, higherRankedOffer) {
+  const candidates = [mmOffer?.rental_days, higherRankedOffer?.rental_days]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return candidates[0] || 1;
+}
+
+function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
+  if (!mmOffer || !Number.isFinite(mmOffer.total_price) || !isPlnOffer(mmOffer)) {
+    return false;
+  }
+
+  const topOffers = Array.isArray(rankedOffers) ? rankedOffers.filter(Boolean) : [];
+  const mmRankIndex = topOffers.findIndex((offer) => isMmCarsProvider(offer?.provider_name));
+  const higherRankedOffers = (mmRankIndex >= 0 ? topOffers.slice(0, mmRankIndex) : topOffers)
+    .filter((offer) => offer && !isMmCarsProvider(offer.provider_name));
+
+  for (const higherRankedOffer of higherRankedOffers) {
+    if (!Number.isFinite(higherRankedOffer.total_price) || !isSameCurrency(mmOffer, higherRankedOffer)) {
+      continue;
+    }
+
+    const priceDifference = mmOffer.total_price - higherRankedOffer.total_price;
+    if (priceDifference <= 0) {
+      continue;
+    }
+
+    const rentalDays = getRentalDaysForComparison(mmOffer, higherRankedOffer);
+    const priceDifferencePerDay = priceDifference / rentalDays;
+    if (priceDifferencePerDay <= MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function formatMmProviderCell(offer, displayName, rankedOffers) {
+  if (!isMmCarsProvider(offer?.provider_name)) {
+    return displayName;
+  }
+
+  return colorMmText(displayName, isMmCloseToHigherRankedProvider(offer, rankedOffers));
+}
+
 function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
   const rows = [];
 
@@ -205,17 +273,18 @@ function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
     const top1Name = formatProviderName(top1);
     const top2Name = formatProviderName(top2);
     const top3Name = formatProviderName(top3Offer);
+    const mmIsClose = isMmCloseToHigherRankedProvider(mmOffer, top3);
 
     rows.push({
       location,
-      top1_company: isMmCarsProvider(top1?.provider_name) ? highlightMmText(top1Name) : top1Name,
+      top1_company: formatMmProviderCell(top1, top1Name, top3),
       top1_price: formatOfferPrice(top1),
-      top2_company: isMmCarsProvider(top2?.provider_name) ? highlightMmText(top2Name) : top2Name,
+      top2_company: formatMmProviderCell(top2, top2Name, top3),
       top2_price: formatOfferPrice(top2),
-      top3_company: isMmCarsProvider(top3Offer?.provider_name) ? highlightMmText(top3Name) : top3Name,
+      top3_company: formatMmProviderCell(top3Offer, top3Name, top3),
       top3_price: formatOfferPrice(top3Offer),
       mm_cars_rental_price: mmOffer
-        ? highlightMmText(formatOfferPrice(mmOffer))
+        ? colorMmText(formatOfferPrice(mmOffer), mmIsClose)
         : "Not available"
     });
   }
@@ -237,16 +306,19 @@ function printTopThreePlusMmByLocation(top3ByLocation, mmCarsByLocation) {
   const rows = [...locationKeys].sort((a, b) => a.localeCompare(b)).map((location) => {
     const topOffers = Array.isArray(top3ByLocation?.[location]) ? top3ByLocation[location] : [];
     const mmOffer = mmCarsByLocation?.[location] || null;
+    const mmIsClose = isMmCloseToHigherRankedProvider(mmOffer, topOffers);
 
     return {
       location,
-      top1_company: formatProviderName(topOffers[0]),
+      top1_company: formatMmProviderCell(topOffers[0], formatProviderName(topOffers[0]), topOffers),
       top1_price: formatOfferPrice(topOffers[0]),
-      top2_company: formatProviderName(topOffers[1]),
+      top2_company: formatMmProviderCell(topOffers[1], formatProviderName(topOffers[1]), topOffers),
       top2_price: formatOfferPrice(topOffers[1]),
-      top3_company: formatProviderName(topOffers[2]),
+      top3_company: formatMmProviderCell(topOffers[2], formatProviderName(topOffers[2]), topOffers),
       top3_price: formatOfferPrice(topOffers[2]),
-      mm_cars_rental_price: formatOfferPrice(mmOffer)
+      mm_cars_rental_price: mmOffer
+        ? colorMmText(formatOfferPrice(mmOffer), mmIsClose)
+        : formatOfferPrice(mmOffer)
     };
   });
 
