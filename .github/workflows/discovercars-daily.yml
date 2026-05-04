@@ -10,10 +10,10 @@ on:
       - "package.json"
       - "package-lock.json"
   # GitHub cron uses UTC. These two entries plus the Warsaw-hour gate below
-  # keep the real run at 17:00 Europe/Warsaw during both summer and winter time.
+  # keep the real run at 06:00 Europe/Warsaw during both summer and winter time.
   schedule:
-    - cron: "0 15 * * *"
-    - cron: "0 16 * * *"
+    - cron: "0 4 * * *"
+    - cron: "0 5 * * *"
   workflow_dispatch:
     inputs:
       locations:
@@ -39,9 +39,9 @@ permissions:
   id-token: write
 
 env:
-  # Scheduled run defaults: all local-tool cities, tomorrow only, rental durations 2..10.
+  # Scheduled run defaults: all local-tool cities, next 30 pickup dates, rental durations 2..10.
   SCHEDULE_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
-  SCHEDULE_ROLLING_DAYS: "1"
+  SCHEDULE_ROLLING_DAYS: "30"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10"
   SCHEDULE_SPEED_MODE: "fast"
   # Push-triggered smoke test defaults: keep validation quick after code/workflow changes.
@@ -76,11 +76,11 @@ jobs:
             exit 0
           fi
 
-          if [[ "$warsaw_hour" == "17" ]]; then
-            echo "It is 17:00 in Warsaw, running scraper."
+          if [[ "$warsaw_hour" == "06" ]]; then
+            echo "It is 06:00 in Warsaw, running scraper."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "It is not 17:00 in Warsaw, skipping this UTC trigger."
+            echo "It is not 06:00 in Warsaw, skipping this UTC trigger."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
 
