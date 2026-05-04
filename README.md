@@ -61,6 +61,7 @@ Jak dziala:
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 17:00,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
+- po wygenerowaniu raportu moze wyslac `report.html` mailem na `b.prejs@mmsl.pl`, jesli w repo sa ustawione sekrety SMTP.
 
 Domyslny zakres w chmurze:
 
@@ -85,6 +86,22 @@ Pliki w artifact:
 - `results-latest.json` - dane techniczne do dalszego przetwarzania,
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
+
+Wysylka maila z GitHub Actions:
+
+1. Wejdz w repozytorium na GitHub.
+2. Otworz `Settings` -> `Secrets and variables` -> `Actions`.
+3. Kliknij `New repository secret`.
+4. Dodaj sekrety:
+   - `SMTP_SERVER` - serwer SMTP, np. `smtp.office365.com`
+   - `SMTP_PORT` - zwykle `587`
+   - `SMTP_USERNAME` - login do skrzynki/nadawcy
+   - `SMTP_PASSWORD` - haslo lub app password
+   - `SMTP_FROM` - adres nadawcy, np. `b.prejs@mmsl.pl`
+   - opcjonalnie `SMTP_PROTOCOL` - `smtp` albo `smtps`; domyslnie `smtp`
+5. Jesli sekrety nie sa ustawione, workflow nie przerwie scrapera, tylko pominie wysylke maila.
+
+Odbiorca jest wpisany w workflow jako `b.prejs@mmsl.pl`.
 
 Lokalne wygenerowanie HTML z JSON:
 

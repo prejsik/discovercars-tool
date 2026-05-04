@@ -144,6 +144,78 @@ jobs:
         if: steps.gate.outputs.should_run == 'true' && always()
         run: node src/reportHtml.js output/results-latest.json output/report.html
 
+      - name: Email HTML report
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        env:
+          MAIL_TO: "b.prejs@mmsl.pl"
+          SMTP_PROTOCOL: ${{ secrets.SMTP_PROTOCOL }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+        run: |
+          if [[ ! -f output/report.html ]]; then
+            echo "::warning::output/report.html not found, email skipped."
+            exit 0
+          fi
+
+          missing=0
+          for name in SMTP_SERVER SMTP_USERNAME SMTP_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::warning::$name secret is missing, email skipped."
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" == "1" ]]; then
+            exit 0
+          fi
+
+          smtp_protocol="${SMTP_PROTOCOL:-smtp}"
+          smtp_port="${SMTP_PORT:-587}"
+          from_address="${SMTP_FROM:-$SMTP_USERNAME}"
+          smtp_url="${smtp_protocol}://${SMTP_SERVER}:${smtp_port}"
+          warsaw_now="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
+          subject="DiscoverCars report - ${warsaw_now}"
+          boundary="----=_DiscoverCarsReport_${GITHUB_RUN_ID}_$(date +%s)"
+          message_path="output/email-message.eml"
+
+          {
+            printf 'From: %s\r\n' "$from_address"
+            printf 'To: %s\r\n' "$MAIL_TO"
+            printf 'Subject: %s\r\n' "$subject"
+            printf 'MIME-Version: 1.0\r\n'
+            printf 'Content-Type: multipart/mixed; boundary="%s"\r\n' "$boundary"
+            printf '\r\n'
+            printf -- '--%s\r\n' "$boundary"
+            printf 'Content-Type: text/plain; charset=UTF-8\r\n'
+            printf 'Content-Transfer-Encoding: 8bit\r\n'
+            printf '\r\n'
+            printf 'Raport DiscoverCars jest w zalaczniku report.html.\r\n'
+            printf 'Run: %s/%s/actions/runs/%s\r\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'Generated at: %s\r\n' "$warsaw_now"
+            printf '\r\n'
+            printf -- '--%s\r\n' "$boundary"
+            printf 'Content-Type: text/html; name="report.html"\r\n'
+            printf 'Content-Transfer-Encoding: base64\r\n'
+            printf 'Content-Disposition: attachment; filename="report.html"\r\n'
+            printf '\r\n'
+            base64 -w 76 output/report.html | sed 's/$/\r/'
+            printf '\r\n'
+            printf -- '--%s--\r\n' "$boundary"
+          } > "$message_path"
+
+          curl --fail --show-error --silent --ssl-reqd \
+            --url "$smtp_url" \
+            --user "$SMTP_USERNAME:$SMTP_PASSWORD" \
+            --mail-from "$from_address" \
+            --mail-rcpt "$MAIL_TO" \
+            --upload-file "$message_path"
+
+          echo "HTML report emailed to $MAIL_TO"
+
       - name: Upload scraper results
         if: steps.gate.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@v4
