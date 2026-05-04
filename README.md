@@ -59,6 +59,7 @@ Jak dziala:
 - uruchamia scraper codziennie o `17:00` czasu `Europe/Warsaw`,
 - GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`15:00` i `16:00 UTC`) oraz bramke, ktora realnie puszcza scraper tylko wtedy, gdy w Warszawie jest `17:00`,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 17:00,
+- uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
 
 Domyslny zakres w chmurze jest celowo maly do pierwszego testu:

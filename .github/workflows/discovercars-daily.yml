@@ -1,6 +1,14 @@
 name: DiscoverCars daily run
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/discovercars-daily.yml"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
   # GitHub cron uses UTC. These two entries plus the Warsaw-hour gate below
   # keep the real run at 17:00 Europe/Warsaw during both summer and winter time.
   schedule:
@@ -53,8 +61,8 @@ jobs:
           echo "warsaw_now=$warsaw_now" >> "$GITHUB_OUTPUT"
           echo "Warsaw time now: $warsaw_now"
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Manual run requested, bypassing schedule gate."
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "Non-scheduled run requested, bypassing schedule gate."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
