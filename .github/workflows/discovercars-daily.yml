@@ -12,12 +12,12 @@ on:
   # GitHub cron uses UTC. These two entries run away from the busy top of the
   # hour, and the gate below keeps the real run near 06:17 Europe/Warsaw during
   # both summer and winter time.
-  # The one-off recovery entry runs only on 2026-05-05 at 09:30 Europe/Warsaw;
+  # The one-off test entry runs only on 2026-05-05 at 10:13 Europe/Warsaw;
   # the gate prevents it from running on future May 5 dates if the line remains.
   schedule:
     - cron: "17 4 * * *"
     - cron: "17 5 * * *"
-    - cron: "30 7 5 5 *"
+    - cron: "13 8 5 5 *"
   workflow_dispatch:
     inputs:
       locations:
@@ -81,12 +81,12 @@ jobs:
             exit 0
           fi
 
-          if [[ "$trigger_schedule" == "30 7 5 5 *" ]]; then
+          if [[ "$trigger_schedule" == "13 8 5 5 *" ]]; then
             if [[ "$warsaw_date" == "2026-05-05" ]]; then
-              echo "One-off recovery schedule matched for 2026-05-05, running scraper."
+              echo "One-off scheduled test matched for 2026-05-05, running scraper."
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
-              echo "One-off recovery schedule is no longer current, skipping."
+              echo "One-off scheduled test is no longer current, skipping."
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
             exit 0
@@ -138,8 +138,14 @@ jobs:
           INPUT_ROLLING_DAYS: ${{ inputs.rolling_days }}
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "$TRIGGER_SCHEDULE" == "13 8 5 5 *" ]]; then
+            default_locations="$PUSH_TEST_LOCATIONS"
+            default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
+            default_durations="$PUSH_TEST_DURATIONS"
+            default_speed_mode="$PUSH_TEST_SPEED_MODE"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
             default_locations="$PUSH_TEST_LOCATIONS"
             default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
             default_durations="$PUSH_TEST_DURATIONS"
