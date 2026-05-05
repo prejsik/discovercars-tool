@@ -56,9 +56,9 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- uruchamia scraper codziennie o `06:00` czasu `Europe/Warsaw`,
-- GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`04:00` i `05:00 UTC`) oraz bramke, ktora realnie puszcza scraper tylko wtedy, gdy w Warszawie jest `06:00`,
-- ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do 06:00,
+- uruchamia scraper codziennie okolo `06:17` czasu `Europe/Warsaw`,
+- GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`04:17` i `05:17 UTC`) oraz bramke, ktora realnie puszcza tylko ten trigger, ktory odpowiada porankowi w Warszawie,
+- ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
 - publikuje najnowszy `report.html` na GitHub Pages jako staly link do ostatnich wynikow.
