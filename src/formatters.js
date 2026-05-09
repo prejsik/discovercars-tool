@@ -5,9 +5,9 @@ const util = require("util");
 const ANSI_RESET = "\x1b[0m";
 const ANSI_MM = "\x1b[1;30;43m";
 const ANSI_MM_CLOSE = "\x1b[1;37;44m";
-const ANSI_MM_OVERPRICED_LEADER = "\x1b[1;37;41m";
+const ANSI_MM_TOP1_GAP = "\x1b[1;37;41m";
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN = 5;
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 5;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -32,15 +32,15 @@ function highlightMmCloseText(text) {
   };
 }
 
-function highlightMmOverpricedLeaderText(text) {
+function highlightMmTop1GapText(text) {
   return {
-    [util.inspect.custom]: () => `${ANSI_MM_OVERPRICED_LEADER}${text}${ANSI_RESET}`
+    [util.inspect.custom]: () => `${ANSI_MM_TOP1_GAP}${text}${ANSI_RESET}`
   };
 }
 
 function colorMmText(text, variant = "default") {
-  if (variant === "overpriced-leader") {
-    return highlightMmOverpricedLeaderText(text);
+  if (variant === "top1-gap") {
+    return highlightMmTop1GapText(text);
   }
 
   if (variant === "close" || variant === true) {
@@ -264,7 +264,7 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
-function isMmOverpricedLeader(mmOffer, rankedOffers) {
+function isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers) {
   if (!mmOffer || !Number.isFinite(mmOffer.total_price) || !isPlnOffer(mmOffer)) {
     return false;
   }
@@ -280,18 +280,18 @@ function isMmOverpricedLeader(mmOffer, rankedOffers) {
     return false;
   }
 
-  const priceDifference = mmOffer.total_price - secondOffer.total_price;
+  const priceDifference = secondOffer.total_price - mmOffer.total_price;
   if (priceDifference <= 0) {
     return false;
   }
 
   const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
-  return priceDifference / rentalDays > MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN;
+  return priceDifference / rentalDays > MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
 }
 
 function getMmHighlightVariant(mmOffer, rankedOffers) {
-  if (isMmOverpricedLeader(mmOffer, rankedOffers)) {
-    return "overpriced-leader";
+  if (isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers)) {
+    return "top1-gap";
   }
 
   if (isMmCloseToHigherRankedProvider(mmOffer, rankedOffers)) {

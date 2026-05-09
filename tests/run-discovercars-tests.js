@@ -103,7 +103,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /mm-close/);
 });
 
-runTest("buildHtmlReport marks MM Cars Rental as warning when top1 is over 5 PLN per day above top2", () => {
+runTest("buildHtmlReport marks MM Cars Rental when top2 is over 5 PLN per day above MM top1", () => {
   const html = buildHtmlReport({
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
@@ -118,13 +118,13 @@ runTest("buildHtmlReport marks MM Cars Rental as warning when top1 is over 5 PLN
         top_3_plus_mm_by_location: {
           Warsaw: {
             top_3: [
-              { provider_name: "MM Cars Rental", provider_rating: 8.8, total_price: 112, currency: "PLN", rental_days: 2 },
-              { provider_name: "Alamo", provider_rating: 8.7, total_price: 100, currency: "PLN", rental_days: 2 }
+              { provider_name: "MM Cars Rental", provider_rating: 8.8, total_price: 100, currency: "PLN", rental_days: 2 },
+              { provider_name: "Alamo", provider_rating: 8.7, total_price: 112, currency: "PLN", rental_days: 2 }
             ],
             mm_cars_rental: {
               provider_name: "MM Cars Rental",
               provider_rating: 8.8,
-              total_price: 112,
+              total_price: 100,
               currency: "PLN",
               rental_days: 2
             }
@@ -134,8 +134,8 @@ runTest("buildHtmlReport marks MM Cars Rental as warning when top1 is over 5 PLN
     ]
   });
 
-  assert.match(html, /class="mm mm-overpriced-leader">MM Cars Rental \(8\.8\)<\/td>/);
-  assert.match(html, /class="mm mm-overpriced-leader">112\.00 PLN<\/td>/);
+  assert.match(html, /class="mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/td>/);
+  assert.match(html, /class="mm mm-top1-gap">100\.00 PLN<\/td>/);
 });
 
 if (!process.exitCode) {

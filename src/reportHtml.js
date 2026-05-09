@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN = 5;
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 5;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -95,7 +95,7 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
-function isMmOverpricedLeader(mmOffer, rankedOffers) {
+function isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers) {
   if (!mmOffer || !Number.isFinite(Number(mmOffer.total_price)) || !isPlnOffer(mmOffer)) {
     return false;
   }
@@ -111,18 +111,18 @@ function isMmOverpricedLeader(mmOffer, rankedOffers) {
     return false;
   }
 
-  const priceDifference = Number(mmOffer.total_price) - Number(secondOffer.total_price);
+  const priceDifference = Number(secondOffer.total_price) - Number(mmOffer.total_price);
   if (priceDifference <= 0) {
     return false;
   }
 
   const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
-  return priceDifference / rentalDays > MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN;
+  return priceDifference / rentalDays > MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
 }
 
 function getMmClassName(offer, rankedOffers) {
-  if (isMmOverpricedLeader(offer, rankedOffers)) {
-    return "mm mm-overpriced-leader";
+  if (isMmTop1WithExpensiveRunnerUp(offer, rankedOffers)) {
+    return "mm mm-top1-gap";
   }
 
   if (isMmCloseToHigherRankedProvider(offer, rankedOffers)) {
@@ -365,7 +365,7 @@ function buildHtmlReport(payload) {
       color: var(--blue-text);
     }
 
-    .mm-overpriced-leader {
+    .mm-top1-gap {
       background: var(--red-bg);
       color: var(--red-text);
     }
@@ -392,7 +392,7 @@ function buildHtmlReport(payload) {
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-overpriced-leader">MM warning</span> MM Cars Rental in top1 but more than 5 PLN/day more expensive than top2</span>
+    <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 more than 5 PLN/day more expensive</span>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
 </body>
