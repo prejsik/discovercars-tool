@@ -103,6 +103,41 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /mm-close/);
 });
 
+runTest("buildHtmlReport marks MM Cars Rental as warning when top1 is over 5 PLN per day above top2", () => {
+  const html = buildHtmlReport({
+    generated_at: "2026-05-04T15:00:00.000Z",
+    time_zone: "Europe/Warsaw",
+    locations: ["Warsaw"],
+    scenarios: [
+      {
+        scenario_id: "2026-05-05-2",
+        start_day_label: "2026-05-05 (Tuesday)",
+        pickup_date: "2026-05-05T10:00:00+02:00",
+        dropoff_date: "2026-05-07T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Warsaw: {
+            top_3: [
+              { provider_name: "MM Cars Rental", provider_rating: 8.8, total_price: 112, currency: "PLN", rental_days: 2 },
+              { provider_name: "Alamo", provider_rating: 8.7, total_price: 100, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: {
+              provider_name: "MM Cars Rental",
+              provider_rating: 8.8,
+              total_price: 112,
+              currency: "PLN",
+              rental_days: 2
+            }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.match(html, /class="mm mm-overpriced-leader">MM Cars Rental \(8\.8\)<\/td>/);
+  assert.match(html, /class="mm mm-overpriced-leader">112\.00 PLN<\/td>/);
+});
+
 if (!process.exitCode) {
   console.log("All DiscoverCars tests passed.");
 }

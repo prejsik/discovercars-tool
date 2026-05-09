@@ -344,6 +344,7 @@ W trybie konsolowym:
 - ocena firmy jest pokazywana obok nazwy firmy w kolumnach `top*_company`,
 - `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_price`.
 - `MM Cars Rental` ma inne, niebieskie podswietlenie, gdy jest drozsze maksymalnie o `10 PLN` na dobe od konkurenta na wyzszym miejscu.
+- `MM Cars Rental` ma czerwone podswietlenie ostrzegawcze, gdy jest w `top1`, ale jest drozsze od `top2` o ponad `5 PLN` na dobe.
 
 Kazdy rekord sukcesu zawiera:
 

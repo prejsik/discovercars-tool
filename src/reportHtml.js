@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
+const MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN = 5;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -94,14 +95,50 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
+function isMmOverpricedLeader(mmOffer, rankedOffers) {
+  if (!mmOffer || !Number.isFinite(Number(mmOffer.total_price)) || !isPlnOffer(mmOffer)) {
+    return false;
+  }
+
+  const topOffers = Array.isArray(rankedOffers) ? rankedOffers.filter(Boolean) : [];
+  const firstOffer = topOffers[0] || null;
+  const secondOffer = topOffers[1] || null;
+  if (!isMmCarsProvider(firstOffer?.provider_name) || !secondOffer || isMmCarsProvider(secondOffer.provider_name)) {
+    return false;
+  }
+
+  if (!Number.isFinite(Number(secondOffer.total_price)) || !isSameCurrency(mmOffer, secondOffer)) {
+    return false;
+  }
+
+  const priceDifference = Number(mmOffer.total_price) - Number(secondOffer.total_price);
+  if (priceDifference <= 0) {
+    return false;
+  }
+
+  const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
+  return priceDifference / rentalDays > MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN;
+}
+
+function getMmClassName(offer, rankedOffers) {
+  if (isMmOverpricedLeader(offer, rankedOffers)) {
+    return "mm mm-overpriced-leader";
+  }
+
+  if (isMmCloseToHigherRankedProvider(offer, rankedOffers)) {
+    return "mm mm-close";
+  }
+
+  return "mm";
+}
+
 function buildProviderCell(offer, rankedOffers) {
   const text = formatProviderName(offer);
   if (!isMmCarsProvider(offer?.provider_name)) {
     return `<td>${escapeHtml(text)}</td>`;
   }
 
-  const className = isMmCloseToHigherRankedProvider(offer, rankedOffers) ? "mm mm-close" : "mm";
-  return `<td class="${className}">${escapeHtml(text)}</td>`;
+  return `<td class="${getMmClassName(offer, rankedOffers)}">${escapeHtml(text)}</td>`;
 }
 
 function buildMmPriceCell(mmOffer, rankedOffers) {
@@ -109,8 +146,7 @@ function buildMmPriceCell(mmOffer, rankedOffers) {
     return "<td class=\"muted\">Not available</td>";
   }
 
-  const className = isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) ? "mm mm-close" : "mm";
-  return `<td class="${className}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
+  return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
 }
 
 function scenarioLocations(rootPayload, scenarioPayload) {
@@ -224,6 +260,8 @@ function buildHtmlReport(payload) {
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
       --blue-text: #ffffff;
+      --red-bg: #c62828;
+      --red-text: #ffffff;
     }
 
     * { box-sizing: border-box; }
@@ -327,6 +365,11 @@ function buildHtmlReport(payload) {
       color: var(--blue-text);
     }
 
+    .mm-overpriced-leader {
+      background: var(--red-bg);
+      color: var(--red-text);
+    }
+
     .muted {
       color: var(--muted);
     }
@@ -349,6 +392,7 @@ function buildHtmlReport(payload) {
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
+    <span><span class="badge mm mm-overpriced-leader">MM warning</span> MM Cars Rental in top1 but more than 5 PLN/day more expensive than top2</span>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
 </body>

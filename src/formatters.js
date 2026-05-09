@@ -5,7 +5,9 @@ const util = require("util");
 const ANSI_RESET = "\x1b[0m";
 const ANSI_MM = "\x1b[1;30;43m";
 const ANSI_MM_CLOSE = "\x1b[1;37;44m";
+const ANSI_MM_OVERPRICED_LEADER = "\x1b[1;37;41m";
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
+const MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN = 5;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -30,10 +32,22 @@ function highlightMmCloseText(text) {
   };
 }
 
-function colorMmText(text, isCloseToHigherRankedProvider = false) {
-  return isCloseToHigherRankedProvider
-    ? highlightMmCloseText(text)
-    : highlightMmText(text);
+function highlightMmOverpricedLeaderText(text) {
+  return {
+    [util.inspect.custom]: () => `${ANSI_MM_OVERPRICED_LEADER}${text}${ANSI_RESET}`
+  };
+}
+
+function colorMmText(text, variant = "default") {
+  if (variant === "overpriced-leader") {
+    return highlightMmOverpricedLeaderText(text);
+  }
+
+  if (variant === "close" || variant === true) {
+    return highlightMmCloseText(text);
+  }
+
+  return highlightMmText(text);
 }
 
 function formatProviderRating(rating) {
@@ -250,12 +264,49 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
+function isMmOverpricedLeader(mmOffer, rankedOffers) {
+  if (!mmOffer || !Number.isFinite(mmOffer.total_price) || !isPlnOffer(mmOffer)) {
+    return false;
+  }
+
+  const topOffers = Array.isArray(rankedOffers) ? rankedOffers.filter(Boolean) : [];
+  const firstOffer = topOffers[0] || null;
+  const secondOffer = topOffers[1] || null;
+  if (!isMmCarsProvider(firstOffer?.provider_name) || !secondOffer || isMmCarsProvider(secondOffer.provider_name)) {
+    return false;
+  }
+
+  if (!Number.isFinite(secondOffer.total_price) || !isSameCurrency(mmOffer, secondOffer)) {
+    return false;
+  }
+
+  const priceDifference = mmOffer.total_price - secondOffer.total_price;
+  if (priceDifference <= 0) {
+    return false;
+  }
+
+  const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
+  return priceDifference / rentalDays > MM_OVERPRICED_LEADER_PRICE_PER_DAY_THRESHOLD_PLN;
+}
+
+function getMmHighlightVariant(mmOffer, rankedOffers) {
+  if (isMmOverpricedLeader(mmOffer, rankedOffers)) {
+    return "overpriced-leader";
+  }
+
+  if (isMmCloseToHigherRankedProvider(mmOffer, rankedOffers)) {
+    return "close";
+  }
+
+  return "default";
+}
+
 function formatMmProviderCell(offer, displayName, rankedOffers) {
   if (!isMmCarsProvider(offer?.provider_name)) {
     return displayName;
   }
 
-  return colorMmText(displayName, isMmCloseToHigherRankedProvider(offer, rankedOffers));
+  return colorMmText(displayName, getMmHighlightVariant(offer, rankedOffers));
 }
 
 function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
@@ -273,7 +324,7 @@ function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
     const top1Name = formatProviderName(top1);
     const top2Name = formatProviderName(top2);
     const top3Name = formatProviderName(top3Offer);
-    const mmIsClose = isMmCloseToHigherRankedProvider(mmOffer, top3);
+    const mmHighlightVariant = getMmHighlightVariant(mmOffer, top3);
 
     rows.push({
       location,
@@ -284,7 +335,7 @@ function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
       top3_company: formatMmProviderCell(top3Offer, top3Name, top3),
       top3_price: formatOfferPrice(top3Offer),
       mm_cars_rental_price: mmOffer
-        ? colorMmText(formatOfferPrice(mmOffer), mmIsClose)
+        ? colorMmText(formatOfferPrice(mmOffer), mmHighlightVariant)
         : "Not available"
     });
   }
@@ -306,7 +357,7 @@ function printTopThreePlusMmByLocation(top3ByLocation, mmCarsByLocation) {
   const rows = [...locationKeys].sort((a, b) => a.localeCompare(b)).map((location) => {
     const topOffers = Array.isArray(top3ByLocation?.[location]) ? top3ByLocation[location] : [];
     const mmOffer = mmCarsByLocation?.[location] || null;
-    const mmIsClose = isMmCloseToHigherRankedProvider(mmOffer, topOffers);
+    const mmHighlightVariant = getMmHighlightVariant(mmOffer, topOffers);
 
     return {
       location,
@@ -317,7 +368,7 @@ function printTopThreePlusMmByLocation(top3ByLocation, mmCarsByLocation) {
       top3_company: formatMmProviderCell(topOffers[2], formatProviderName(topOffers[2]), topOffers),
       top3_price: formatOfferPrice(topOffers[2]),
       mm_cars_rental_price: mmOffer
-        ? colorMmText(formatOfferPrice(mmOffer), mmIsClose)
+        ? colorMmText(formatOfferPrice(mmOffer), mmHighlightVariant)
         : formatOfferPrice(mmOffer)
     };
   });
