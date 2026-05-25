@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 5;
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 10;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -119,7 +119,7 @@ function isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers) {
   }
 
   const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
-  return priceDifference / rentalDays > MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
+  return priceDifference / rentalDays >= MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
 }
 
 function getMmClassName(offer, rankedOffers) {
@@ -363,13 +363,13 @@ function buildHtmlReport(payload) {
     }
 
     .mm-close {
-      background: var(--blue-bg);
-      color: var(--blue-text);
+      background: var(--red-bg);
+      color: var(--red-text);
     }
 
     .mm-top1-gap {
-      background: var(--red-bg);
-      color: var(--red-text);
+      background: var(--blue-bg);
+      color: var(--blue-text);
     }
 
     .muted {
@@ -394,7 +394,7 @@ function buildHtmlReport(payload) {
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 more than 5 PLN/day more expensive</span>
+    <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 at least 10 PLN/day more expensive</span>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
 </body>

@@ -105,7 +105,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /50\.00 PLN\/day/);
 });
 
-runTest("buildHtmlReport marks MM Cars Rental when top2 is over 5 PLN per day above MM top1", () => {
+runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per day above MM top1", () => {
   const html = buildHtmlReport({
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
@@ -121,7 +121,7 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is over 5 PLN per day ab
           Warsaw: {
             top_3: [
               { provider_name: "MM Cars Rental", provider_rating: 8.8, total_price: 100, currency: "PLN", rental_days: 2 },
-              { provider_name: "Alamo", provider_rating: 8.7, total_price: 112, currency: "PLN", rental_days: 2 }
+              { provider_name: "Alamo", provider_rating: 8.7, total_price: 120, currency: "PLN", rental_days: 2 }
             ],
             mm_cars_rental: {
               provider_name: "MM Cars Rental",
