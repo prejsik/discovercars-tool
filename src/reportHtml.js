@@ -47,7 +47,9 @@ function formatOfferPrice(offer) {
     return "Not available";
   }
 
-  return `${Number(offer.total_price).toFixed(2)} ${offer.currency || ""}`.trim();
+  const rentalDays = Number(offer.rental_days);
+  const divisor = Number.isFinite(rentalDays) && rentalDays > 0 ? rentalDays : 1;
+  return `${(Number(offer.total_price) / divisor).toFixed(2)} ${offer.currency || ""}/day`.trim();
 }
 
 function isSameCurrency(left, right) {
@@ -222,12 +224,12 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
           <th>(index)</th>
           <th>location</th>
           <th>top1_company</th>
-          <th>top1_price</th>
+          <th>top1_daily_rate</th>
           <th>top2_company</th>
-          <th>top2_price</th>
+          <th>top2_daily_rate</th>
           <th>top3_company</th>
-          <th>top3_price</th>
-          <th>mm_cars_rental_price</th>
+          <th>top3_daily_rate</th>
+          <th>mm_cars_rental_daily_rate</th>
         </tr>
       </thead>
       <tbody>

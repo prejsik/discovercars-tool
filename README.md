@@ -342,7 +342,8 @@ W trybie konsolowym:
 - dla kazdego scenariusza dat jest wyswietlana jedna tabela,
 - nad tabela jest informacja o okresie (`pickup -> dropoff`),
 - ocena firmy jest pokazywana obok nazwy firmy w kolumnach `top*_company`,
-- `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_price`.
+- ceny w tabelach sa pokazywane jako stawki dobowe (`*_daily_rate`), liczone z `total_price / rental_days`,
+- `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_daily_rate`.
 - `MM Cars Rental` ma inne, niebieskie podswietlenie, gdy jest drozsze maksymalnie o `10 PLN` na dobe od konkurenta na wyzszym miejscu.
 - `MM Cars Rental` ma czerwone podswietlenie, gdy jest w `top1`, a `top2` jest drozsze o ponad `5 PLN` na dobe.
 

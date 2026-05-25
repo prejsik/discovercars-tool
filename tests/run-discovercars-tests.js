@@ -99,8 +99,10 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
 
   assert.match(html, /<table>/);
   assert.match(html, /top1_company/);
+  assert.match(html, /top1_daily_rate/);
   assert.match(html, /MM Cars Rental \(8\.8\)/);
   assert.match(html, /mm-close/);
+  assert.match(html, /50\.00 PLN\/day/);
 });
 
 runTest("buildHtmlReport marks MM Cars Rental when top2 is over 5 PLN per day above MM top1", () => {
@@ -135,7 +137,7 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is over 5 PLN per day ab
   });
 
   assert.match(html, /class="mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/td>/);
-  assert.match(html, /class="mm mm-top1-gap">100\.00 PLN<\/td>/);
+  assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
 });
 
 if (!process.exitCode) {

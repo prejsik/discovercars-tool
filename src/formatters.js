@@ -78,7 +78,7 @@ function toPrintableRow(result) {
   return {
     location: result.location,
     provider_name: formatProviderName(result),
-    total_price: Number(result.total_price.toFixed(2)),
+    daily_rate: Number(getDailyRate(result).toFixed(2)),
     currency: result.currency,
     rental_days: result.rental_days,
     pickup_date: result.pickup_date,
@@ -215,7 +215,18 @@ function formatOfferPrice(offer) {
     return "Not available";
   }
 
-  return `${offer.total_price.toFixed(2)} ${offer.currency || ""}`.trim();
+  return `${getDailyRate(offer).toFixed(2)} ${offer.currency || ""}/day`.trim();
+}
+
+function getDailyRate(offer) {
+  const totalPrice = Number(offer?.total_price);
+  if (!Number.isFinite(totalPrice)) {
+    return NaN;
+  }
+
+  const rentalDays = Number(offer?.rental_days);
+  const divisor = Number.isFinite(rentalDays) && rentalDays > 0 ? rentalDays : 1;
+  return totalPrice / divisor;
 }
 
 function isSameCurrency(left, right) {
@@ -329,12 +340,12 @@ function buildCompactScenarioRows(top3PlusMmByLocation, locations) {
     rows.push({
       location,
       top1_company: formatMmProviderCell(top1, top1Name, top3),
-      top1_price: formatOfferPrice(top1),
+      top1_daily_rate: formatOfferPrice(top1),
       top2_company: formatMmProviderCell(top2, top2Name, top3),
-      top2_price: formatOfferPrice(top2),
+      top2_daily_rate: formatOfferPrice(top2),
       top3_company: formatMmProviderCell(top3Offer, top3Name, top3),
-      top3_price: formatOfferPrice(top3Offer),
-      mm_cars_rental_price: mmOffer
+      top3_daily_rate: formatOfferPrice(top3Offer),
+      mm_cars_rental_daily_rate: mmOffer
         ? colorMmText(formatOfferPrice(mmOffer), mmHighlightVariant)
         : "Not available"
     });
@@ -362,12 +373,12 @@ function printTopThreePlusMmByLocation(top3ByLocation, mmCarsByLocation) {
     return {
       location,
       top1_company: formatMmProviderCell(topOffers[0], formatProviderName(topOffers[0]), topOffers),
-      top1_price: formatOfferPrice(topOffers[0]),
+      top1_daily_rate: formatOfferPrice(topOffers[0]),
       top2_company: formatMmProviderCell(topOffers[1], formatProviderName(topOffers[1]), topOffers),
-      top2_price: formatOfferPrice(topOffers[1]),
+      top2_daily_rate: formatOfferPrice(topOffers[1]),
       top3_company: formatMmProviderCell(topOffers[2], formatProviderName(topOffers[2]), topOffers),
-      top3_price: formatOfferPrice(topOffers[2]),
-      mm_cars_rental_price: mmOffer
+      top3_daily_rate: formatOfferPrice(topOffers[2]),
+      mm_cars_rental_daily_rate: mmOffer
         ? colorMmText(formatOfferPrice(mmOffer), mmHighlightVariant)
         : formatOfferPrice(mmOffer)
     };
@@ -388,7 +399,7 @@ function printTopThreeByLocation(top3ByLocation) {
         location,
         rank: index + 1,
         provider_name: formatProviderName(offer),
-        total_price: offer ? Number(offer.total_price.toFixed(2)) : null,
+        daily_rate: offer ? Number(getDailyRate(offer).toFixed(2)) : null,
         currency: offer?.currency || "",
         car_name: offer?.car_name || ""
       });
@@ -404,7 +415,7 @@ function printMmCarsByLocation(mmCarsByLocation) {
     location,
     found: Boolean(offer),
     provider_name: formatProviderName(offer),
-    total_price: offer ? Number(offer.total_price.toFixed(2)) : null,
+    daily_rate: offer ? Number(getDailyRate(offer).toFixed(2)) : null,
     currency: offer?.currency || "",
     car_name: offer?.car_name || ""
   }));
@@ -418,7 +429,7 @@ function stringifyOffer(offer) {
     return "Not available";
   }
 
-  return `${offer.location} | ${formatProviderName(offer)} | ${offer.total_price.toFixed(2)} ${offer.currency} | ${
+  return `${offer.location} | ${formatProviderName(offer)} | ${formatOfferPrice(offer)} | ${
     offer.car_name || "n/a"
   }`;
 }
