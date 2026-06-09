@@ -350,18 +350,19 @@ node src/pricingRecommendations.js output/results-latest.json output/pricing-rec
 ```
 
 Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami oraz arkuszem `Change Log`.
+Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne stawek. Podczas zapisu `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
 Najpierw uruchom dry-run:
 
 ```powershell
-python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --groups=CDMV --dry-run
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --dry-run
 ```
 
 Realny zapis kopii pliku:
 
 ```powershell
-python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --groups=CDMV --output output/rates-updated.xlsx
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --output output/rates-updated.xlsx
 ```
 
 Kolory w Excelu:
@@ -370,7 +371,7 @@ Kolory w Excelu:
 - czerwony - cena obnizona,
 - arkusz `Change Log` zawiera stara cene, nowa cene, roznice, powod, lokalizacje, zone, group, date i duration.
 
-Bez jawnego `--groups=...` albo `apply_groups` w konfiguracji updater nie zmienia stawek. To zabezpiecza przed przypadkowym zastosowaniem jednej rekomendacji rynkowej do wszystkich klas aut.
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Grupy `EDAH` oraz `ADMV` dostaja stawke o `1 PLN/day` wyzsza niz pozostale zmieniane grupy. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 
 W trybie konsolowym:
 

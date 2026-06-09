@@ -19,7 +19,13 @@
     "Wroclaw": ["WR1", "WRLO"],
     "Poznan": ["PO1", "POLO"]
   },
-  "apply_groups": [],
+  "apply_groups": "all",
+  "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
+  "group_rate_adjustments_pln_day": {
+    "EDAH": 1,
+    "ADMV": 1
+  },
+  "normalize_pickup_end_to_start": true,
   "min_excel_change_pln_day": 0.01,
   "change_log_sheet": "Change Log",
   "replace_change_log": true,

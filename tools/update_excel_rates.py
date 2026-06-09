@@ -32,7 +32,13 @@ DEFAULT_CONFIG = {
         "rate_start": 9,
     },
     "location_zones": {},
-    "apply_groups": [],
+    "apply_groups": "all",
+    "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
+    "group_rate_adjustments_pln_day": {
+        "EDAH": 1,
+        "ADMV": 1,
+    },
+    "normalize_pickup_end_to_start": True,
     "min_excel_change_pln_day": 0.01,
     "change_log_sheet": "Change Log",
     "replace_change_log": True,
@@ -155,6 +161,29 @@ def group_is_allowed(group: Any, allowed_groups: set[str] | str) -> bool:
     return allowed_groups == "all" or normalize_code(group) in allowed_groups
 
 
+def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
+    excluded = {normalize_code(item) for item in config.get("excluded_groups", [])}
+    return normalize_code(group) in excluded
+
+
+def get_group_rate_adjustment(group: Any, config: dict[str, Any]) -> float:
+    adjustments = {
+        normalize_code(key): parse_number(value) or 0
+        for key, value in (config.get("group_rate_adjustments_pln_day") or {}).items()
+    }
+    return float(adjustments.get(normalize_code(group), 0))
+
+
+def classify_actual_action(old_rate: float | None, new_rate: float, fallback_action: str) -> str:
+    if old_rate is None:
+        return fallback_action
+    if new_rate > old_rate:
+        return "increase"
+    if new_rate < old_rate:
+        return "decrease"
+    return "hold"
+
+
 def build_targets(
     recommendations: list[dict[str, Any]],
     duration_columns: dict[int, tuple[int, str]],
@@ -204,23 +233,29 @@ def build_targets(
 def find_targets_for_row(
     targets_by_date: dict[date, list[dict[str, Any]]],
     pickup_start: date | None,
-    pickup_end: date | None,
 ) -> list[dict[str, Any]]:
-    if pickup_start is None and pickup_end is None:
-        return []
-    if pickup_end is None:
-        pickup_end = pickup_start
     if pickup_start is None:
-        pickup_start = pickup_end
+        return []
+    return targets_by_date.get(pickup_start, [])
 
-    if pickup_start == pickup_end:
-        return targets_by_date.get(pickup_start, [])
 
-    matched: list[dict[str, Any]] = []
-    for target_date, items in targets_by_date.items():
-        if pickup_start <= target_date <= pickup_end:
-            matched.extend(items)
-    return matched
+def maybe_normalize_pickup_end_date(ws: Any, row: int, columns: dict[str, Any], dry_run: bool) -> bool:
+    start_cell = ws.cell(row, int(columns["pickup_start_date"]))
+    end_cell = ws.cell(row, int(columns["pickup_end_date"]))
+    if start_cell.value in (None, ""):
+        return False
+    if end_cell.value == start_cell.value:
+        return False
+
+    start_date = parse_date_value(start_cell.value)
+    end_date = parse_date_value(end_cell.value)
+    if start_date is not None and end_date == start_date and str(end_cell.value) == str(start_cell.value):
+        return False
+
+    if not dry_run:
+        end_cell.value = start_cell.value
+        end_cell.number_format = start_cell.number_format
+    return True
 
 
 def apply_updates(
@@ -251,35 +286,45 @@ def apply_updates(
     }
 
     changes: list[dict[str, Any]] = []
+    normalized_pickup_end_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
+        if config.get("normalize_pickup_end_to_start", True):
+            if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
+                normalized_pickup_end_count += 1
+
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
         if zone not in targets:
             continue
 
         group = ws.cell(row, int(columns["group"])).value
+        if group_is_excluded(group, config):
+            continue
+
         if not group_is_allowed(group, allowed_groups):
             continue
 
         pickup_start = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
-        pickup_end = parse_date_value(ws.cell(row, int(columns["pickup_end_date"])).value)
-        row_targets = find_targets_for_row(targets[zone], pickup_start, pickup_end)
+        row_targets = find_targets_for_row(targets[zone], pickup_start)
         if not row_targets:
             continue
 
         for target in row_targets:
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
-            new_rate = float(target["suggested_rate_pln_day"])
+            group_adjustment = get_group_rate_adjustment(group, config)
+            new_rate = float(target["suggested_rate_pln_day"]) + group_adjustment
             if old_rate is not None and abs(new_rate - old_rate) < min_change:
                 continue
 
+            actual_action = classify_actual_action(old_rate, new_rate, str(target["action"]))
             if not dry_run:
                 cell.value = int(new_rate) if float(new_rate).is_integer() else round(new_rate, 2)
-                cell.fill = fills.get(target["action"], fills.get("hold", PatternFill()))
+                cell.fill = fills.get(actual_action, fills.get("hold", PatternFill()))
 
             changes.append({
-                "action": target["action"],
+                "action": actual_action,
+                "recommendation_action": target["action"],
                 "reason": target.get("reason", ""),
                 "location": target.get("location", ""),
                 "zone": zone,
@@ -291,6 +336,7 @@ def apply_updates(
                 "old_rate": old_rate,
                 "new_rate": new_rate,
                 "delta": None if old_rate is None else round(new_rate - old_rate, 2),
+                "group_adjustment_pln_day": group_adjustment,
                 "mm_rate": target.get("mm_rate_pln_day"),
                 "benchmark_provider": target.get("benchmark_provider", ""),
                 "benchmark_rate": target.get("benchmark_rate_pln_day"),
@@ -309,6 +355,7 @@ def apply_updates(
         "output": str(output_path) if output_path else None,
         "dry_run": dry_run,
         "change_count": len(changes),
+        "normalized_pickup_end_count": normalized_pickup_end_count,
         "skipped_target_count": len(skipped_targets),
         "changes": changes[:100],
     }
@@ -322,6 +369,7 @@ def write_change_log(workbook: Any, config: dict[str, Any], changes: list[dict[s
 
     headers = [
         "action",
+        "recommendation_action",
         "reason",
         "location",
         "zone",
@@ -333,6 +381,7 @@ def write_change_log(workbook: Any, config: dict[str, Any], changes: list[dict[s
         "old_rate",
         "new_rate",
         "delta",
+        "group_adjustment_pln_day",
         "mm_rate",
         "benchmark_provider",
         "benchmark_rate",
