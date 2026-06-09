@@ -337,6 +337,41 @@ node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=2,3,4,5,
    - dane zakresu dat (`pickup_date`, `dropoff_date`, `rental_days`, `time_zone`)
 3. Opcjonalny zapis JSON do pliku przez `--save`.
 
+## Rekomendacje cenowe i aktualizacja Excela
+
+Po daily run workflow generuje dodatkowo:
+
+- `pricing-recommendations.json` - rekomendacje zmian stawek MM Cars Rental per lokalizacja, data i duration.
+
+Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
+
+```powershell
+node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
+```
+
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami oraz arkuszem `Change Log`.
+Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
+
+Najpierw uruchom dry-run:
+
+```powershell
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --groups=CDMV --dry-run
+```
+
+Realny zapis kopii pliku:
+
+```powershell
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --groups=CDMV --output output/rates-updated.xlsx
+```
+
+Kolory w Excelu:
+
+- zielony - cena podniesiona,
+- czerwony - cena obnizona,
+- arkusz `Change Log` zawiera stara cene, nowa cene, roznice, powod, lokalizacje, zone, group, date i duration.
+
+Bez jawnego `--groups=...` albo `apply_groups` w konfiguracji updater nie zmienia stawek. To zabezpiecza przed przypadkowym zastosowaniem jednej rekomendacji rynkowej do wszystkich klas aut.
+
 W trybie konsolowym:
 
 - dla kazdego scenariusza dat jest wyswietlana jedna tabela,

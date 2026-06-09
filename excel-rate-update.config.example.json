@@ -1,0 +1,32 @@
+{
+  "worksheet": "Sheet1",
+  "header_row": 4,
+  "data_start_row": 5,
+  "duration_min_row": 2,
+  "duration_max_row": 3,
+  "columns": {
+    "group": 1,
+    "zone": 4,
+    "pickup_start_date": 7,
+    "pickup_end_date": 8,
+    "rate_start": 9
+  },
+  "location_zones": {
+    "Warsaw": ["WA1", "WA2", "WALO"],
+    "Krakow": ["KRDW", "KRGA", "KRLO", "KRTI"],
+    "Gdansk": ["GD1", "GDLO"],
+    "Katowice": ["KA1", "KALO"],
+    "Wroclaw": ["WR1", "WRLO"],
+    "Poznan": ["PO1", "POLO"]
+  },
+  "apply_groups": [],
+  "min_excel_change_pln_day": 0.01,
+  "change_log_sheet": "Change Log",
+  "replace_change_log": true,
+  "colors": {
+    "increase": "C6EFCE",
+    "decrease": "FFC7CE",
+    "hold": "D9EAF7",
+    "limited": "FCE4D6"
+  }
+}

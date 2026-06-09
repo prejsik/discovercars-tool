@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
+const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
 
 function runTest(name, fn) {
@@ -138,6 +139,64 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
 
   assert.match(html, /class="mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/td>/);
   assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
+});
+
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Krakow"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Krakow: {
+            top_3: [
+              { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 },
+              { provider_name: "Flex To Go", total_price: 164, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "increase");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 80);
+});
+
+runTest("buildPricingRecommendations lowers MM when another provider is top1", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Warsaw"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Warsaw: {
+            top_3: [
+              { provider_name: "Car24", total_price: 180, currency: "PLN", rental_days: 2 },
+              { provider_name: "MM Cars Rental", total_price: 198, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 198, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 89);
 });
 
 if (!process.exitCode) {

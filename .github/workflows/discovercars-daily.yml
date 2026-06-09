@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/discovercars-daily.yml"
+      - "pricing-rules.config.example.json"
       - "src/**"
       - "package.json"
       - "package-lock.json"
@@ -198,6 +199,19 @@ jobs:
         if: steps.gate.outputs.should_run == 'true' && always()
         run: node src/reportHtml.js output/results-latest.json output/report.html
 
+      - name: Generate pricing recommendations
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          if [[ -f output/results-latest.json ]]; then
+            node src/pricingRecommendations.js \
+              output/results-latest.json \
+              output/pricing-recommendations.json \
+              --config=pricing-rules.config.example.json
+          else
+            echo "::warning::DiscoverCars JSON output is missing; pricing recommendations skipped."
+          fi
+
       - name: Check GitHub Pages status
         id: pages-status
         if: steps.gate.outputs.should_run == 'true'
@@ -234,6 +248,9 @@ jobs:
           cp output/report.html pages/index.html
           cp output/report.html pages/report.html
           cp output/results-latest.json pages/results-latest.json
+          if [[ -f output/pricing-recommendations.json ]]; then
+            cp output/pricing-recommendations.json pages/pricing-recommendations.json
+          fi
           cp output/run-log.txt pages/run-log.txt
 
       - name: Configure GitHub Pages
@@ -262,6 +279,7 @@ jobs:
           name: discovercars-results-${{ github.run_number }}
           path: |
             output/results-latest.json
+            output/pricing-recommendations.json
             output/report.html
             output/run-log.txt
             output/state.json

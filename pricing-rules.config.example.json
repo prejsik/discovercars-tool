@@ -1,0 +1,9 @@
+{
+  "pricing": {
+    "top1GapThresholdPlnDay": 10,
+    "top1RaiseBufferPlnDay": 2,
+    "undercutBufferPlnDay": 1,
+    "minChangePlnDay": 0.5,
+    "roundingIncrementPlnDay": 1
+  }
+}
