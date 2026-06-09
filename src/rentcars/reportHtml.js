@@ -2,13 +2,12 @@ const fs = require("fs");
 const path = require("path");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 5;
 
 function normalizeProviderName(value) {
   return String(value || "")
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ");
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 function isMmCarsProvider(value) {
@@ -28,7 +27,6 @@ function formatProviderRating(rating) {
   if (!Number.isFinite(numeric) || numeric <= 0) {
     return "";
   }
-
   return numeric.toFixed(1).replace(/\.0$/, "");
 }
 
@@ -36,35 +34,23 @@ function formatProviderName(offer) {
   if (!offer) {
     return "Not available";
   }
-
-  const providerName = String(offer.provider_name || "Not available").trim() || "Not available";
+  const name = String(offer.provider_name || "Not available").trim() || "Not available";
   const rating = formatProviderRating(offer.provider_rating);
-  return rating ? `${providerName} (${rating})` : providerName;
-}
-
-function formatOfferPrice(offer) {
-  if (!offer || !Number.isFinite(Number(offer.total_price))) {
-    return "Not available";
-  }
-
-  const rentalDays = Number(offer.rental_days);
-  const divisor = Number.isFinite(rentalDays) && rentalDays > 0 ? rentalDays : 1;
-  return `${(Number(offer.total_price) / divisor).toFixed(2)} ${offer.currency || ""}/day`.trim();
-}
-
-function isSameCurrency(left, right) {
-  return String(left?.currency || "").trim().toUpperCase() === String(right?.currency || "").trim().toUpperCase();
+  return rating ? `${name} (${rating})` : name;
 }
 
 function isPlnOffer(offer) {
-  return String(offer?.currency || "").trim().toUpperCase() === "PLN";
+  return String(offer?.currency || "").toUpperCase() === "PLN";
+}
+
+function isSameCurrency(left, right) {
+  return String(left?.currency || "").toUpperCase() === String(right?.currency || "").toUpperCase();
 }
 
 function getRentalDaysForComparison(mmOffer, higherRankedOffer) {
   const candidates = [mmOffer?.rental_days, higherRankedOffer?.rental_days]
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && value > 0);
-
   return candidates[0] || 1;
 }
 
@@ -97,105 +83,79 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
-function isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers) {
-  if (!mmOffer || !Number.isFinite(Number(mmOffer.total_price)) || !isPlnOffer(mmOffer)) {
-    return false;
+function mmClassName(offer, rankedOffers) {
+  if (!isMmCarsProvider(offer?.provider_name)) {
+    return "";
   }
-
-  const topOffers = Array.isArray(rankedOffers) ? rankedOffers.filter(Boolean) : [];
-  const firstOffer = topOffers[0] || null;
-  const secondOffer = topOffers[1] || null;
-  if (!isMmCarsProvider(firstOffer?.provider_name) || !secondOffer || isMmCarsProvider(secondOffer.provider_name)) {
-    return false;
-  }
-
-  if (!Number.isFinite(Number(secondOffer.total_price)) || !isSameCurrency(mmOffer, secondOffer)) {
-    return false;
-  }
-
-  const priceDifference = Number(secondOffer.total_price) - Number(mmOffer.total_price);
-  if (priceDifference <= 0) {
-    return false;
-  }
-
-  const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
-  return priceDifference / rentalDays > MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
-}
-
-function getMmClassName(offer, rankedOffers) {
-  if (isMmTop1WithExpensiveRunnerUp(offer, rankedOffers)) {
-    return "mm mm-top1-gap";
-  }
-
-  if (isMmCloseToHigherRankedProvider(offer, rankedOffers)) {
-    return "mm mm-close";
-  }
-
-  return "mm";
+  return isMmCloseToHigherRankedProvider(offer, rankedOffers) ? "mm mm-close" : "mm";
 }
 
 function buildProviderCell(offer, rankedOffers) {
-  const text = formatProviderName(offer);
-  if (!isMmCarsProvider(offer?.provider_name)) {
-    return `<td>${escapeHtml(text)}</td>`;
-  }
-
-  return `<td class="${getMmClassName(offer, rankedOffers)}">${escapeHtml(text)}</td>`;
+  const className = mmClassName(offer, rankedOffers);
+  const classAttribute = className ? ` class="${className}"` : "";
+  return `<td${classAttribute}>${escapeHtml(formatProviderName(offer))}</td>`;
 }
 
-function buildMmPriceCell(mmOffer, rankedOffers) {
-  if (!mmOffer) {
-    return "<td class=\"muted\">Not available</td>";
+function formatOfferPrice(offer) {
+  if (!offer || !Number.isFinite(Number(offer.total_price))) {
+    return "Not available";
+  }
+  return `${Number(offer.total_price).toFixed(2)} ${offer.currency || ""}`.trim();
+}
+
+function buildPriceCell(offer, rankedOffers) {
+  const className = mmClassName(offer, rankedOffers);
+  const classAttribute = className ? ` class="${className}"` : "";
+  return `<td${classAttribute}>${escapeHtml(formatOfferPrice(offer))}</td>`;
+}
+
+function sortOrderLabel(sortOrder) {
+  const labels = {
+    suggested: "sugerowane",
+    price: "po cenie",
+    price_insurance: "po cenie z ubezpieczeniem"
+  };
+  return labels[sortOrder] || sortOrder;
+}
+
+function formatDurationMs(value) {
+  const totalMs = Number(value);
+  if (!Number.isFinite(totalMs) || totalMs < 0) {
+    return "Not available";
   }
 
-  return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
+  const totalSeconds = Math.round(totalMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+
+  if (hours) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes || hours) {
+    parts.push(`${minutes}m`);
+  }
+  parts.push(`${seconds}s`);
+
+  return `${parts.join(" ")} (${Math.round(totalMs)} ms)`;
+}
+
+function normalizeScenarios(payload) {
+  return Array.isArray(payload.scenarios) && payload.scenarios.length ? payload.scenarios : [payload];
 }
 
 function scenarioLocations(rootPayload, scenarioPayload) {
-  const rootLocations = Array.isArray(rootPayload.locations) ? rootPayload.locations : [];
-  if (rootLocations.length) {
-    return rootLocations;
+  const tableLocations = Object.keys(scenarioPayload.top_3_by_location || {}).sort((a, b) => a.localeCompare(b));
+  if (tableLocations.length) {
+    return tableLocations;
   }
-
-  return Object.keys(scenarioPayload.top_3_plus_mm_by_location || {}).sort((a, b) => a.localeCompare(b));
+  return Array.isArray(rootPayload.locations) ? rootPayload.locations : [];
 }
 
 function scenarioTitle(scenarioPayload, index, total) {
   const label = scenarioPayload.start_day_label || scenarioPayload.start_date || scenarioPayload.scenario_id || "Scenario";
   return `Scenario ${index + 1}/${total}: ${label} + ${scenarioPayload.rental_days} day(s)`;
-}
-
-function scenarioPeriod(scenarioPayload) {
-  const pickup = scenarioPayload.pickup_date || "";
-  const dropoff = scenarioPayload.dropoff_date || "";
-  const rentalDays = scenarioPayload.rental_days || "";
-  return `${pickup} -> ${dropoff} (rental_days=${rentalDays})`;
-}
-
-function buildScenarioRows(rootPayload, scenarioPayload) {
-  const locations = scenarioLocations(rootPayload, scenarioPayload);
-  const tableData = scenarioPayload.top_3_plus_mm_by_location || {};
-
-  return locations
-    .map((location, index) => {
-      const locationData = tableData[location] || {};
-      const top3 = Array.isArray(locationData.top_3) ? locationData.top_3 : [];
-      const mmOffer = locationData.mm_cars_rental || null;
-      const rowClass = index % 2 === 0 ? "even" : "odd";
-
-      return `<tr class="${rowClass}">
-        <td class="index">${index}</td>
-        <td class="location">${escapeHtml(location)}</td>
-        ${buildProviderCell(top3[0], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[0]))}</td>
-        ${buildProviderCell(top3[1], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[1]))}</td>
-        ${buildProviderCell(top3[2], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[2]))}</td>
-        ${buildMmPriceCell(mmOffer, top3)}
-      </tr>`;
-    })
-    .join("\n");
 }
 
 function buildErrorsHtml(errors) {
@@ -210,26 +170,66 @@ function buildErrorsHtml(errors) {
   return `<details class="errors"><summary>Errors (${errors.length})</summary><ul>${items}</ul></details>`;
 }
 
-function normalizeScenarios(payload) {
-  return Array.isArray(payload.scenarios) && payload.scenarios.length ? payload.scenarios : [payload];
+function buildScenarioRows(rootPayload, scenarioPayload) {
+  const locations = scenarioLocations(rootPayload, scenarioPayload);
+  const tableData = scenarioPayload.top_3_by_location || {};
+
+  const rows = [];
+  for (const location of locations) {
+    const locationData = tableData[location] || {};
+    const sortOrders = Array.isArray(scenarioPayload.sort_orders) && scenarioPayload.sort_orders.length
+      ? scenarioPayload.sort_orders.map((item) => item.order || item)
+      : Array.isArray(locationData)
+        ? ["price"]
+        : Object.keys(locationData);
+
+    for (const sortOrder of sortOrders) {
+      const top3 = Array.isArray(locationData)
+        ? locationData
+        : Array.isArray(locationData[sortOrder]) ? locationData[sortOrder] : [];
+      rows.push({ location, sortOrder, top3 });
+    }
+  }
+
+  return rows
+    .map((row, index) => {
+      const top3 = row.top3;
+      const rowClass = index % 2 === 0 ? "even" : "odd";
+      return `<tr class="${rowClass}">
+        <td class="index">${index}</td>
+        <td class="location">${escapeHtml(row.location)}</td>
+        <td>${escapeHtml(sortOrderLabel(row.sortOrder))}</td>
+        ${buildProviderCell(top3[0], top3)}
+        ${buildPriceCell(top3[0], top3)}
+        ${buildProviderCell(top3[1], top3)}
+        ${buildPriceCell(top3[1], top3)}
+        ${buildProviderCell(top3[2], top3)}
+        ${buildPriceCell(top3[2], top3)}
+      </tr>`;
+    })
+    .join("\n");
 }
 
 function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
+  const pickup = scenarioPayload.pickup_date || "";
+  const dropoff = scenarioPayload.dropoff_date || "";
+  const rentalDays = scenarioPayload.rental_days || "";
+
   return `<section class="scenario">
     <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
-    <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
+    <div class="period">${escapeHtml(`${pickup} -> ${dropoff} (rental_days=${rentalDays})`)}</div>
     <table>
       <thead>
         <tr>
           <th>(index)</th>
           <th>location</th>
-          <th>top1_company</th>
-          <th>top1_daily_rate</th>
-          <th>top2_company</th>
-          <th>top2_daily_rate</th>
-          <th>top3_company</th>
-          <th>top3_daily_rate</th>
-          <th>mm_cars_rental_daily_rate</th>
+          <th>sort_order</th>
+          <th>top1_offer</th>
+          <th>top1_price</th>
+          <th>top2_offer</th>
+          <th>top2_price</th>
+          <th>top3_offer</th>
+          <th>top3_price</th>
         </tr>
       </thead>
       <tbody>
@@ -243,13 +243,15 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
 function buildHtmlReport(payload) {
   const scenarios = normalizeScenarios(payload);
   const generatedAt = payload.generated_at || new Date().toISOString();
+  const executionStartedAt = payload.execution_started_at || "";
+  const executionDuration = formatDurationMs(payload.execution_duration_ms);
 
   return `<!doctype html>
 <html lang="pl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DiscoverCars report</title>
+  <title>RentCars.pl report</title>
   <style>
     :root {
       --bg: #0b0d10;
@@ -262,8 +264,6 @@ function buildHtmlReport(payload) {
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
       --blue-text: #ffffff;
-      --red-bg: #c62828;
-      --red-text: #ffffff;
     }
 
     * { box-sizing: border-box; }
@@ -285,22 +285,6 @@ function buildHtmlReport(payload) {
       color: var(--muted);
       margin-bottom: 24px;
       font-size: 13px;
-    }
-
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 24px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: 700;
     }
 
     .scenario {
@@ -353,27 +337,30 @@ function buildHtmlReport(payload) {
       width: 72px;
     }
 
-    td.location {
-      color: var(--green);
-    }
-
     .mm {
       background: var(--yellow-bg);
       color: var(--yellow-text);
     }
 
     .mm-close {
-      background: var(--red-bg);
-      color: var(--red-text);
-    }
-
-    .mm-top1-gap {
       background: var(--blue-bg);
       color: var(--blue-text);
     }
 
-    .muted {
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin: 0 0 18px;
       color: var(--muted);
+      font-size: 13px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      color: var(--text);
     }
 
     .errors {
@@ -381,22 +368,30 @@ function buildHtmlReport(payload) {
       color: #ffb4a9;
     }
 
-    @media (max-width: 1100px) {
+    .footer {
+      border-top: 2px solid #2d333b;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 26px;
+      padding-top: 12px;
+    }
+
+    @media (max-width: 980px) {
       body { padding: 14px; }
       .scenario { overflow-x: auto; }
-      table { min-width: 1120px; }
+      table { min-width: 900px; }
     }
   </style>
 </head>
 <body>
-  <h1>DiscoverCars report</h1>
-  <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
+  <h1>RentCars.pl report</h1>
+  <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")} | Source: ${escapeHtml(payload.source_url || "https://rentcars.pl")}</div>
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 more than 5 PLN/day more expensive</span>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
+  <div class="footer">Execution started at: ${escapeHtml(executionStartedAt || "Not available")} | Execution duration: ${escapeHtml(executionDuration)}</div>
 </body>
 </html>`;
 }
@@ -414,10 +409,15 @@ function generateReportFromFile(inputPath, outputPath) {
 }
 
 if (require.main === module) {
-  const inputPath = process.argv[2] || "output/results-latest.json";
-  const outputPath = process.argv[3] || "output/report.html";
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    process.stdout.write("Usage: node src/rentcars/reportHtml.js [input-json] [output-html]\n");
+    process.exit(0);
+  }
+
+  const inputPath = process.argv[2] || "output/rentcars-results-latest.json";
+  const outputPath = process.argv[3] || "output/rentcars-report.html";
   const writtenPath = generateReportFromFile(inputPath, outputPath);
-  console.log(`HTML report saved to ${writtenPath}`);
+  console.log(`RentCars.pl HTML report saved to ${writtenPath}`);
 }
 
 module.exports = {

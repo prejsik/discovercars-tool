@@ -106,7 +106,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /50\.00 PLN\/day/);
 });
 
-runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per day above MM top1", () => {
+runTest("buildHtmlReport marks MM Cars Rental when top2 is more than 5 PLN per day above MM top1", () => {
   const html = buildHtmlReport({
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
@@ -141,7 +141,7 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
   assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
 });
 
-runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is more than 5 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Krakow"],
@@ -167,7 +167,36 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10
 
   assert.equal(output.recommendation_count, 1);
   assert.equal(output.recommendations[0].action, "increase");
-  assert.equal(output.recommendations[0].suggested_rate_pln_day, 80);
+  assert.equal(output.recommendations[0].recommendation_type, "top1_gap");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 81);
+  assert.match(output.recommendations[0].reason, /top2 jest drozszy/);
+});
+
+runTest("buildPricingRecommendations does not raise MM top1 when top2 gap is exactly 5 PLN per day", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Krakow"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Krakow: {
+            top_3: [
+              { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 },
+              { provider_name: "Flex To Go", total_price: 150, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 0);
 });
 
 runTest("buildPricingRecommendations lowers MM when another provider is top1", () => {
@@ -196,7 +225,40 @@ runTest("buildPricingRecommendations lowers MM when another provider is top1", (
 
   assert.equal(output.recommendation_count, 1);
   assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top1_undercut");
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 89);
+});
+
+runTest("buildPricingRecommendations flags a small decrease needed to enter top3", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Gdansk"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Gdansk: {
+            top_3: [
+              { provider_name: "Car24", total_price: 200, currency: "PLN", rental_days: 2 },
+              { provider_name: "Flex To Go", total_price: 220, currency: "PLN", rental_days: 2 },
+              { provider_name: "Kaizen Rent", total_price: 240, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 250, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
+  assert.equal(output.recommendations[0].benchmark_provider, "Kaizen Rent");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 119);
 });
 
 if (!process.exitCode) {

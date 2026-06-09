@@ -2,9 +2,10 @@ const fs = require("fs");
 const path = require("path");
 
 const DEFAULT_OPTIONS = {
-  top1GapThresholdPlnDay: 10,
-  top1RaiseBufferPlnDay: 2,
+  top1GapThresholdPlnDay: 5,
+  top1RaiseBufferPlnDay: 1,
   undercutBufferPlnDay: 1,
+  top3SmallDecreaseThresholdPlnDay: 10,
   minChangePlnDay: 0.5,
   roundingIncrementPlnDay: 1,
   includeNoop: false
@@ -81,11 +82,13 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const mmOffer = locationData?.mm_cars_rental || topOffers.find((offer) => isMmCarsProvider(offer?.provider_name)) || null;
   const top1 = topOffers[0] || null;
   const top2 = topOffers[1] || null;
+  const top3 = topOffers[2] || null;
   const mmRankIndex = topOffers.findIndex((offer) => isMmCarsProvider(offer?.provider_name));
   const mmRank = mmRankIndex >= 0 ? mmRankIndex + 1 : mmOffer ? "outside_top3" : null;
   const mmRate = toDailyRate(mmOffer);
   const top1Rate = toDailyRate(top1);
   const top2Rate = toDailyRate(top2);
+  const top3Rate = toDailyRate(top3);
 
   const base = {
     scenario_id: scenario.scenario_id || null,
@@ -102,40 +105,43 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     top1_rate_pln_day: top1Rate == null ? null : Number(top1Rate.toFixed(2)),
     top2_provider: formatProviderName(top2),
     top2_rate_pln_day: top2Rate == null ? null : Number(top2Rate.toFixed(2)),
+    top3_provider: formatProviderName(top3),
+    top3_rate_pln_day: top3Rate == null ? null : Number(top3Rate.toFixed(2)),
     source_generated_at: rootPayload.generated_at || null
   };
 
   if (!mmOffer || mmRate == null) {
-    return buildNoopRecommendation(base, "MM Cars Rental not found for this scenario/location.");
+    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.");
   }
 
   if (!top1 || top1Rate == null) {
-    return buildNoopRecommendation(base, "Top1 competitor is not available.");
+    return buildNoopRecommendation(base, "Brak dostepnej oferty top1.");
   }
 
   if (mmRank === 1) {
     if (!top2 || top2Rate == null) {
-      return buildNoopRecommendation(base, "MM Cars Rental is top1, but top2 is not available.");
+      return buildNoopRecommendation(base, "MM Cars Rental jest top1, ale oferta top2 nie jest dostepna.");
     }
 
     const gap = top2Rate - mmRate;
-    if (gap < options.top1GapThresholdPlnDay) {
+    if (gap <= options.top1GapThresholdPlnDay) {
       return buildNoopRecommendation(
         base,
-        `MM Cars Rental is top1, but the top2 gap is below ${options.top1GapThresholdPlnDay} PLN/day.`
+        `MM Cars Rental jest top1, ale roznica do top2 nie przekracza ${options.top1GapThresholdPlnDay} PLN/dzien.`
       );
     }
 
     const target = roundRate(top2Rate - options.top1RaiseBufferPlnDay, options);
     const change = target - mmRate;
     if (change < options.minChangePlnDay) {
-      return buildNoopRecommendation(base, "Calculated increase is below the minimum change threshold.");
+      return buildNoopRecommendation(base, "Wyliczona podwyzka jest ponizej minimalnego progu zmiany.");
     }
 
     return {
       ...base,
       action: "increase",
-      reason: `MM Cars Rental is top1 and top2 is at least ${options.top1GapThresholdPlnDay} PLN/day higher.`,
+      recommendation_type: "top1_gap",
+      reason: `MM Cars Rental jest top1, a top2 jest drozszy o ponad ${options.top1GapThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top2.`,
       benchmark_provider: formatProviderName(top2),
       benchmark_rate_pln_day: Number(top2Rate.toFixed(2)),
       suggested_rate_pln_day: target,
@@ -143,16 +149,38 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     };
   }
 
+  if (mmRank === "outside_top3" && top3Rate != null) {
+    const top3Target = roundRate(top3Rate - options.undercutBufferPlnDay, options);
+    const top3Change = top3Target - mmRate;
+    if (
+      top3Change < 0 &&
+      Math.abs(top3Change) < options.top3SmallDecreaseThresholdPlnDay &&
+      Math.abs(top3Change) >= options.minChangePlnDay
+    ) {
+      return {
+        ...base,
+        action: "decrease",
+        recommendation_type: "top3_small_decrease",
+        reason: `Cel top3 wymaga roznicy mniejszej niz ${options.top3SmallDecreaseThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top3.`,
+        benchmark_provider: formatProviderName(top3),
+        benchmark_rate_pln_day: Number(top3Rate.toFixed(2)),
+        suggested_rate_pln_day: top3Target,
+        change_pln_day: Number(top3Change.toFixed(2))
+      };
+    }
+  }
+
   const target = roundRate(top1Rate - options.undercutBufferPlnDay, options);
   const change = target - mmRate;
   if (Math.abs(change) < options.minChangePlnDay) {
-    return buildNoopRecommendation(base, "MM Cars Rental is close enough to the target top1 undercut price.");
+    return buildNoopRecommendation(base, "MM Cars Rental jest wystarczajaco blisko celu wzgledem top1.");
   }
 
   return {
     ...base,
     action: change < 0 ? "decrease" : "increase",
-    reason: `MM Cars Rental is not top1; target is top1 minus ${options.undercutBufferPlnDay} PLN/day.`,
+    recommendation_type: "top1_undercut",
+    reason: `MM Cars Rental nie jest top1; cel to ${options.undercutBufferPlnDay} PLN ponizej top1.`,
     benchmark_provider: formatProviderName(top1),
     benchmark_rate_pln_day: Number(top1Rate.toFixed(2)),
     suggested_rate_pln_day: target,

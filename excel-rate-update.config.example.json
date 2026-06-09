@@ -26,6 +26,32 @@
     "ADMV": 1
   },
   "normalize_pickup_end_to_start": true,
+  "changed_positions_sheet": "Changed Positions",
+  "minimum_rates": {
+    "global_min_pln_day": 70,
+    "long_duration_min_days": 21,
+    "long_duration_min_pln_day": 100,
+    "season_start": "2026-06-25",
+    "season_end": "2026-08-31",
+    "season_duration_column_min_days": 8,
+    "season_min_pln_day": 115
+  },
+  "delta_color_scale": {
+    "max_delta_pln_day": 30,
+    "increase_light": "E2F0D9",
+    "increase_dark": "00B050",
+    "decrease_light": "F4CCCC",
+    "decrease_dark": "C00000"
+  },
+  "delta_color_steps": {
+    "thresholds_pln_day": [5, 10, 15, 20],
+    "increase": ["E2F0D9", "C6E0B4", "A9D18E", "70AD47", "00B050"],
+    "decrease": ["F4CCCC", "F8B4B4", "EA9999", "E06666", "C00000"]
+  },
+  "recommendation_colors": {
+    "top1_gap": "9DC3E6",
+    "top3_small_decrease": "FFC7CE"
+  },
   "min_excel_change_pln_day": 0.01,
   "colors": {
     "increase": "C6EFCE",

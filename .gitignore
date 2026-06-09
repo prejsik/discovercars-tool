@@ -9,10 +9,15 @@
 !README-USER.txt
 !DISCOVERCARS_README.md
 !discovercars.config.example.json
+!RENTCARS_README.md
+!rentcars.config.example.json
 !install.ps1
 !setup.bat
 !start.bat
+!start-rentcars.bat
 !run-ui.ps1
+!run-rentcars.ps1
+!run-rentcars-ui.ps1
 !run-tables.ps1
 !build-release.ps1
 

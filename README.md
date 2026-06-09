@@ -349,7 +349,7 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Nie dodaje zadnego dodatkowego arkusza, zeby plik pozostal plikiem importowym.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Glowny arkusz importowy zachowuje wszystkie pozycje, takze te bez zmian, a dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
 Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne stawek. Podczas zapisu `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
@@ -367,11 +367,22 @@ python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommen
 
 Kolory w Excelu:
 
-- zielony - cena podniesiona,
-- czerwony - cena obnizona,
-- zmieniona komorka ma komentarz ze stara cena, nowa cena, roznica, powodem, lokalizacja, zone, data i duration.
+- zielony w glownym arkuszu - cena podniesiona; im mocniejszy zielony, tym wieksza dodatnia zmiana PLN/dzien,
+- czerwony w glownym arkuszu - cena obnizona; im mocniejszy czerwony, tym wieksza ujemna zmiana PLN/dzien,
+- zmieniona komorka w glownym arkuszu ma krotki komentarz: poprzednia stawka, nowa stawka i zmiana w PLN,
+- arkusz `Changed Positions` ma u gory legende kolorow i kopiuje tylko zmienione pozycje,
+- podobne zmiany dla wielu grup sa laczone w jednym wierszu, a grupy sa wypisane razem w kolumnie `A`,
+- kolumna `O` w `Changed Positions` zawiera wyjasnienie proponowanej zmiany ceny, w tym efekt typu top1/top2/top3, bez lokalizacji, daty odbioru, duration i korekty grupy; pozostale komorki w tym arkuszu nie dostaja komentarzy.
+- w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o ponad `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
+- w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: cel top3 wymaga roznicy mniejszej niz `10 PLN/dzien`; cel jest `1 PLN` ponizej top3.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Grupy `EDAH` oraz `ADMV` dostaja stawke o `1 PLN/day` wyzsza niz pozostale zmieniane grupy. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+Minimalne stawki przy aktualizacji Excela:
+
+- globalnie stawka nie spada ponizej `70 PLN brutto/dzien`,
+- dla duration od `21` dni (kolumna N) stawka nie spada ponizej `100 PLN brutto/dzien`,
+- od `2026-06-25` do `2026-08-31` dla kolumn od `8` dni (M oraz N) stawka nie spada ponizej `115 PLN brutto/dzien`.
+
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Grupy `EDAH` oraz `ADMV` dostaja stawke o `1 PLN/dzien` wyzsza niz pozostale zmieniane grupy. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 
 W trybie konsolowym:
 
@@ -381,7 +392,7 @@ W trybie konsolowym:
 - ceny w tabelach sa pokazywane jako stawki dobowe (`*_daily_rate`), liczone z `total_price / rental_days`,
 - `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_daily_rate`.
 - `MM Cars Rental` ma czerwone podswietlenie, gdy jest drozsze maksymalnie o `10 PLN` na dobe od konkurenta na wyzszym miejscu.
-- `MM Cars Rental` ma niebieskie podswietlenie, gdy jest w `top1`, a `top2` jest drozsze o co najmniej `10 PLN` na dobe.
+- `MM Cars Rental` ma niebieskie podswietlenie, gdy jest w `top1`, a `top2` jest drozsze o ponad `5 PLN` na dobe.
 
 Kazdy rekord sukcesu zawiera:
 

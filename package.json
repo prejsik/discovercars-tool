@@ -6,8 +6,11 @@
   "scripts": {
     "start": "node src/index.js",
     "discovercars": "node src/index.js",
+    "rentcars": "node src/rentcars/cli.js --config rentcars.config.example.json",
+    "rentcars:json": "node src/rentcars/run.js --config rentcars.config.example.json --save=output/rentcars-results-latest.json",
+    "rentcars:report": "node src/rentcars/reportHtml.js output/rentcars-results-latest.json output/rentcars-report.html",
     "report": "node src/reportHtml.js output/results-latest.json output/report.html",
-    "test": "node src/index.js --json --locations=Warsaw",
+    "test": "node tests/run-discovercars-tests.js && node tests/run-rentcars-tests.js",
     "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File build-release.ps1"
   },
   "dependencies": {
