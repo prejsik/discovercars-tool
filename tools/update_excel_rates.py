@@ -13,7 +13,8 @@ from typing import Any
 
 try:
     import openpyxl
-    from openpyxl.styles import Font, PatternFill
+    from openpyxl.comments import Comment
+    from openpyxl.styles import PatternFill
 except ImportError as exc:  # pragma: no cover - runtime environment guard
     raise SystemExit("Missing dependency: openpyxl. Install it with: pip install openpyxl") from exc
 
@@ -40,8 +41,6 @@ DEFAULT_CONFIG = {
     },
     "normalize_pickup_end_to_start": True,
     "min_excel_change_pln_day": 0.01,
-    "change_log_sheet": "Change Log",
-    "replace_change_log": True,
     "colors": {
         "increase": "C6EFCE",
         "decrease": "FFC7CE",
@@ -184,6 +183,30 @@ def classify_actual_action(old_rate: float | None, new_rate: float, fallback_act
     return "hold"
 
 
+def format_rate_for_comment(value: float | None) -> str:
+    if value is None:
+        return "blank"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.2f}"
+
+
+def build_rate_comment(change: dict[str, Any]) -> Comment:
+    lines = [
+        f"Previous rate: {format_rate_for_comment(change.get('old_rate'))} PLN/day",
+        f"New rate: {format_rate_for_comment(change.get('new_rate'))} PLN/day",
+        f"Delta: {format_rate_for_comment(change.get('delta'))} PLN/day",
+        f"Reason: {change.get('reason', '')}",
+        f"Location/zone: {change.get('location', '')} / {change.get('zone', '')}",
+        f"Pickup date: {change.get('pickup_date', '')}",
+        f"Duration: {change.get('duration_band', '')} day(s)",
+    ]
+    adjustment = change.get("group_adjustment_pln_day")
+    if adjustment:
+        lines.append(f"Group adjustment: +{format_rate_for_comment(adjustment)} PLN/day")
+    return Comment("\n".join(lines), "Codex")
+
+
 def build_targets(
     recommendations: list[dict[str, Any]],
     duration_columns: dict[int, tuple[int, str]],
@@ -318,11 +341,7 @@ def apply_updates(
                 continue
 
             actual_action = classify_actual_action(old_rate, new_rate, str(target["action"]))
-            if not dry_run:
-                cell.value = int(new_rate) if float(new_rate).is_integer() else round(new_rate, 2)
-                cell.fill = fills.get(actual_action, fills.get("hold", PatternFill()))
-
-            changes.append({
+            change = {
                 "action": actual_action,
                 "recommendation_action": target["action"],
                 "reason": target.get("reason", ""),
@@ -341,10 +360,16 @@ def apply_updates(
                 "benchmark_provider": target.get("benchmark_provider", ""),
                 "benchmark_rate": target.get("benchmark_rate_pln_day"),
                 "scenario_id": target.get("scenario_id", ""),
-            })
+            }
+
+            if not dry_run:
+                cell.value = int(new_rate) if float(new_rate).is_integer() else round(new_rate, 2)
+                cell.fill = fills.get(actual_action, fills.get("hold", PatternFill()))
+                cell.comment = build_rate_comment(change)
+
+            changes.append(change)
 
     if not dry_run:
-        write_change_log(workbook, config, changes, skipped_targets)
         if output_path is None:
             raise ValueError("Output path is required unless --dry-run is used.")
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -359,55 +384,6 @@ def apply_updates(
         "skipped_target_count": len(skipped_targets),
         "changes": changes[:100],
     }
-
-
-def write_change_log(workbook: Any, config: dict[str, Any], changes: list[dict[str, Any]], skipped: list[dict[str, Any]]) -> None:
-    sheet_name = config.get("change_log_sheet") or "Change Log"
-    if sheet_name in workbook.sheetnames and config.get("replace_change_log", True):
-        workbook.remove(workbook[sheet_name])
-    ws = workbook.create_sheet(sheet_name)
-
-    headers = [
-        "action",
-        "recommendation_action",
-        "reason",
-        "location",
-        "zone",
-        "group",
-        "pickup_date",
-        "duration_days",
-        "duration_band",
-        "cell",
-        "old_rate",
-        "new_rate",
-        "delta",
-        "group_adjustment_pln_day",
-        "mm_rate",
-        "benchmark_provider",
-        "benchmark_rate",
-        "scenario_id",
-    ]
-    ws.append(headers)
-    for change in changes:
-        ws.append([change.get(header) for header in headers])
-
-    if skipped:
-        ws.append([])
-        ws.append(["Skipped targets"])
-        skipped_headers = ["location", "scenario_id", "rental_days", "suggested_rate_pln_day", "skip_reason"]
-        ws.append(skipped_headers)
-        for item in skipped:
-            ws.append([item.get(header) for header in skipped_headers])
-
-    header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
-    header_font = Font(color="FFFFFF", bold=True)
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-    ws.freeze_panes = "A2"
-    for col in range(1, len(headers) + 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
-    ws.column_dimensions["B"].width = 64
 
 
 def parse_args() -> argparse.Namespace:

@@ -349,7 +349,7 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami oraz arkuszem `Change Log`.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Nie dodaje zadnego dodatkowego arkusza, zeby plik pozostal plikiem importowym.
 Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne stawek. Podczas zapisu `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
@@ -369,7 +369,7 @@ Kolory w Excelu:
 
 - zielony - cena podniesiona,
 - czerwony - cena obnizona,
-- arkusz `Change Log` zawiera stara cene, nowa cene, roznice, powod, lokalizacje, zone, group, date i duration.
+- zmieniona komorka ma komentarz ze stara cena, nowa cena, roznica, powodem, lokalizacja, zone, data i duration.
 
 Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Grupy `EDAH` oraz `ADMV` dostaja stawke o `1 PLN/day` wyzsza niz pozostale zmieniane grupy. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 

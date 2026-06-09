@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import openpyxl
+from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -45,6 +46,7 @@ def build_workbook(path):
     ]
     for row in rows:
         ws.append(row)
+    ws["A4"].fill = PatternFill(fill_type="solid", fgColor="1F4E78")
     workbook.save(path)
 
 
@@ -97,6 +99,8 @@ def main():
         assert_equal(summary["normalized_pickup_end_count"], 5, "normalized_pickup_end_count")
         updated = openpyxl.load_workbook(output_path)
         ws = updated["Sheet1"]
+        assert_equal(updated.sheetnames, ["Sheet1"], "workbook sheets")
+        assert str(ws["A4"].fill.fgColor.rgb).endswith("1F4E78")
         assert_equal(ws["J5"].value, 80, "updated rate")
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
         assert_equal(ws["J7"].value, 81, "EDAH adjusted rate")
@@ -107,9 +111,14 @@ def main():
         assert str(ws["J5"].fill.fgColor.rgb).endswith("C6EFCE")
         assert str(ws["J7"].fill.fgColor.rgb).endswith("C6EFCE")
         assert str(ws["J8"].fill.fgColor.rgb).endswith("C6EFCE")
-        assert "Change Log" in updated.sheetnames
-        assert_equal(updated["Change Log"]["A2"].value, "increase", "change log action")
-        assert_equal(updated["Change Log"]["N3"].value, 1, "EDAH group adjustment")
+        assert ws["J5"].comment is not None
+        assert "Previous rate: 70 PLN/day" in ws["J5"].comment.text
+        assert "New rate: 80 PLN/day" in ws["J5"].comment.text
+        assert ws["J7"].comment is not None
+        assert "Previous rate: 70 PLN/day" in ws["J7"].comment.text
+        assert "New rate: 81 PLN/day" in ws["J7"].comment.text
+        assert "Group adjustment: +1 PLN/day" in ws["J7"].comment.text
+        assert ws["J6"].comment is None
 
     print("All Excel rate updater tests passed.")
 
