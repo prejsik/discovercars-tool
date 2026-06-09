@@ -26,6 +26,24 @@ def rgb(cell):
     return str(cell.fill.fgColor.rgb)[-6:]
 
 
+def header_rows_snapshot(ws, rows=4):
+    return {
+        "row_heights": [ws.row_dimensions[row].height for row in range(1, rows + 1)],
+        "merged_ranges": sorted(str(item) for item in ws.merged_cells.ranges),
+        "cells": [
+            [
+                (
+                    ws.cell(row, col).value,
+                    str(ws.cell(row, col)._style),
+                    ws.cell(row, col).number_format,
+                )
+                for col in range(1, ws.max_column + 1)
+            ]
+            for row in range(1, rows + 1)
+        ],
+    }
+
+
 def build_workbook(path):
     workbook = openpyxl.Workbook()
     ws = workbook.active
@@ -227,6 +245,47 @@ def main():
         changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
+
+        real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
+        real_recommendations_path = tmpdir / "real-recommendations.json"
+        real_output_path = tmpdir / "real-rates-updated.xlsx"
+        real_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "decrease",
+                            "recommendation_type": "top1_undercut",
+                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "location": "Krakow",
+                            "start_date": "2026-06-11",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 80,
+                            "mm_rate_pln_day": 121,
+                            "benchmark_provider": "Car24",
+                            "benchmark_rate_pln_day": 81,
+                            "scenario_id": "real-template-2026-06-11-2",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        real_before = openpyxl.load_workbook(real_workbook_path)
+        before_snapshot = header_rows_snapshot(real_before["Sheet1"])
+        real_summary = apply_updates(
+            workbook_path=real_workbook_path,
+            recommendations_path=real_recommendations_path,
+            output_path=real_output_path,
+            config=merge_config({"location_zones": {"Krakow": ["KRDW", "KRGA", "KRLO", "KRTI"]}}),
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert real_summary["change_count"] > 0
+        real_after = openpyxl.load_workbook(real_output_path)
+        after_snapshot = header_rows_snapshot(real_after["Sheet1"])
+        assert_equal(after_snapshot, before_snapshot, "Sheet1 rows 1-4 values and formatting")
 
     print("All Excel rate updater tests passed.")
 

@@ -20,6 +20,8 @@
 !run-rentcars-ui.ps1
 !run-tables.ps1
 !build-release.ps1
+!input/
+!input/mm-cars-rental-rates-inclusive-fp.xlsx
 
 !.github/
 !.github/workflows/

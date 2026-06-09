@@ -6,8 +6,11 @@ on:
       - main
     paths:
       - ".github/workflows/discovercars-daily.yml"
+      - "excel-rate-update.config.example.json"
+      - "input/**"
       - "pricing-rules.config.example.json"
       - "src/**"
+      - "tools/update_excel_rates.py"
       - "package.json"
       - "package-lock.json"
   # GitHub cron uses UTC. These two entries run away from the busy top of the
@@ -130,6 +133,16 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
 
+      - name: Setup Python
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: python -m pip install "openpyxl>=3.1,<4"
+
       - name: Resolve run options
         if: steps.gate.outputs.should_run == 'true'
         id: options
@@ -212,6 +225,21 @@ jobs:
             echo "::warning::DiscoverCars JSON output is missing; pricing recommendations skipped."
           fi
 
+      - name: Generate Excel import workbook
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          if [[ -f output/pricing-recommendations.json ]]; then
+            python tools/update_excel_rates.py \
+              --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
+              --recommendations output/pricing-recommendations.json \
+              --config excel-rate-update.config.example.json \
+              --output output/rates-updated.xlsx \
+              | tee output/excel-rate-update-summary.json
+          else
+            echo "::warning::Pricing recommendations are missing; Excel import workbook skipped."
+          fi
+
       - name: Check GitHub Pages status
         id: pages-status
         if: steps.gate.outputs.should_run == 'true'
@@ -280,9 +308,23 @@ jobs:
           path: |
             output/results-latest.json
             output/pricing-recommendations.json
+            output/rates-updated.xlsx
+            output/excel-rate-update-summary.json
             output/report.html
             output/run-log.txt
             output/state.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Excel import workbook
+        id: upload-excel
+        if: steps.gate.outputs.should_run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-excel-import-${{ github.run_number }}
+          path: |
+            output/rates-updated.xlsx
+            output/excel-rate-update-summary.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -294,6 +336,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PAGE_URL: ${{ steps.pages-deployment.outputs.page_url || steps.pages-status.outputs.page_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
+          EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
@@ -301,10 +344,15 @@ jobs:
             exit 0
           fi
 
+          excel_section=""
+          if [[ -n "$EXCEL_ARTIFACT_URL" ]]; then
+            excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
+          fi
+
           if [[ -n "$PAGE_URL" ]]; then
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nRaport:\n%s\n\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$PAGE_URL" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nRaport:\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$PAGE_URL" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           else
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           fi
 
           if ! curl --fail --show-error --silent \

@@ -59,8 +59,8 @@ Jak dziala:
 - uruchamia scraper codziennie okolo `01:17` czasu `Europe/Warsaw`,
 - GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`23:17` i `00:17 UTC`) oraz bramke, ktora realnie puszcza tylko ten trigger, ktory odpowiada porankowi w Warszawie,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
-- uruchamia maly test smoke po pushu zmian w workflow, `src/` albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `run-log.txt`, opcjonalnie `state.json`.
+- uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `rates-updated.xlsx`, `run-log.txt`, opcjonalnie `state.json`.
 - publikuje najnowszy `report.html` na GitHub Pages jako staly link do ostatnich wynikow.
 
 Domyslny zakres w chmurze:
@@ -84,6 +84,9 @@ Pliki w artifact:
 
 - `report.html` - najlepszy do ogladania wynikow, ma kolorowe tabele jak lokalna konsola,
 - `results-latest.json` - dane techniczne do dalszego przetwarzania,
+- `pricing-recommendations.json` - rekomendacje stawek wygenerowane z wynikow scrapera,
+- `rates-updated.xlsx` - gotowy plik importowy stawek wygenerowany z bazowego workbooka `input/mm-cars-rental-rates-inclusive-fp.xlsx`,
+- `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
 
@@ -101,7 +104,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z linkiem do raportu na GitHub Pages, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego uzycia; link do artifactu dziala dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z linkiem do raportu na GitHub Pages, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -349,7 +352,7 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Glowny arkusz importowy zachowuje wszystkie pozycje, takze te bez zmian, a dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy zachowuje wszystkie pozycje, takze te bez zmian, oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
 Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne stawek. Podczas zapisu `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
