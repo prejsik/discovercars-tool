@@ -47,7 +47,7 @@ DEFAULT_CONFIG = {
     "pickup_date_expansion": {
         "enabled": False,
         "start_date": "today",
-        "end_date": "2026-08-31",
+        "end_date": "2027-01-31",
         "time_zone": "Europe/Warsaw",
     },
     "changed_positions_sheet": "Changed Positions",
@@ -679,7 +679,7 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
 
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
-    end_date = resolve_config_date(settings.get("end_date", "2026-08-31"), time_zone)
+    end_date = resolve_config_date(settings.get("end_date", "2027-01-31"), time_zone)
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     group_col = int(columns["group"])
