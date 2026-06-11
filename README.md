@@ -352,8 +352,8 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2026-08-31` oraz duration `1..10`, zachowuje takze pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
-Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a przy rozwinietych datach takze po duration wyliczonym z `Pickup end date - Pickup start date`; `Pickup end date` jest wtedy ustawiany jako `Pickup start date + duration`.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2026-08-31`, zachowuje rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
+Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
 Najpierw uruchom dry-run:

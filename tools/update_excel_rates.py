@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "columns": {
         "group": 1,
         "zone": 4,
+        "booking_end_date": 6,
         "pickup_start_date": 7,
         "pickup_end_date": 8,
         "rate_start": 9,
@@ -47,7 +48,6 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "start_date": "today",
         "end_date": "2026-08-31",
-        "duration_days": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "time_zone": "Europe/Warsaw",
     },
     "changed_positions_sheet": "Changed Positions",
@@ -672,24 +672,6 @@ def write_row_snapshot(ws: Any, row: int, snapshot: dict[str, Any]) -> None:
             cell._hyperlink = copy(cell_snapshot["hyperlink"])
 
 
-def get_expansion_duration_days(raw_durations: Any) -> list[int]:
-    durations: list[int] = []
-    seen: set[int] = set()
-    for raw_duration in raw_durations or []:
-        parsed = parse_number(raw_duration)
-        if parsed is None:
-            continue
-        duration = int(parsed)
-        if duration <= 0 or duration in seen:
-            continue
-        seen.add(duration)
-        durations.append(duration)
-
-    if not durations:
-        raise ValueError("pickup_date_expansion.duration_days must contain at least one positive duration.")
-    return durations
-
-
 def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("pickup_date_expansion") or {}
     if not settings.get("enabled"):
@@ -698,7 +680,6 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
     end_date = resolve_config_date(settings.get("end_date", "2026-08-31"), time_zone)
-    duration_days = get_expansion_duration_days(settings.get("duration_days", []))
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     group_col = int(columns["group"])
@@ -726,28 +707,25 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             continue
         source_rows.append((snapshot_row(ws, row, max_col), clipped_start, clipped_end))
 
-    expanded_rows: list[tuple[dict[str, Any], date, int]] = []
+    expanded_rows: list[tuple[dict[str, Any], date]] = []
     for row_snapshot, clipped_start, clipped_end in source_rows:
         for pickup_date in iter_dates_inclusive(clipped_start, clipped_end):
-            for duration in duration_days:
-                expanded_rows.append((row_snapshot, pickup_date, duration))
+            expanded_rows.append((row_snapshot, pickup_date))
 
     if ws.max_row >= data_start_row:
         ws.delete_rows(data_start_row, ws.max_row - data_start_row + 1)
 
-    for row_index, (row_snapshot, pickup_date, duration) in enumerate(expanded_rows, start=data_start_row):
+    for row_index, (row_snapshot, pickup_date) in enumerate(expanded_rows, start=data_start_row):
         write_row_snapshot(ws, row_index, row_snapshot)
-        pickup_end = pickup_date + timedelta(days=duration)
         start_template = row_snapshot["cells"][pickup_start_col - 1]["value"]
         end_template = row_snapshot["cells"][pickup_end_col - 1]["value"]
         ws.cell(row_index, pickup_start_col).value = format_pickup_date_like_template(pickup_date, start_template)
-        ws.cell(row_index, pickup_end_col).value = format_pickup_date_like_template(pickup_end, end_template)
+        ws.cell(row_index, pickup_end_col).value = format_pickup_date_like_template(pickup_date, end_template)
 
     return {
         "enabled": True,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "duration_days": duration_days,
         "source_row_count": len(source_rows),
         "expanded_row_count": len(expanded_rows),
     }
@@ -802,6 +780,25 @@ def maybe_normalize_pickup_end_date(ws: Any, row: int, columns: dict[str, Any], 
     return True
 
 
+def maybe_sync_booking_end_to_pickup_end(ws: Any, row: int, columns: dict[str, Any], dry_run: bool) -> bool:
+    booking_end_col = columns.get("booking_end_date")
+    pickup_end_col = columns.get("pickup_end_date")
+    if not booking_end_col or not pickup_end_col:
+        return False
+
+    booking_end_cell = ws.cell(row, int(booking_end_col))
+    pickup_end_cell = ws.cell(row, int(pickup_end_col))
+    if pickup_end_cell.value in (None, ""):
+        return False
+    if booking_end_cell.value == pickup_end_cell.value:
+        return False
+
+    if not dry_run:
+        booking_end_cell.value = pickup_end_cell.value
+        booking_end_cell.number_format = pickup_end_cell.number_format
+    return True
+
+
 def apply_updates(
     workbook_path: Path,
     recommendations_path: Path,
@@ -820,7 +817,7 @@ def apply_updates(
     ws = workbook[sheet_name]
 
     expansion_summary = expand_pickup_date_rows(ws, config)
-    match_pickup_end_duration = bool(expansion_summary.get("enabled"))
+    match_pickup_end_duration = False
     duration_columns = get_duration_columns(ws, config)
     targets, skipped_targets = build_targets(recommendations, duration_columns, config)
     columns = config["columns"]
@@ -828,11 +825,14 @@ def apply_updates(
     min_change = float(config.get("min_excel_change_pln_day", 0.01))
     changes: list[dict[str, Any]] = []
     normalized_pickup_end_count = 0
+    synced_booking_end_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
             if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
                 normalized_pickup_end_count += 1
+        if maybe_sync_booking_end_to_pickup_end(ws, row, columns, dry_run):
+            synced_booking_end_count += 1
 
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
         if zone not in targets:
@@ -915,6 +915,7 @@ def apply_updates(
         "dry_run": dry_run,
         "change_count": len(changes),
         "normalized_pickup_end_count": normalized_pickup_end_count,
+        "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
         "skipped_target_count": len(skipped_targets),
         "changes": changes[:100],

@@ -199,6 +199,7 @@ def main():
 
         assert_equal(summary["change_count"], 10, "change_count")
         assert_equal(summary["normalized_pickup_end_count"], 9, "normalized_pickup_end_count")
+        assert_equal(summary["synced_booking_end_count"], 4, "synced_booking_end_count")
         updated = openpyxl.load_workbook(output_path)
         ws = updated["Sheet1"]
         changed_ws = updated["Changed Positions"]
@@ -218,6 +219,8 @@ def main():
         assert_equal(ws["M13"].value, 116, "seasonal duration minimum with EDAH adjustment")
         assert_equal(ws["H5"].value, ws["G5"].value, "pickup end normalized for CDMV")
         assert_equal(ws["H6"].value, ws["G6"].value, "pickup end normalized for excluded CGAV")
+        for row in range(5, 14):
+            assert_equal(ws.cell(row, 6).value, ws.cell(row, 8).value, f"booking end equals pickup end in row {row}")
         assert_not_equal(rgb(ws["J5"]), "C6EFCE", "increase color uses dynamic scale")
         assert_equal(rgb(ws["J5"]), "A9D18E", "increase color uses a stepped green scale")
         assert_not_equal(rgb(ws["J10"]), rgb(ws["M12"]), "larger decrease uses a stronger red")
@@ -382,7 +385,6 @@ def main():
                         "enabled": True,
                         "start_date": "2026-06-11",
                         "end_date": "2026-06-12",
-                        "duration_days": [1, 2],
                         "time_zone": "Europe/Warsaw",
                     },
                 }
@@ -391,22 +393,25 @@ def main():
             dry_run=False,
         )
         assert_equal(expansion_summary["pickup_date_expansion"]["source_row_count"], 1, "expanded source row count")
-        assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 4, "expanded row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 2, "expanded row count")
         assert_equal(expansion_summary["normalized_pickup_end_count"], 0, "expansion disables pickup end normalization")
+        assert_equal(expansion_summary["synced_booking_end_count"], 2, "expanded booking end sync count")
         assert_equal(expansion_summary["change_count"], 2, "expanded duration-specific change count")
         expansion_updated = openpyxl.load_workbook(expansion_output_path)
         expansion_ws = expansion_updated["Sheet1"]
         expansion_after_snapshot = header_rows_snapshot(expansion_ws)
         assert_equal(expansion_after_snapshot, expansion_before_snapshot, "expanded Sheet1 rows 1-4 values and formatting")
-        assert_equal(expansion_ws.max_row, 8, "expanded Sheet1 row count")
+        assert_equal(expansion_ws.max_row, 6, "expanded Sheet1 row count")
         assert_equal(expansion_ws["G5"].value, "11-06-26", "first expanded pickup date")
-        assert_equal(expansion_ws["H5"].value, "12-06-26", "duration 1 pickup end")
-        assert_equal(expansion_ws["G6"].value, "11-06-26", "second expanded pickup date")
-        assert_equal(expansion_ws["H6"].value, "13-06-26", "duration 2 pickup end")
+        assert_equal(expansion_ws["H5"].value, "11-06-26", "first expanded pickup end")
+        assert_equal(expansion_ws["F5"].value, expansion_ws["H5"].value, "first expanded booking end")
+        assert_equal(expansion_ws["G6"].value, "12-06-26", "second expanded pickup date")
+        assert_equal(expansion_ws["H6"].value, "12-06-26", "second expanded pickup end")
+        assert_equal(expansion_ws["F6"].value, expansion_ws["H6"].value, "unchanged date booking end")
         assert_equal(expansion_ws["I5"].value, 75, "duration 1 rate update")
-        assert_equal(expansion_ws["J5"].value, 70, "duration 2 rate does not update duration 1 row")
-        assert_equal(expansion_ws["I6"].value, 160, "duration 1 rate does not update duration 2 row")
-        assert_equal(expansion_ws["J6"].value, 81, "duration 2 rate update")
+        assert_equal(expansion_ws["J5"].value, 81, "duration 2 rate update on the same pickup date row")
+        assert_equal(expansion_ws["I6"].value, 160, "duration 1 rate does not update a different pickup date")
+        assert_equal(expansion_ws["J6"].value, 70, "duration 2 rate does not update a different pickup date")
 
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
         real_recommendations_path = tmpdir / "real-recommendations.json"
