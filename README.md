@@ -4,7 +4,7 @@ Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 
 - oblicza dynamicznie zakresy dat w strefie `Europe/Warsaw`:
   - domyslnie: start najmu od jutra, a potem kazdego kolejnego dnia przez 30 dni,
-  - dla kazdego startu: domyslnie wynajem na 2..10 dni, z opcja wyboru do 20 dni,
+  - dla kazdego startu: domyslnie wynajem na 1..10 dni, z opcja wyboru do 20 dni,
 - szuka ofert na `https://www.discovercars.com/` dla lokalizacji `Warsaw`, `Krakow`, `Gdansk`, `Katowice`, `Wroclaw`, `Poznan`,
 - priorytetowo wyciaga oferty z odpowiedzi sieciowych JSON/API (backend DiscoverCars),
 - ma fallback do parsowania DOM, jesli payloady sieciowe nie zawieraja kompletnych danych,
@@ -44,7 +44,7 @@ npx playwright install chromium
 
 ## Uruchomienie
 
-Podstawowe uruchomienie (rolling, jutro + 30 dni, domyslnie 2..10 dni):
+Podstawowe uruchomienie (rolling, jutro + 30 dni, domyslnie 1..10 dni):
 
 ```powershell
 node src/index.js
@@ -67,7 +67,7 @@ Domyslny zakres w chmurze:
 
 - `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
 - `rolling_days`: `30`
-- `durations`: `2,3,4,5,6,7,8,9,10`
+- `durations`: `1,2,3,4,5,6,7,8,9,10`
 - `speed_mode`: `fast`
 
 Jak przetestowac recznie:
@@ -164,7 +164,7 @@ node src/index.js --locations=Warsaw,Krakow
 Przyklad rolling z jawna konfiguracja:
 
 ```powershell
-node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=2,3,4,5,6,7,8,9,10
+node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10
 ```
 
 Tryb weekday (kompatybilny ze starym sposobem):
@@ -316,13 +316,13 @@ Aby przyspieszyc jeszcze bardziej:
 Przyklad szybki (z zachowaniem tych samych tabel):
 
 ```powershell
-node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --retries=1 --scenario-concurrency=auto --location-concurrency=auto --timeout=auto --direct-candidate-limit=2 --direct-offers-wait=6000
+node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --retries=1 --scenario-concurrency=auto --location-concurrency=auto --timeout=auto --direct-candidate-limit=2 --direct-offers-wait=6000
 ```
 
 Ten sam zakres w szybkim profilu:
 
 ```powershell
-node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --speed-mode=fast
+node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --speed-mode=fast
 ```
 
 ## Co zwraca skrypt
@@ -352,8 +352,8 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy zachowuje wszystkie pozycje, takze te bez zmian, oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
-Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne stawek. Podczas zapisu `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2026-08-31` oraz duration `1..10`, zachowuje takze pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
+Booking date jest ignorowany. Dopasowanie odbywa sie po `Pickup start date`, a przy rozwinietych datach takze po duration wyliczonym z `Pickup end date - Pickup start date`; `Pickup end date` jest wtedy ustawiany jako `Pickup start date + duration`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
 Najpierw uruchom dry-run:
@@ -374,7 +374,7 @@ Kolory w Excelu:
 - czerwony w glownym arkuszu - cena obnizona; im mocniejszy czerwony, tym wieksza ujemna zmiana PLN/dzien,
 - zmieniona komorka w glownym arkuszu ma krotki komentarz: poprzednia stawka, nowa stawka i zmiana w PLN,
 - arkusz `Changed Positions` ma u gory legende kolorow i kopiuje tylko zmienione pozycje,
-- podobne zmiany dla wielu grup sa laczone w jednym wierszu, a grupy sa wypisane razem w kolumnie `A`,
+- podobne zmiany dla wielu grup sa laczone w jednym wierszu, a grupy sa wypisane razem w kolumnie `A`; identyczne kwoty w kolumnach stawek i komentarzu sa pokazywane tylko raz,
 - kolumna `O` w `Changed Positions` zawiera wyjasnienie proponowanej zmiany ceny, w tym efekt typu top1/top2/top3, bez lokalizacji, daty odbioru, duration i korekty grupy; pozostale komorki w tym arkuszu nie dostaja komentarzy.
 - w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o ponad `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
 - w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: cel top3 wymaga roznicy mniejszej niz `10 PLN/dzien`; cel jest `1 PLN` ponizej top3.
@@ -418,7 +418,7 @@ Daty sa liczone dynamicznie (bez hardcode):
 - domyslnie:
   - pierwszy `pickup`: jutro o `10:00`,
   - kolejne pickupy: kazdego nastepnego dnia przez 30 dni,
-  - `rental_days`: domyslnie 2..10 dla kazdego startu, opcjonalnie do 20 dni
+  - `rental_days`: domyslnie 1..10 dla kazdego startu, opcjonalnie do 20 dni
 - opcjonalnie (tryb weekday): start wg dnia tygodnia (`--scenario-mode=weekday --start-day=...`)
 - `rental_days` jest liczone na podstawie roznicy dat
 

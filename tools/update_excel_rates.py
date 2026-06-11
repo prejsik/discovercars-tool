@@ -8,9 +8,10 @@ import json
 import math
 from collections import defaultdict
 from copy import copy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+from zoneinfo import ZoneInfo
 
 try:
     import openpyxl
@@ -42,6 +43,13 @@ DEFAULT_CONFIG = {
         "ADMV": 1,
     },
     "normalize_pickup_end_to_start": True,
+    "pickup_date_expansion": {
+        "enabled": False,
+        "start_date": "today",
+        "end_date": "2026-08-31",
+        "duration_days": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "time_zone": "Europe/Warsaw",
+    },
     "changed_positions_sheet": "Changed Positions",
     "minimum_rates": {
         "global_min_pln_day": 70,
@@ -114,6 +122,32 @@ def parse_date_value(value: Any) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def resolve_config_date(value: Any, time_zone: str) -> date:
+    text = str(value or "today").strip().lower()
+    if text == "today":
+        return datetime.now(ZoneInfo(time_zone)).date()
+
+    parsed = parse_date_value(value)
+    if parsed is None:
+        raise ValueError(f"Invalid pickup date expansion date: {value!r}")
+    return parsed
+
+
+def iter_dates_inclusive(start_date: date, end_date: date) -> Iterator[date]:
+    current = start_date
+    while current <= end_date:
+        yield current
+        current += timedelta(days=1)
+
+
+def format_pickup_date_like_template(value: date, template_value: Any) -> Any:
+    if isinstance(template_value, datetime):
+        return datetime.combine(value, template_value.time())
+    if isinstance(template_value, date):
+        return value
+    return value.strftime("%d-%m-%y")
 
 
 def parse_number(value: Any) -> float | None:
@@ -370,18 +404,37 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
     return Comment("\n".join(lines), "Codex")
 
 
+def unique_display_values(changes: list[dict[str, Any]], field: str) -> list[tuple[Any, str]]:
+    output: list[tuple[Any, str]] = []
+    seen: set[str] = set()
+    for change in get_display_changes_for_changed_positions(changes):
+        raw_value = change.get(field)
+        display_value = f"{format_rate_for_comment(raw_value)} PLN"
+        if display_value in seen:
+            continue
+        seen.add(display_value)
+        output.append((raw_value, display_value))
+    return output
+
+
+def unique_delta_values(changes: list[dict[str, Any]]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for change in get_display_changes_for_changed_positions(changes):
+        display_value = f"{format_delta_for_comment(change.get('delta'))} PLN"
+        if display_value in seen:
+            continue
+        seen.add(display_value)
+        output.append(display_value)
+    return output
+
+
 def format_grouped_rates(changes: list[dict[str, Any]], field: str) -> str:
-    display_changes = get_display_changes_for_changed_positions(changes)
-    if len(display_changes) == 1:
-        return f"{format_rate_for_comment(display_changes[0].get(field))} PLN"
-    return "; ".join(f"{format_rate_for_comment(change.get(field))} PLN" for change in display_changes)
+    return "; ".join(display_value for _, display_value in unique_display_values(changes, field))
 
 
 def format_grouped_deltas(changes: list[dict[str, Any]]) -> str:
-    display_changes = get_display_changes_for_changed_positions(changes)
-    if len(display_changes) == 1:
-        return f"{format_delta_for_comment(display_changes[0].get('delta'))} PLN"
-    return "; ".join(f"{format_delta_for_comment(change.get('delta'))} PLN" for change in display_changes)
+    return "; ".join(unique_delta_values(changes))
 
 
 def get_display_changes_for_changed_positions(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -441,11 +494,11 @@ def get_strongest_delta_change(changes: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def get_grouped_rate_summary(changes: list[dict[str, Any]]) -> Any:
-    display_changes = get_display_changes_for_changed_positions(changes)
-    if len(display_changes) == 1:
-        new_rate = display_changes[0].get("new_rate")
+    values = unique_display_values(changes, "new_rate")
+    if len(values) == 1:
+        new_rate = values[0][0]
         return int(new_rate) if isinstance(new_rate, float) and float(new_rate).is_integer() else new_rate
-    return "\n".join(f"{format_rate_for_comment(change.get('new_rate'))} PLN" for change in display_changes)
+    return "\n".join(display_value for _, display_value in values)
 
 
 def copy_cell(source_cell: Any, target_cell: Any) -> None:
@@ -589,13 +642,145 @@ def build_targets(
     return targets, skipped
 
 
+def snapshot_row(ws: Any, row: int, max_col: int) -> dict[str, Any]:
+    row_dimension = ws.row_dimensions[row]
+    return {
+        "height": row_dimension.height,
+        "hidden": row_dimension.hidden,
+        "outline_level": row_dimension.outlineLevel,
+        "cells": [
+            {
+                "value": ws.cell(row, col).value,
+                "style": copy(ws.cell(row, col)._style) if ws.cell(row, col).has_style else None,
+                "hyperlink": copy(ws.cell(row, col).hyperlink) if ws.cell(row, col).hyperlink else None,
+            }
+            for col in range(1, max_col + 1)
+        ],
+    }
+
+
+def write_row_snapshot(ws: Any, row: int, snapshot: dict[str, Any]) -> None:
+    ws.row_dimensions[row].height = snapshot.get("height")
+    ws.row_dimensions[row].hidden = bool(snapshot.get("hidden"))
+    ws.row_dimensions[row].outlineLevel = int(snapshot.get("outline_level") or 0)
+    for col, cell_snapshot in enumerate(snapshot["cells"], start=1):
+        cell = ws.cell(row, col)
+        cell.value = cell_snapshot["value"]
+        if cell_snapshot["style"] is not None:
+            cell._style = copy(cell_snapshot["style"])
+        if cell_snapshot["hyperlink"]:
+            cell._hyperlink = copy(cell_snapshot["hyperlink"])
+
+
+def get_expansion_duration_days(raw_durations: Any) -> list[int]:
+    durations: list[int] = []
+    seen: set[int] = set()
+    for raw_duration in raw_durations or []:
+        parsed = parse_number(raw_duration)
+        if parsed is None:
+            continue
+        duration = int(parsed)
+        if duration <= 0 or duration in seen:
+            continue
+        seen.add(duration)
+        durations.append(duration)
+
+    if not durations:
+        raise ValueError("pickup_date_expansion.duration_days must contain at least one positive duration.")
+    return durations
+
+
+def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
+    settings = config.get("pickup_date_expansion") or {}
+    if not settings.get("enabled"):
+        return {"enabled": False, "source_row_count": 0, "expanded_row_count": 0}
+
+    time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
+    start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
+    end_date = resolve_config_date(settings.get("end_date", "2026-08-31"), time_zone)
+    duration_days = get_expansion_duration_days(settings.get("duration_days", []))
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_start_col = int(columns["pickup_start_date"])
+    pickup_end_col = int(columns["pickup_end_date"])
+    max_col = ws.max_column
+    source_rows: list[tuple[dict[str, Any], date, date]] = []
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = ws.cell(row, group_col).value
+        zone = ws.cell(row, zone_col).value
+        pickup_start = parse_date_value(ws.cell(row, pickup_start_col).value)
+        pickup_end = parse_date_value(ws.cell(row, pickup_end_col).value) or pickup_start
+        if not group and not zone and pickup_start is None:
+            continue
+        if not group or not zone or pickup_start is None:
+            continue
+        if pickup_end is None or pickup_end < pickup_start:
+            pickup_end = pickup_start
+
+        clipped_start = max(pickup_start, start_date)
+        clipped_end = min(pickup_end, end_date)
+        if clipped_start > clipped_end:
+            continue
+        source_rows.append((snapshot_row(ws, row, max_col), clipped_start, clipped_end))
+
+    expanded_rows: list[tuple[dict[str, Any], date, int]] = []
+    for row_snapshot, clipped_start, clipped_end in source_rows:
+        for pickup_date in iter_dates_inclusive(clipped_start, clipped_end):
+            for duration in duration_days:
+                expanded_rows.append((row_snapshot, pickup_date, duration))
+
+    if ws.max_row >= data_start_row:
+        ws.delete_rows(data_start_row, ws.max_row - data_start_row + 1)
+
+    for row_index, (row_snapshot, pickup_date, duration) in enumerate(expanded_rows, start=data_start_row):
+        write_row_snapshot(ws, row_index, row_snapshot)
+        pickup_end = pickup_date + timedelta(days=duration)
+        start_template = row_snapshot["cells"][pickup_start_col - 1]["value"]
+        end_template = row_snapshot["cells"][pickup_end_col - 1]["value"]
+        ws.cell(row_index, pickup_start_col).value = format_pickup_date_like_template(pickup_date, start_template)
+        ws.cell(row_index, pickup_end_col).value = format_pickup_date_like_template(pickup_end, end_template)
+
+    return {
+        "enabled": True,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "duration_days": duration_days,
+        "source_row_count": len(source_rows),
+        "expanded_row_count": len(expanded_rows),
+    }
+
+
+def get_pickup_row_duration_days(pickup_start: date | None, pickup_end: date | None) -> int | None:
+    if pickup_start is None or pickup_end is None:
+        return None
+    duration = (pickup_end - pickup_start).days
+    return duration if duration > 0 else None
+
+
 def find_targets_for_row(
     targets_by_date: dict[date, list[dict[str, Any]]],
     pickup_start: date | None,
+    pickup_end: date | None = None,
+    match_pickup_end_duration: bool = False,
 ) -> list[dict[str, Any]]:
     if pickup_start is None:
         return []
-    return targets_by_date.get(pickup_start, [])
+    row_targets = targets_by_date.get(pickup_start, [])
+    if not match_pickup_end_duration:
+        return row_targets
+
+    row_duration = get_pickup_row_duration_days(pickup_start, pickup_end)
+    if row_duration is None:
+        return []
+    return [
+        target
+        for target in row_targets
+        if int(parse_number(target.get("rental_days")) or 0) == row_duration
+    ]
+
 
 
 def maybe_normalize_pickup_end_date(ws: Any, row: int, columns: dict[str, Any], dry_run: bool) -> bool:
@@ -634,6 +819,8 @@ def apply_updates(
         raise ValueError(f"Worksheet '{sheet_name}' not found. Available sheets: {', '.join(workbook.sheetnames)}")
     ws = workbook[sheet_name]
 
+    expansion_summary = expand_pickup_date_rows(ws, config)
+    match_pickup_end_duration = bool(expansion_summary.get("enabled"))
     duration_columns = get_duration_columns(ws, config)
     targets, skipped_targets = build_targets(recommendations, duration_columns, config)
     columns = config["columns"]
@@ -643,7 +830,7 @@ def apply_updates(
     normalized_pickup_end_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
-        if config.get("normalize_pickup_end_to_start", True):
+        if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
             if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
                 normalized_pickup_end_count += 1
 
@@ -659,7 +846,13 @@ def apply_updates(
             continue
 
         pickup_start = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
-        row_targets = find_targets_for_row(targets[zone], pickup_start)
+        pickup_end = parse_date_value(ws.cell(row, int(columns["pickup_end_date"])).value)
+        row_targets = find_targets_for_row(
+            targets[zone],
+            pickup_start,
+            pickup_end,
+            match_pickup_end_duration,
+        )
         if not row_targets:
             continue
 
@@ -722,6 +915,7 @@ def apply_updates(
         "dry_run": dry_run,
         "change_count": len(changes),
         "normalized_pickup_end_count": normalized_pickup_end_count,
+        "pickup_date_expansion": expansion_summary,
         "skipped_target_count": len(skipped_targets),
         "changes": changes[:100],
     }

@@ -84,6 +84,34 @@ def build_workbook(path):
     workbook.save(path)
 
 
+def build_minimal_workbook(path, rows):
+    workbook = openpyxl.Workbook()
+    ws = workbook.active
+    ws.title = "Sheet1"
+    ws.append(["Rental rates for packages: INCLUSIVE FP"])
+    ws.append(["Min days", None, None, None, "Date format:", None, None, None, 1, 2, 3, 5, 8, 21])
+    ws.append(["Max days", None, None, None, "dd-MM-yy", None, None, None, 1, 2, 4, 7, 20, 35])
+    ws.append([
+        "Group",
+        "Description",
+        "Rate code",
+        "Zone",
+        "Booking start date",
+        "Booking end date",
+        "Pickup start date",
+        "Pickup end date",
+        "Per day",
+        "Per day",
+        "Per day",
+        "Per day",
+        "Per day",
+        "Per day",
+    ])
+    for row in rows:
+        ws.append(row)
+    workbook.save(path)
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
@@ -245,6 +273,140 @@ def main():
         changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
+
+        dedup_workbook_path = tmpdir / "dedup-rates.xlsx"
+        dedup_recommendations_path = tmpdir / "dedup-recommendations.json"
+        dedup_output_path = tmpdir / "dedup-rates-updated.xlsx"
+        build_minimal_workbook(
+            dedup_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+                ["MDMR", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+            ],
+        )
+        dedup_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "increase",
+                            "recommendation_type": "top1_gap",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "location": "Warsaw",
+                            "start_date": "2026-06-10",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 81,
+                            "mm_rate_pln_day": 70,
+                            "benchmark_provider": "Flex To Go",
+                            "benchmark_rate_pln_day": 82,
+                            "scenario_id": "dedup-2026-06-10-2",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        dedup_summary = apply_updates(
+            workbook_path=dedup_workbook_path,
+            recommendations_path=dedup_recommendations_path,
+            output_path=dedup_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(dedup_summary["change_count"], 2, "deduplicated change count")
+        dedup_updated = openpyxl.load_workbook(dedup_output_path)
+        dedup_changed_ws = dedup_updated["Changed Positions"]
+        assert_equal(dedup_changed_ws.max_row, 11, "deduplicated changed sheet row count")
+        assert_equal(dedup_changed_ws["A11"].value, "CDMV, MDMR", "deduplicated group list")
+        assert_equal(dedup_changed_ws["J11"].value, 81, "deduplicated changed rate cell")
+        assert "70 PLN; 70 PLN" not in dedup_changed_ws["O11"].value
+        assert "81 PLN; 81 PLN" not in dedup_changed_ws["O11"].value
+        assert "+11 PLN; +11 PLN" not in dedup_changed_ws["O11"].value
+
+        expansion_workbook_path = tmpdir / "expansion-rates.xlsx"
+        expansion_recommendations_path = tmpdir / "expansion-recommendations.json"
+        expansion_output_path = tmpdir / "expansion-rates-updated.xlsx"
+        build_minimal_workbook(
+            expansion_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "12-06-26", 160, 70, 80, 90, 100, 120],
+            ],
+        )
+        expansion_before = openpyxl.load_workbook(expansion_workbook_path)
+        expansion_before_snapshot = header_rows_snapshot(expansion_before["Sheet1"])
+        expansion_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "decrease",
+                            "recommendation_type": "top1_undercut",
+                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "location": "Warsaw",
+                            "start_date": "2026-06-11",
+                            "rental_days": 1,
+                            "suggested_rate_pln_day": 75,
+                            "mm_rate_pln_day": 160,
+                            "benchmark_provider": "Car24",
+                            "benchmark_rate_pln_day": 76,
+                            "scenario_id": "expansion-2026-06-11-1",
+                        },
+                        {
+                            "action": "increase",
+                            "recommendation_type": "top1_gap",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "location": "Warsaw",
+                            "start_date": "2026-06-11",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 81,
+                            "mm_rate_pln_day": 70,
+                            "benchmark_provider": "Flex To Go",
+                            "benchmark_rate_pln_day": 82,
+                            "scenario_id": "expansion-2026-06-11-2",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        expansion_summary = apply_updates(
+            workbook_path=expansion_workbook_path,
+            recommendations_path=expansion_recommendations_path,
+            output_path=expansion_output_path,
+            config=merge_config(
+                {
+                    "location_zones": {"Warsaw": ["WA1"]},
+                    "normalize_pickup_end_to_start": False,
+                    "pickup_date_expansion": {
+                        "enabled": True,
+                        "start_date": "2026-06-11",
+                        "end_date": "2026-06-12",
+                        "duration_days": [1, 2],
+                        "time_zone": "Europe/Warsaw",
+                    },
+                }
+            ),
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(expansion_summary["pickup_date_expansion"]["source_row_count"], 1, "expanded source row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 4, "expanded row count")
+        assert_equal(expansion_summary["normalized_pickup_end_count"], 0, "expansion disables pickup end normalization")
+        assert_equal(expansion_summary["change_count"], 2, "expanded duration-specific change count")
+        expansion_updated = openpyxl.load_workbook(expansion_output_path)
+        expansion_ws = expansion_updated["Sheet1"]
+        expansion_after_snapshot = header_rows_snapshot(expansion_ws)
+        assert_equal(expansion_after_snapshot, expansion_before_snapshot, "expanded Sheet1 rows 1-4 values and formatting")
+        assert_equal(expansion_ws.max_row, 8, "expanded Sheet1 row count")
+        assert_equal(expansion_ws["G5"].value, "11-06-26", "first expanded pickup date")
+        assert_equal(expansion_ws["H5"].value, "12-06-26", "duration 1 pickup end")
+        assert_equal(expansion_ws["G6"].value, "11-06-26", "second expanded pickup date")
+        assert_equal(expansion_ws["H6"].value, "13-06-26", "duration 2 pickup end")
+        assert_equal(expansion_ws["I5"].value, 75, "duration 1 rate update")
+        assert_equal(expansion_ws["J5"].value, 70, "duration 2 rate does not update duration 1 row")
+        assert_equal(expansion_ws["I6"].value, 160, "duration 1 rate does not update duration 2 row")
+        assert_equal(expansion_ws["J6"].value, 81, "duration 2 rate update")
 
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
         real_recommendations_path = tmpdir / "real-recommendations.json"
