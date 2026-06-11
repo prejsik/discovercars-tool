@@ -13,14 +13,20 @@ on:
       - "tools/update_excel_rates.py"
       - "package.json"
       - "package-lock.json"
-  # GitHub cron uses UTC. These two entries run away from the busy top of the
-  # hour, and the gate below keeps the real run near 01:17 Europe/Warsaw during
-  # both summer and winter time.
+  # GitHub cron uses UTC. Paired entries below target Warsaw local time during
+  # both summer and winter time, while the gate keeps only the intended local
+  # hours: full run near 01:17 and short runs near 07:17, 10:17, 13:17.
   # The one-off test entry runs only on 2026-05-05 at 10:13 Europe/Warsaw;
   # the gate prevents it from running on future May 5 dates if the line remains.
   schedule:
     - cron: "17 23 * * *"
     - cron: "17 0 * * *"
+    - cron: "17 5 * * *"
+    - cron: "17 6 * * *"
+    - cron: "17 8 * * *"
+    - cron: "17 9 * * *"
+    - cron: "17 11 * * *"
+    - cron: "17 12 * * *"
     - cron: "13 8 5 5 *"
   workflow_dispatch:
     inputs:
@@ -46,12 +52,21 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: discovercars-daily-run
+  cancel-in-progress: false
+
 env:
   # Scheduled run defaults: all local-tool cities, next 30 pickup dates, rental durations 1..10.
   SCHEDULE_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
   SCHEDULE_ROLLING_DAYS: "30"
   SCHEDULE_DURATIONS: "1,2,3,4,5,6,7,8,9,10"
   SCHEDULE_SPEED_MODE: "fast"
+  # Short scheduled runs: same cities and durations, shorter 14-day rolling window.
+  SHORT_RUN_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
+  SHORT_RUN_ROLLING_DAYS: "14"
+  SHORT_RUN_DURATIONS: "1,2,3,4,5,6,7,8,9,10"
+  SHORT_RUN_SPEED_MODE: "fast"
   # Push-triggered smoke test defaults: keep validation quick after code/workflow changes.
   PUSH_TEST_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
   PUSH_TEST_ROLLING_DAYS: "2"
@@ -72,16 +87,25 @@ jobs:
         id: gate
         shell: bash
         run: |
+          run_started_epoch="$(date +%s)"
+          run_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
           warsaw_date="$(TZ=Europe/Warsaw date +%Y-%m-%d)"
           warsaw_now="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
           trigger_schedule="${{ github.event.schedule }}"
 
+          echo "run_started_epoch=$run_started_epoch" >> "$GITHUB_OUTPUT"
+          echo "run_started_warsaw=$run_started_warsaw" >> "$GITHUB_OUTPUT"
           echo "warsaw_now=$warsaw_now" >> "$GITHUB_OUTPUT"
           echo "Warsaw time now: $warsaw_now"
 
           if [[ "${{ github.event_name }}" != "schedule" ]]; then
             echo "Non-scheduled run requested, bypassing schedule gate."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              echo "run_type=manual" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_type=push-smoke" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -89,9 +113,11 @@ jobs:
             if [[ "$warsaw_date" == "2026-05-05" ]]; then
               echo "One-off scheduled test matched for 2026-05-05, running scraper."
               echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "run_type=push-smoke" >> "$GITHUB_OUTPUT"
             else
               echo "One-off scheduled test is no longer current, skipping."
               echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "run_type=skip" >> "$GITHUB_OUTPUT"
             fi
             exit 0
           fi
@@ -109,9 +135,15 @@ jobs:
           if [[ "$intended_warsaw_hour" == "01" ]]; then
             echo "This scheduled trigger targets 01:xx in Warsaw, running scraper."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "run_type=full" >> "$GITHUB_OUTPUT"
+          elif [[ "$intended_warsaw_hour" == "07" || "$intended_warsaw_hour" == "10" || "$intended_warsaw_hour" == "13" ]]; then
+            echo "This scheduled trigger targets a short run hour in Warsaw, running scraper."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "run_type=short" >> "$GITHUB_OUTPUT"
           else
-            echo "This scheduled trigger does not target 01:xx in Warsaw, skipping."
+            echo "This scheduled trigger does not target an enabled Warsaw run hour, skipping."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "run_type=skip" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout repository
@@ -153,12 +185,18 @@ jobs:
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
           TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+          RUN_TYPE: ${{ steps.gate.outputs.run_type }}
         run: |
           if [[ "$TRIGGER_SCHEDULE" == "13 8 5 5 *" ]]; then
             default_locations="$PUSH_TEST_LOCATIONS"
             default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
             default_durations="$PUSH_TEST_DURATIONS"
             default_speed_mode="$PUSH_TEST_SPEED_MODE"
+          elif [[ "$RUN_TYPE" == "short" ]]; then
+            default_locations="$SHORT_RUN_LOCATIONS"
+            default_rolling_days="$SHORT_RUN_ROLLING_DAYS"
+            default_durations="$SHORT_RUN_DURATIONS"
+            default_speed_mode="$SHORT_RUN_SPEED_MODE"
           elif [[ "${{ github.event_name }}" == "push" ]]; then
             default_locations="$PUSH_TEST_LOCATIONS"
             default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
@@ -176,23 +214,53 @@ jobs:
           durations="${INPUT_DURATIONS:-$default_durations}"
           speed_mode="${INPUT_SPEED_MODE:-$default_speed_mode}"
 
+          location_count=0
+          IFS=',' read -ra location_items <<< "$locations"
+          for item in "${location_items[@]}"; do
+            item="${item//[[:space:]]/}"
+            [[ -n "$item" ]] && location_count=$((location_count + 1))
+          done
+
+          duration_count=0
+          IFS=',' read -ra duration_items <<< "$durations"
+          for item in "${duration_items[@]}"; do
+            item="${item//[[:space:]]/}"
+            [[ -n "$item" ]] && duration_count=$((duration_count + 1))
+          done
+
+          scenario_count=$((rolling_days * duration_count))
+          location_check_count=$((scenario_count * location_count))
+
           echo "locations=$locations" >> "$GITHUB_OUTPUT"
           echo "rolling_days=$rolling_days" >> "$GITHUB_OUTPUT"
           echo "durations=$durations" >> "$GITHUB_OUTPUT"
           echo "speed_mode=$speed_mode" >> "$GITHUB_OUTPUT"
+          echo "location_count=$location_count" >> "$GITHUB_OUTPUT"
+          echo "duration_count=$duration_count" >> "$GITHUB_OUTPUT"
+          echo "scenario_count=$scenario_count" >> "$GITHUB_OUTPUT"
+          echo "location_check_count=$location_check_count" >> "$GITHUB_OUTPUT"
+          echo "run_type=$RUN_TYPE" >> "$GITHUB_OUTPUT"
 
+          echo "Run type: $RUN_TYPE"
           echo "Locations: $locations"
           echo "Rolling days: $rolling_days"
           echo "Durations: $durations"
           echo "Speed mode: $speed_mode"
+          echo "Scenarios: $scenario_count"
+          echo "Location checks: $location_check_count"
 
       - name: Run scraper
+        id: scraper
         if: steps.gate.outputs.should_run == 'true'
         shell: bash
         run: |
           mkdir -p output
           set -o pipefail
 
+          scraper_started_epoch="$(date +%s)"
+          scraper_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
+
+          set +e
           node src/index.js \
             --save=output/results-latest.json \
             --locations="${{ steps.options.outputs.locations }}" \
@@ -207,6 +275,19 @@ jobs:
             --retries=1 \
             --reset-state \
             | tee output/run-log.txt
+          scraper_status="${PIPESTATUS[0]}"
+          set -e
+
+          scraper_completed_epoch="$(date +%s)"
+          scraper_completed_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
+          scraper_duration_seconds=$((scraper_completed_epoch - scraper_started_epoch))
+
+          echo "started_warsaw=$scraper_started_warsaw" >> "$GITHUB_OUTPUT"
+          echo "completed_warsaw=$scraper_completed_warsaw" >> "$GITHUB_OUTPUT"
+          echo "duration_seconds=$scraper_duration_seconds" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$scraper_status" >> "$GITHUB_OUTPUT"
+
+          exit "$scraper_status"
 
       - name: Generate HTML report
         if: steps.gate.outputs.should_run == 'true' && always()
@@ -338,21 +419,86 @@ jobs:
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          RUN_STARTED_EPOCH: ${{ steps.gate.outputs.run_started_epoch }}
+          RUN_STARTED_WARSAW: ${{ steps.gate.outputs.run_started_warsaw }}
+          SCRAPER_STARTED_WARSAW: ${{ steps.scraper.outputs.started_warsaw }}
+          SCRAPER_COMPLETED_WARSAW: ${{ steps.scraper.outputs.completed_warsaw }}
+          SCRAPER_DURATION_SECONDS: ${{ steps.scraper.outputs.duration_seconds }}
+          LOCATIONS: ${{ steps.options.outputs.locations }}
+          ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
+          DURATIONS: ${{ steps.options.outputs.durations }}
+          SPEED_MODE: ${{ steps.options.outputs.speed_mode }}
+          SCENARIO_COUNT: ${{ steps.options.outputs.scenario_count }}
+          LOCATION_CHECK_COUNT: ${{ steps.options.outputs.location_check_count }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
             exit 0
           fi
 
+          format_duration() {
+            local total="${1:-0}"
+            if [[ ! "$total" =~ ^[0-9]+$ ]]; then
+              printf 'brak danych'
+              return
+            fi
+            local hours=$((total / 3600))
+            local minutes=$(((total % 3600) / 60))
+            local seconds=$((total % 60))
+            if (( hours > 0 )); then
+              printf '%dh %02dm %02ds' "$hours" "$minutes" "$seconds"
+            elif (( minutes > 0 )); then
+              printf '%dm %02ds' "$minutes" "$seconds"
+            else
+              printf '%ds' "$seconds"
+            fi
+          }
+
+          recommendation_count="brak danych"
+          if [[ -f output/pricing-recommendations.json ]]; then
+            recommendation_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const count=Number.isFinite(data.recommendation_count) ? data.recommendation_count : list.filter((item) => item && item.action !== 'hold').length; process.stdout.write(String(count));")
+          fi
+
+          excel_change_count="brak danych"
+          excel_row_count="brak danych"
+          if [[ -f output/excel-rate-update-summary.json ]]; then
+            excel_change_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.change_count ?? 'brak danych'));")
+            excel_row_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.pickup_date_expansion?.expanded_row_count ?? 'brak danych'));")
+          fi
+
+          run_completed_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
+          now_epoch="$(date +%s)"
+          run_duration_seconds=0
+          if [[ "$RUN_STARTED_EPOCH" =~ ^[0-9]+$ ]]; then
+            run_duration_seconds=$((now_epoch - RUN_STARTED_EPOCH))
+          fi
+
+          run_type_label="$RUN_TYPE"
+          if [[ "$RUN_TYPE" == "full" ]]; then
+            run_type_label="pelny nocny"
+          elif [[ "$RUN_TYPE" == "short" ]]; then
+            run_type_label="krotki dzienny"
+          elif [[ "$RUN_TYPE" == "push-smoke" ]]; then
+            run_type_label="test po pushu"
+          elif [[ "$RUN_TYPE" == "manual" ]]; then
+            run_type_label="reczny"
+          fi
+
+          scraper_time="$(format_duration "$SCRAPER_DURATION_SECONDS")"
+          run_time="$(format_duration "$run_duration_seconds")"
+
           excel_section=""
           if [[ -n "$EXCEL_ARTIFACT_URL" ]]; then
             excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
           fi
 
+          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s dni rolling, durations %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nTryb predkosci: %s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$ROLLING_DAYS" "$DURATIONS" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$SPEED_MODE")
+
           if [[ -n "$PAGE_URL" ]]; then
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\nRaport:\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$PAGE_URL" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\nRaport:\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$PAGE_URL" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           else
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           fi
 
           if ! curl --fail --show-error --silent \

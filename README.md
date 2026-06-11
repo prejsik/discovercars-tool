@@ -56,8 +56,10 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- uruchamia scraper codziennie okolo `01:17` czasu `Europe/Warsaw`,
-- GitHub cron dziala w UTC, dlatego workflow ma dwa triggery (`23:17` i `00:17 UTC`) oraz bramke, ktora realnie puszcza tylko ten trigger, ktory odpowiada porankowi w Warszawie,
+- uruchamia pelny scraper codziennie okolo `01:17` czasu `Europe/Warsaw`,
+- po nocnym runie ma trzy krotsze runy dzienne okolo `07:17`, `10:17` i `13:17` czasu `Europe/Warsaw`; obejmuja te same miasta i duration, ale tylko `14` dni rolling,
+- GitHub cron dziala w UTC, dlatego workflow ma sparowane triggery UTC oraz bramke, ktora realnie puszcza tylko lokalne godziny wlaczone dla pelnego albo krotkiego runa,
+- nie uruchamia scraperow rownolegle; jesli GitHub opozni run, kolejny czeka w kolejce zamiast nakladac sie na poprzedni,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `rates-updated.xlsx`, `run-log.txt`, opcjonalnie `state.json`.
@@ -67,6 +69,13 @@ Domyslny zakres w chmurze:
 
 - `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
 - `rolling_days`: `30`
+- `durations`: `1,2,3,4,5,6,7,8,9,10`
+- `speed_mode`: `fast`
+
+Krotsze runy dzienne uzywaja:
+
+- `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
+- `rolling_days`: `14`
 - `durations`: `1,2,3,4,5,6,7,8,9,10`
 - `speed_mode`: `fast`
 
@@ -104,7 +113,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z linkiem do raportu na GitHub Pages, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, linkiem do raportu na GitHub Pages, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -355,6 +364,12 @@ node src/pricingRecommendations.js output/results-latest.json output/pricing-rec
 Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2027-01-31`, zachowuje rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
 Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
+
+Workbook zawiera tez arkusze kontrolne:
+
+- `Recommendations Review` - jeden wiersz na zgrupowana rekomendacje z kolumna `Accept?`, statusem, flagami ryzyka i opisem decyzji.
+- `Competitor Evidence` - dane z rynku dla rekomendacji: MM Cars Rental, benchmark oraz top1/top2/top3, z data scenariusza i duration.
+- `Validation` - szybkie kontrole przed importem, m.in. zgodnosc dat, duplikaty, puste stawki, wykluczone grupy i brak benchmarku.
 
 Najpierw uruchom dry-run:
 

@@ -203,8 +203,15 @@ def main():
         updated = openpyxl.load_workbook(output_path)
         ws = updated["Sheet1"]
         changed_ws = updated["Changed Positions"]
-        assert_equal(updated.sheetnames, ["Sheet1", "Changed Positions"], "workbook sheets")
+        assert_equal(
+            updated.sheetnames,
+            ["Sheet1", "Changed Positions", "Recommendations Review", "Competitor Evidence", "Validation"],
+            "workbook sheets",
+        )
         assert str(ws["A4"].fill.fgColor.rgb).endswith("1F4E78")
+        review_ws = updated["Recommendations Review"]
+        evidence_ws = updated["Competitor Evidence"]
+        validation_ws = updated["Validation"]
         assert_equal(ws.max_row, 13, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
@@ -276,6 +283,23 @@ def main():
         changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
+        assert_equal(review_ws["A1"].value, "Accept?", "review header")
+        assert_equal(review_ws["B1"].value, "Status", "review status header")
+        assert_equal(review_ws.max_row, 5, "review row count")
+        assert_equal(review_ws["D2"].value, "Warsaw", "review location")
+        assert_equal(review_ws["F2"].value, "CDMV, EDAH, ADMV", "review grouped groups")
+        assert "large_delta" in review_ws["C2"].value or review_ws["C2"].value in {"ok", "group_adjustment"}
+        assert_equal(evidence_ws["A1"].value, "Scenario ID", "evidence header")
+        assert_equal(evidence_ws.max_row, 5, "evidence row count")
+        assert_equal(evidence_ws["C2"].value, "Warsaw", "evidence location")
+        assert_equal(evidence_ws["U2"].value, 81, "evidence suggested rate")
+        validation_rows = {
+            validation_ws.cell(row, 1).value: validation_ws.cell(row, 2).value
+            for row in range(2, validation_ws.max_row + 1)
+        }
+        assert_equal(validation_rows["Booking end date equals pickup end date"], "OK", "booking date validation")
+        assert_equal(validation_rows["Pickup end date equals pickup start date"], "OK", "pickup date validation")
+        assert_equal(validation_rows["Blank rate cells in duration columns"], "OK", "blank rate validation")
 
         dedup_workbook_path = tmpdir / "dedup-rates.xlsx"
         dedup_recommendations_path = tmpdir / "dedup-recommendations.json"

@@ -34,6 +34,9 @@
     "time_zone": "Europe/Warsaw"
   },
   "changed_positions_sheet": "Changed Positions",
+  "recommendations_review_sheet": "Recommendations Review",
+  "competitor_evidence_sheet": "Competitor Evidence",
+  "validation_sheet": "Validation",
   "minimum_rates": {
     "global_min_pln_day": 70,
     "long_duration_min_days": 21,

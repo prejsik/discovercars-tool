@@ -51,6 +51,9 @@ DEFAULT_CONFIG = {
         "time_zone": "Europe/Warsaw",
     },
     "changed_positions_sheet": "Changed Positions",
+    "recommendations_review_sheet": "Recommendations Review",
+    "competitor_evidence_sheet": "Competitor Evidence",
+    "validation_sheet": "Validation",
     "minimum_rates": {
         "global_min_pln_day": 70,
         "long_duration_min_days": 21,
@@ -501,6 +504,41 @@ def get_grouped_rate_summary(changes: list[dict[str, Any]]) -> Any:
     return "\n".join(display_value for _, display_value in values)
 
 
+def get_grouped_groups(changes: list[dict[str, Any]]) -> str:
+    groups: list[str] = []
+    seen: set[str] = set()
+    for change in changes:
+        group = normalize_code(change.get("group"))
+        if not group or group in seen:
+            continue
+        seen.add(group)
+        groups.append(group)
+    return ", ".join(groups)
+
+
+def build_review_risk_flags(changes: list[dict[str, Any]]) -> str:
+    flags: list[str] = []
+    strongest = get_strongest_delta_change(changes)
+    strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
+    if strongest_delta >= 30:
+        flags.append("large_delta_30_plus")
+    elif strongest_delta >= 20:
+        flags.append("large_delta_20_plus")
+
+    if any(change.get("minimum_reason") for change in changes):
+        flags.append("floor_limited")
+    if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
+        flags.append("group_adjustment")
+    if any(change.get("action") != change.get("recommendation_action") for change in changes):
+        flags.append("actual_action_differs")
+    if any(parse_number(change.get("benchmark_rate")) is None for change in changes):
+        flags.append("missing_benchmark")
+    if any(parse_number(change.get("mm_rate")) is None for change in changes):
+        flags.append("missing_mm_rate")
+
+    return ", ".join(flags) if flags else "ok"
+
+
 def copy_cell(source_cell: Any, target_cell: Any) -> None:
     target_cell.value = source_cell.value
     if source_cell.has_style:
@@ -592,6 +630,339 @@ def write_changed_positions_sheet(
         comment_cell.alignment = Alignment(wrap_text=True, vertical="top")
         if recommendation_fill:
             comment_cell.fill = copy(recommendation_fill)
+
+
+def create_replaced_sheet(workbook: Any, sheet_name: str, index: int | None = None) -> Any:
+    if sheet_name in workbook.sheetnames:
+        del workbook[sheet_name]
+    if index is None:
+        return workbook.create_sheet(sheet_name)
+    return workbook.create_sheet(sheet_name, index)
+
+
+def write_table_sheet(
+    workbook: Any,
+    sheet_name: str,
+    index: int | None,
+    headers: list[str],
+    rows: list[list[Any]],
+    widths: dict[str, int] | None = None,
+) -> Any:
+    ws = create_replaced_sheet(workbook, sheet_name, index)
+    header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+    header_font = Font(bold=True, color="FFFFFF")
+    widths = widths or {}
+
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(1, col)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        letter = get_column_letter(col)
+        ws.column_dimensions[letter].width = widths.get(header, min(max(len(header) + 4, 12), 36))
+
+    for row_index, row_values in enumerate(rows, start=2):
+        for col, value in enumerate(row_values, start=1):
+            cell = ws.cell(row_index, col)
+            cell.value = value
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    ws.freeze_panes = "A2"
+    if rows:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+    return ws
+
+
+def write_recommendations_review_sheet(
+    workbook: Any,
+    source_ws: Any,
+    config: dict[str, Any],
+    changes: list[dict[str, Any]],
+) -> None:
+    sheet_name = str(config.get("recommendations_review_sheet") or "").strip()
+    if not sheet_name:
+        return
+
+    headers = [
+        "Accept?",
+        "Status",
+        "Risk flags",
+        "Location",
+        "Zone",
+        "Groups",
+        "Pickup date",
+        "Duration band",
+        "Old rate",
+        "New rate",
+        "Delta",
+        "Recommendation",
+        "Outcome",
+        "Benchmark provider",
+        "Benchmark rate",
+        "MM rate",
+        "Top1",
+        "Top2",
+        "Top3",
+        "Reason",
+        "Scenario ID",
+        "Excel cells",
+    ]
+    rows: list[list[Any]] = []
+    for grouped_changes in group_changes_for_changed_positions(changes):
+        change = grouped_changes[0]
+        risk_flags = build_review_risk_flags(grouped_changes)
+        status = "Needs review" if risk_flags != "ok" else "Ready"
+        rows.append([
+            "",
+            status,
+            risk_flags,
+            change.get("location", ""),
+            change.get("zone", ""),
+            get_grouped_groups(grouped_changes),
+            change.get("pickup_date", ""),
+            change.get("duration_band", ""),
+            format_grouped_rates(grouped_changes, "old_rate"),
+            format_grouped_rates(grouped_changes, "new_rate"),
+            format_grouped_deltas(grouped_changes),
+            change.get("recommendation_type", ""),
+            get_recommendation_outcome_pl(change),
+            change.get("benchmark_provider", ""),
+            parse_number(change.get("benchmark_rate")),
+            parse_number(change.get("mm_rate")),
+            format_provider_rate(change.get("top1_provider"), change.get("top1_rate")),
+            format_provider_rate(change.get("top2_provider"), change.get("top2_rate")),
+            format_provider_rate(change.get("top3_provider"), change.get("top3_rate")),
+            format_for_changed_positions(get_recommendation_reason_pl(change)),
+            change.get("scenario_id", ""),
+            ", ".join(item.get("cell", "") for item in grouped_changes),
+        ])
+
+    widths = {
+        "Accept?": 10,
+        "Risk flags": 26,
+        "Groups": 34,
+        "Reason": 70,
+        "Excel cells": 26,
+        "Top1": 30,
+        "Top2": 30,
+        "Top3": 30,
+    }
+    write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 2, headers, rows, widths)
+
+
+def format_provider_rate(provider: Any, rate: Any) -> str:
+    provider_text = str(provider or "").strip()
+    rate_number = parse_number(rate)
+    if provider_text and rate_number is not None:
+        return f"{provider_text} ({format_rate_for_comment(rate_number)} PLN)"
+    if provider_text:
+        return provider_text
+    if rate_number is not None:
+        return f"{format_rate_for_comment(rate_number)} PLN"
+    return ""
+
+
+def write_competitor_evidence_sheet(
+    workbook: Any,
+    source_ws: Any,
+    config: dict[str, Any],
+    changes: list[dict[str, Any]],
+) -> None:
+    sheet_name = str(config.get("competitor_evidence_sheet") or "").strip()
+    if not sheet_name:
+        return
+
+    headers = [
+        "Scenario ID",
+        "Source generated at",
+        "Location",
+        "Zone",
+        "Pickup date",
+        "Dropoff date",
+        "Rental days",
+        "Duration band",
+        "Currency",
+        "MM rank",
+        "MM provider",
+        "MM rate",
+        "Top1 provider",
+        "Top1 rate",
+        "Top2 provider",
+        "Top2 rate",
+        "Top3 provider",
+        "Top3 rate",
+        "Benchmark provider",
+        "Benchmark rate",
+        "Suggested before floor",
+        "Applied rate",
+        "Delta",
+        "Groups",
+    ]
+    rows: list[list[Any]] = []
+    for grouped_changes in group_changes_for_changed_positions(changes):
+        change = grouped_changes[0]
+        rows.append([
+            change.get("scenario_id", ""),
+            change.get("source_generated_at", ""),
+            change.get("location", ""),
+            change.get("zone", ""),
+            change.get("pickup_date", ""),
+            change.get("dropoff_date", ""),
+            change.get("duration_days", ""),
+            change.get("duration_band", ""),
+            change.get("currency", ""),
+            change.get("mm_rank", ""),
+            change.get("mm_provider", ""),
+            parse_number(change.get("mm_rate")),
+            change.get("top1_provider", ""),
+            parse_number(change.get("top1_rate")),
+            change.get("top2_provider", ""),
+            parse_number(change.get("top2_rate")),
+            change.get("top3_provider", ""),
+            parse_number(change.get("top3_rate")),
+            change.get("benchmark_provider", ""),
+            parse_number(change.get("benchmark_rate")),
+            parse_number(change.get("suggested_rate_before_minimum")),
+            format_grouped_rates(grouped_changes, "new_rate"),
+            format_grouped_deltas(grouped_changes),
+            get_grouped_groups(grouped_changes),
+        ])
+
+    widths = {
+        "Scenario ID": 28,
+        "Source generated at": 24,
+        "Top1 provider": 24,
+        "Top2 provider": 24,
+        "Top3 provider": 24,
+        "Benchmark provider": 26,
+        "Applied rate": 18,
+        "Groups": 34,
+    }
+    write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 3, headers, rows, widths)
+
+
+def first_items(values: list[str], limit: int = 8) -> str:
+    if not values:
+        return ""
+    text = "; ".join(values[:limit])
+    if len(values) > limit:
+        text += f"; +{len(values) - limit} more"
+    return text
+
+
+def get_validation_status(issue_count: int, warning: bool = False) -> str:
+    if issue_count == 0:
+        return "OK"
+    return "WARNING" if warning else "FAIL"
+
+
+def build_validation_rows(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    changes: list[dict[str, Any]],
+    skipped_targets: list[dict[str, Any]],
+) -> list[list[Any]]:
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    booking_end_col = int(columns.get("booking_end_date", 0) or 0)
+    pickup_start_col = int(columns["pickup_start_date"])
+    pickup_end_col = int(columns["pickup_end_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    min_rate = parse_number((config.get("minimum_rates") or {}).get("global_min_pln_day"))
+    excluded_groups = {normalize_code(item) for item in config.get("excluded_groups", [])}
+
+    data_rows = 0
+    booking_mismatch: list[str] = []
+    pickup_mismatch: list[str] = []
+    missing_rates: list[str] = []
+    below_min_rates: list[str] = []
+    duplicates: list[str] = []
+    seen_keys: set[tuple[str, str, date]] = set()
+    duplicate_keys: set[tuple[str, str, date]] = set()
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_start = parse_date_value(ws.cell(row, pickup_start_col).value)
+        pickup_end = parse_date_value(ws.cell(row, pickup_end_col).value)
+        if not group and not zone and pickup_start is None:
+            continue
+        data_rows += 1
+
+        if booking_end_col:
+            booking_end = parse_date_value(ws.cell(row, booking_end_col).value)
+            if booking_end != pickup_end:
+                booking_mismatch.append(f"row {row}: {group}/{zone}")
+
+        if pickup_start != pickup_end:
+            pickup_mismatch.append(f"row {row}: {group}/{zone}")
+
+        if group and zone and pickup_start is not None:
+            key = (group, zone, pickup_start)
+            if key in seen_keys and key not in duplicate_keys:
+                duplicate_keys.add(key)
+                duplicates.append(f"{group}/{zone}/{pickup_start.isoformat()}")
+            seen_keys.add(key)
+
+        for col in rate_cols:
+            value = parse_number(ws.cell(row, col).value)
+            if value is None:
+                missing_rates.append(f"row {row} {get_column_letter(col)}")
+            elif min_rate is not None and value < min_rate:
+                below_min_rates.append(f"row {row} {get_column_letter(col)}={format_rate_for_comment(value)}")
+
+    excluded_changed = [
+        f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
+        for change in changes
+        if normalize_code(change.get("group")) in excluded_groups
+    ]
+    missing_benchmark = [
+        str(change.get("scenario_id") or change.get("cell"))
+        for change in changes
+        if parse_number(change.get("benchmark_rate")) is None
+    ]
+
+    return [
+        ["Data rows in Sheet1", "INFO", data_rows, ""],
+        ["Changed rate cells", "INFO", len(changes), ""],
+        ["Skipped recommendations", get_validation_status(len(skipped_targets), warning=True), len(skipped_targets), first_items([str(item.get("skip_reason", "")) for item in skipped_targets])],
+        ["Booking end date equals pickup end date", get_validation_status(len(booking_mismatch)), len(booking_mismatch), first_items(booking_mismatch)],
+        ["Pickup end date equals pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
+        ["Duplicate Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
+        ["Blank rate cells in duration columns", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
+        ["Rates below configured floor", get_validation_status(len(below_min_rates), warning=True), len(below_min_rates), first_items(below_min_rates)],
+        ["Excluded groups changed", get_validation_status(len(excluded_changed)), len(excluded_changed), first_items(excluded_changed)],
+        ["Changed recommendations missing benchmark rate", get_validation_status(len(missing_benchmark), warning=True), len(missing_benchmark), first_items(missing_benchmark)],
+    ]
+
+
+def write_validation_sheet(
+    workbook: Any,
+    source_ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    changes: list[dict[str, Any]],
+    skipped_targets: list[dict[str, Any]],
+) -> None:
+    sheet_name = str(config.get("validation_sheet") or "").strip()
+    if not sheet_name:
+        return
+    headers = ["Check", "Status", "Issue count", "Details"]
+    rows = build_validation_rows(source_ws, config, duration_columns, changes, skipped_targets)
+    widths = {"Check": 42, "Status": 14, "Issue count": 14, "Details": 90}
+    ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 4, headers, rows, widths)
+    for row in range(2, ws.max_row + 1):
+        status_cell = ws.cell(row, 2)
+        if status_cell.value == "OK":
+            status_cell.fill = PatternFill(fill_type="solid", fgColor="C6EFCE")
+        elif status_cell.value == "WARNING":
+            status_cell.fill = PatternFill(fill_type="solid", fgColor="FCE4D6")
+        elif status_cell.value == "FAIL":
+            status_cell.fill = PatternFill(fill_type="solid", fgColor="FFC7CE")
 
 
 def build_targets(
@@ -889,9 +1260,20 @@ def apply_updates(
                 "minimum_rate_pln_day": minimum_rate,
                 "minimum_reason": minimum_reason if base_rate > suggested_rate else "",
                 "group_adjustment_pln_day": group_adjustment,
+                "currency": target.get("currency", ""),
+                "mm_rank": target.get("mm_rank", ""),
+                "mm_provider": target.get("mm_provider", ""),
                 "mm_rate": target.get("mm_rate_pln_day"),
+                "top1_provider": target.get("top1_provider", ""),
+                "top1_rate": target.get("top1_rate_pln_day"),
+                "top2_provider": target.get("top2_provider", ""),
+                "top2_rate": target.get("top2_rate_pln_day"),
+                "top3_provider": target.get("top3_provider", ""),
+                "top3_rate": target.get("top3_rate_pln_day"),
                 "benchmark_provider": target.get("benchmark_provider", ""),
                 "benchmark_rate": target.get("benchmark_rate_pln_day"),
+                "dropoff_date": target.get("dropoff_date", ""),
+                "source_generated_at": target.get("source_generated_at", ""),
                 "scenario_id": target.get("scenario_id", ""),
             }
 
@@ -906,6 +1288,9 @@ def apply_updates(
         if output_path is None:
             raise ValueError("Output path is required unless --dry-run is used.")
         write_changed_positions_sheet(workbook, ws, config, changes)
+        write_recommendations_review_sheet(workbook, ws, config, changes)
+        write_competitor_evidence_sheet(workbook, ws, config, changes)
+        write_validation_sheet(workbook, ws, config, duration_columns, changes, skipped_targets)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
 
