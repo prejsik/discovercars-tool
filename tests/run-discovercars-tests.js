@@ -2,8 +2,10 @@ const assert = require("node:assert/strict");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
+const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
+const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
 
 function runTest(name, fn) {
   try {
@@ -259,6 +261,103 @@ runTest("buildPricingRecommendations flags a small decrease needed to enter top3
   assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
   assert.equal(output.recommendations[0].benchmark_provider, "Kaizen Rent");
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 119);
+});
+
+runTest("mergePricingRecommendations lets short run replace matching full-run recommendations", () => {
+  const output = mergePricingRecommendations(
+    {
+      generated_at: "2026-06-12T01:00:00.000Z",
+      recommendations: [
+        {
+          action: "increase",
+          location: "Warsaw",
+          start_date: "2026-06-13",
+          rental_days: 2,
+          suggested_rate_pln_day: 100
+        },
+        {
+          action: "decrease",
+          location: "Krakow",
+          start_date: "2026-07-20",
+          rental_days: 7,
+          suggested_rate_pln_day: 90
+        },
+        {
+          action: "increase",
+          location: "Gdansk",
+          start_date: "2026-06-14",
+          rental_days: 1,
+          suggested_rate_pln_day: 110
+        }
+      ]
+    },
+    {
+      generated_at: "2026-06-12T07:00:00.000Z",
+      recommendations: [
+        {
+          action: "decrease",
+          location: "Warsaw",
+          pickup_date: "2026-06-13T10:00:00+02:00",
+          rental_days: 2,
+          suggested_rate_pln_day: 95
+        },
+        {
+          action: "hold",
+          location: "Gdansk",
+          start_date: "2026-06-14",
+          rental_days: 1,
+          suggested_rate_pln_day: null
+        }
+      ]
+    },
+    new Date("2026-06-12T07:05:00.000Z")
+  );
+
+  assert.equal(output.merge.base_count, 3);
+  assert.equal(output.merge.update_count, 2);
+  assert.equal(output.merge.replaced_count, 2);
+  assert.equal(output.recommendation_count, 2);
+  assert.equal(output.recommendations.length, 3);
+  assert.equal(output.recommendations[0].location, "Warsaw");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 95);
+  assert.equal(output.recommendations[1].location, "Gdansk");
+  assert.equal(output.recommendations[1].action, "hold");
+  assert.equal(output.recommendations[2].location, "Krakow");
+});
+
+runTest("buildQualityAlerts reports missing city data and workbook warnings", () => {
+  const alerts = buildQualityAlerts({
+    expectedLocations: "Warsaw,Krakow",
+    results: {
+      scenarios: [
+        {
+          top_3_plus_mm_by_location: {
+            Warsaw: {
+              top_3: [{ provider_name: "MM Cars Rental" }]
+            }
+          }
+        }
+      ]
+    },
+    recommendations: {
+      recommendations: []
+    },
+    excelSummary: {
+      change_count: 0,
+      validation: [
+        {
+          check: "Rates below configured floor",
+          status: "WARNING",
+          issue_count: 3
+        }
+      ]
+    }
+  });
+
+  assert(alerts.some((item) => item.includes("Brak danych dla Krakow")));
+  assert(alerts.some((item) => item.includes("Brak aktywnych rekomendacji")));
+  assert(alerts.some((item) => item.includes("Excel nie zawiera zmian")));
+  assert(alerts.some((item) => item.includes("Validation WARNING")));
 });
 
 if (!process.exitCode) {

@@ -206,6 +206,56 @@ def load_recommendation_items(path: Path) -> list[dict[str, Any]]:
     raise ValueError("Recommendations file must be a list or an object with a 'recommendations' list.")
 
 
+def is_accepted_value(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in {"1", "yes", "y", "true", "tak", "t", "x", "accepted", "accept"}
+
+
+def get_acceptance_key(
+    scenario_id: Any,
+    location: Any,
+    pickup_date: Any,
+    duration_band: Any,
+) -> tuple[str, str, str, str]:
+    parsed_date = parse_date_value(pickup_date)
+    return (
+        normalize_key(scenario_id),
+        normalize_key(location),
+        parsed_date.isoformat() if parsed_date else normalize_key(pickup_date),
+        normalize_key(duration_band),
+    )
+
+
+def load_acceptance_keys(path: Path, sheet_name: str) -> set[tuple[str, str, str, str]]:
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    if sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Acceptance workbook does not contain sheet '{sheet_name}'.")
+
+    ws = workbook[sheet_name]
+    headers = {
+        normalize_key(cell.value): index
+        for index, cell in enumerate(ws[1], start=1)
+        if cell.value not in (None, "")
+    }
+    accept_col = headers.get("accept?")
+    if not accept_col:
+        raise ValueError("Acceptance sheet must contain an 'Accept?' column.")
+
+    accepted: set[tuple[str, str, str, str]] = set()
+    for row in range(2, ws.max_row + 1):
+        if not is_accepted_value(ws.cell(row, accept_col).value):
+            continue
+        accepted.add(
+            get_acceptance_key(
+                ws.cell(row, headers.get("scenario id", 0)).value if headers.get("scenario id") else "",
+                ws.cell(row, headers.get("location", 0)).value if headers.get("location") else "",
+                ws.cell(row, headers.get("pickup date", 0)).value if headers.get("pickup date") else "",
+                ws.cell(row, headers.get("duration band", 0)).value if headers.get("duration band") else "",
+            )
+        )
+    return accepted
+
+
 def resolve_apply_groups(config: dict[str, Any], cli_groups: str | None) -> set[str] | str:
     raw_groups: Any = cli_groups if cli_groups is not None else config.get("apply_groups")
     if isinstance(raw_groups, str):
@@ -1013,6 +1063,39 @@ def build_targets(
     return targets, skipped
 
 
+def get_target_acceptance_key(target: dict[str, Any]) -> tuple[str, str, str, str]:
+    return get_acceptance_key(
+        target.get("scenario_id", ""),
+        target.get("location", ""),
+        target.get("target_date"),
+        target.get("duration_band", ""),
+    )
+
+
+def target_has_inline_acceptance(target: dict[str, Any]) -> bool:
+    return is_accepted_value(target.get("accepted"))
+
+
+def filter_targets_by_acceptance(
+    targets: dict[str, dict[date, list[dict[str, Any]]]],
+    accepted_keys: set[tuple[str, str, str, str]],
+) -> tuple[dict[str, dict[date, list[dict[str, Any]]]], int, int]:
+    filtered: dict[str, dict[date, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    accepted_count = 0
+    filtered_count = 0
+
+    for zone, targets_by_date in targets.items():
+        for target_date, row_targets in targets_by_date.items():
+            for target in row_targets:
+                if target_has_inline_acceptance(target) or get_target_acceptance_key(target) in accepted_keys:
+                    filtered[zone][target_date].append(target)
+                    accepted_count += 1
+                else:
+                    filtered_count += 1
+
+    return filtered, accepted_count, filtered_count
+
+
 def snapshot_row(ws: Any, row: int, max_col: int) -> dict[str, Any]:
     row_dimension = ws.row_dimensions[row]
     return {
@@ -1177,6 +1260,8 @@ def apply_updates(
     config: dict[str, Any],
     cli_groups: str | None,
     dry_run: bool,
+    accepted_only: bool = False,
+    acceptance_workbook_path: Path | None = None,
 ) -> dict[str, Any]:
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -1191,6 +1276,18 @@ def apply_updates(
     match_pickup_end_duration = False
     duration_columns = get_duration_columns(ws, config)
     targets, skipped_targets = build_targets(recommendations, duration_columns, config)
+    accepted_target_count = 0
+    filtered_unaccepted_target_count = 0
+    if accepted_only:
+        accepted_keys = (
+            load_acceptance_keys(
+                acceptance_workbook_path,
+                str(config.get("recommendations_review_sheet") or "Recommendations Review"),
+            )
+            if acceptance_workbook_path
+            else set()
+        )
+        targets, accepted_target_count, filtered_unaccepted_target_count = filter_targets_by_acceptance(targets, accepted_keys)
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     min_change = float(config.get("min_excel_change_pln_day", 0.01))
@@ -1303,6 +1400,18 @@ def apply_updates(
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
         "skipped_target_count": len(skipped_targets),
+        "accepted_only": accepted_only,
+        "accepted_target_count": accepted_target_count,
+        "filtered_unaccepted_target_count": filtered_unaccepted_target_count,
+        "validation": [
+            {
+                "check": row[0],
+                "status": row[1],
+                "issue_count": row[2],
+                "details": row[3],
+            }
+            for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets)
+        ],
         "changes": changes[:100],
     }
 
@@ -1314,6 +1423,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Excel rate update config JSON path.")
     parser.add_argument("--output", help="Output .xlsx path.")
     parser.add_argument("--groups", help="Comma-separated car groups to update, or 'all'. Overrides config apply_groups.")
+    parser.add_argument("--accepted-only", action="store_true", help="Apply only recommendations marked as accepted.")
+    parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Accept? decisions.")
     parser.add_argument("--dry-run", action="store_true", help="Calculate matching changes without saving an .xlsx file.")
     return parser.parse_args()
 
@@ -1328,6 +1439,8 @@ def main() -> None:
         config=config,
         cli_groups=args.groups,
         dry_run=args.dry_run,
+        accepted_only=args.accepted_only,
+        acceptance_workbook_path=Path(args.acceptance_workbook) if args.acceptance_workbook else None,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
 

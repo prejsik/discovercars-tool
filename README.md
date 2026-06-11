@@ -60,10 +60,11 @@ Jak dziala:
 - po nocnym runie ma trzy krotsze runy dzienne okolo `07:17`, `10:17` i `13:17` czasu `Europe/Warsaw`; obejmuja te same miasta i duration, ale tylko `14` dni rolling,
 - GitHub cron dziala w UTC, dlatego workflow ma sparowane triggery UTC oraz bramke, ktora realnie puszcza tylko lokalne godziny wlaczone dla pelnego albo krotkiego runa,
 - nie uruchamia scraperow rownolegle; jesli GitHub opozni run, kolejny czeka w kolejce zamiast nakladac sie na poprzedni,
+- krotki run buduje `final-pricing-recommendations.json` przez polaczenie ostatniego pelnego runa z aktualnym 14-dniowym runem; aktualne krotkie rekomendacje nadpisuja te same lokalizacje, daty i duration z pelnej bazy,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `rates-updated.xlsx`, `run-log.txt`, opcjonalnie `state.json`.
-- publikuje najnowszy `report.html` na GitHub Pages jako staly link do ostatnich wynikow.
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
+- publikuje GitHub Pages z oddzielnymi linkami dla pelnego raportu, krotkiego raportu i najnowszego Excela; krotki run nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
 
@@ -93,27 +94,35 @@ Pliki w artifact:
 
 - `report.html` - najlepszy do ogladania wynikow, ma kolorowe tabele jak lokalna konsola,
 - `results-latest.json` - dane techniczne do dalszego przetwarzania,
-- `pricing-recommendations.json` - rekomendacje stawek wygenerowane z wynikow scrapera,
+- `pricing-recommendations.json` - rekomendacje stawek wygenerowane bezposrednio z danego runa scrapera,
+- `final-pricing-recommendations.json` - finalny zestaw rekomendacji do Excela; dla krotkiego runa jest scaleniem ostatniego pelnego runa i aktualnego 14-dniowego runa,
 - `rates-updated.xlsx` - gotowy plik importowy stawek wygenerowany z bazowego workbooka `input/mm-cars-rental-rates-inclusive-fp.xlsx`,
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
+- `quality-alerts.json` - alerty jakosciowe uzywane w Telegramie,
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
 
 GitHub Pages:
 
-Workflow potrafi opublikowac ostatni raport jako strone statyczna. Domyslny adres dla tego repozytorium to:
+Workflow potrafi opublikowac raporty jako strone statyczna. Domyslny adres dla tego repozytorium to:
 
 ```text
 https://prejsik.github.io/discovercars-tool/
 ```
 
-Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Build and deployment` -> `Source` na `GitHub Actions`. Po kolejnym udanym runie strona pokaze najnowszy `report.html`.
+Stale linki:
+
+- `https://prejsik.github.io/discovercars-tool/latest-full/report.html` - ostatni pelny raport,
+- `https://prejsik.github.io/discovercars-tool/latest-short/report.html` - ostatni krotki raport,
+- `https://prejsik.github.io/discovercars-tool/latest-excel/rates-updated.xlsx` - najnowszy finalny Excel do pobrania.
+
+Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Build and deployment` -> `Source` na `GitHub Actions`. Po kolejnym udanym pelnym runie strona glowna pokaze pelny `report.html`.
 
 Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektorych planach GitHub. Wtedy workflow pominie publikacje Pages i zostawi link do artifactu jako backup.
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, linkiem do raportu na GitHub Pages, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`/`latest-excel`, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -382,6 +391,14 @@ Realny zapis kopii pliku:
 ```powershell
 python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --output output/rates-updated.xlsx
 ```
+
+Tryb importu tylko zaakceptowanych pozycji:
+
+```powershell
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/final-pricing-recommendations.json --config excel-rate-update.config.example.json --acceptance-workbook output/rates-review.xlsx --accepted-only --output output/rates-accepted-only.xlsx
+```
+
+W arkuszu `Recommendations Review` w kolumnie `Accept?` jako akceptacje sa traktowane m.in. `YES`, `Y`, `TAK`, `TRUE`, `1` albo `X`. Daily workflow nie wlacza `--accepted-only` automatycznie, bo wymaga to recznego uzupelnienia decyzji w review workbooku.
 
 Kolory w Excelu:
 

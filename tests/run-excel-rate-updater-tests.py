@@ -351,6 +351,112 @@ def main():
         assert "81 PLN; 81 PLN" not in dedup_changed_ws["O11"].value
         assert "+11 PLN; +11 PLN" not in dedup_changed_ws["O11"].value
 
+        accepted_only_workbook_path = tmpdir / "accepted-only-rates.xlsx"
+        accepted_only_recommendations_path = tmpdir / "accepted-only-recommendations.json"
+        accepted_only_output_path = tmpdir / "accepted-only-rates-updated.xlsx"
+        build_minimal_workbook(
+            accepted_only_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+            ],
+        )
+        accepted_only_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "increase",
+                            "accepted": True,
+                            "location": "Warsaw",
+                            "start_date": "2026-06-10",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 85,
+                        },
+                        {
+                            "action": "increase",
+                            "accepted": False,
+                            "location": "Warsaw",
+                            "start_date": "2026-06-10",
+                            "rental_days": 3,
+                            "suggested_rate_pln_day": 95,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        accepted_only_summary = apply_updates(
+            workbook_path=accepted_only_workbook_path,
+            recommendations_path=accepted_only_recommendations_path,
+            output_path=accepted_only_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+            accepted_only=True,
+        )
+        assert_equal(accepted_only_summary["accepted_target_count"], 1, "accepted-only target count")
+        assert_equal(accepted_only_summary["filtered_unaccepted_target_count"], 1, "filtered target count")
+        accepted_only_updated = openpyxl.load_workbook(accepted_only_output_path)
+        accepted_only_ws = accepted_only_updated["Sheet1"]
+        assert_equal(accepted_only_ws["J5"].value, 85, "accepted recommendation applied")
+        assert_equal(accepted_only_ws["K5"].value, 80, "unaccepted recommendation skipped")
+
+        acceptance_review_path = tmpdir / "acceptance-review.xlsx"
+        acceptance_review = openpyxl.Workbook()
+        acceptance_review_ws = acceptance_review.active
+        acceptance_review_ws.title = "Recommendations Review"
+        acceptance_review_ws.append(["Accept?", "Location", "Pickup date", "Duration band", "Scenario ID"])
+        acceptance_review_ws.append(["YES", "Warsaw", "2026-06-10", "2", ""])
+        acceptance_review.save(acceptance_review_path)
+
+        acceptance_workbook_path = tmpdir / "acceptance-rates.xlsx"
+        acceptance_recommendations_path = tmpdir / "acceptance-recommendations.json"
+        acceptance_output_path = tmpdir / "acceptance-rates-updated.xlsx"
+        build_minimal_workbook(
+            acceptance_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+            ],
+        )
+        acceptance_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "increase",
+                            "location": "Warsaw",
+                            "start_date": "2026-06-10",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 86,
+                        },
+                        {
+                            "action": "increase",
+                            "location": "Warsaw",
+                            "start_date": "2026-06-10",
+                            "rental_days": 3,
+                            "suggested_rate_pln_day": 96,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        acceptance_summary = apply_updates(
+            workbook_path=acceptance_workbook_path,
+            recommendations_path=acceptance_recommendations_path,
+            output_path=acceptance_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+            accepted_only=True,
+            acceptance_workbook_path=acceptance_review_path,
+        )
+        assert_equal(acceptance_summary["accepted_target_count"], 1, "acceptance workbook target count")
+        acceptance_updated = openpyxl.load_workbook(acceptance_output_path)
+        acceptance_ws = acceptance_updated["Sheet1"]
+        assert_equal(acceptance_ws["J5"].value, 86, "acceptance workbook recommendation applied")
+        assert_equal(acceptance_ws["K5"].value, 80, "non-accepted workbook recommendation skipped")
+
         expansion_workbook_path = tmpdir / "expansion-rates.xlsx"
         expansion_recommendations_path = tmpdir / "expansion-recommendations.json"
         expansion_output_path = tmpdir / "expansion-rates-updated.xlsx"

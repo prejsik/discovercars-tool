@@ -296,29 +296,21 @@ jobs:
       - name: Generate pricing recommendations
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
+        env:
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
         run: |
           if [[ -f output/results-latest.json ]]; then
+            extra_args=()
+            if [[ "$RUN_TYPE" == "short" ]]; then
+              extra_args+=(--include-noop)
+            fi
             node src/pricingRecommendations.js \
               output/results-latest.json \
               output/pricing-recommendations.json \
-              --config=pricing-rules.config.example.json
+              --config=pricing-rules.config.example.json \
+              "${extra_args[@]}"
           else
             echo "::warning::DiscoverCars JSON output is missing; pricing recommendations skipped."
-          fi
-
-      - name: Generate Excel import workbook
-        if: steps.gate.outputs.should_run == 'true' && always()
-        shell: bash
-        run: |
-          if [[ -f output/pricing-recommendations.json ]]; then
-            python tools/update_excel_rates.py \
-              --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
-              --recommendations output/pricing-recommendations.json \
-              --config excel-rate-update.config.example.json \
-              --output output/rates-updated.xlsx \
-              | tee output/excel-rate-update-summary.json
-          else
-            echo "::warning::Pricing recommendations are missing; Excel import workbook skipped."
           fi
 
       - name: Check GitHub Pages status
@@ -350,17 +342,163 @@ jobs:
             echo "::warning::GitHub Pages is not enabled or is not supported by the current repository plan; Pages deploy skipped."
           fi
 
+      - name: Prepare final pricing recommendations
+        id: final-recommendations
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        env:
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
+        run: |
+          if [[ ! -f output/pricing-recommendations.json ]]; then
+            echo "::warning::Pricing recommendations are missing; final recommendations skipped."
+            echo "merge_source=missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cp output/pricing-recommendations.json output/final-pricing-recommendations.json
+          merge_source="current"
+
+          if [[ "$RUN_TYPE" == "short" && -n "$PAGE_URL" ]]; then
+            mkdir -p output/pages-cache
+            latest_full_url="${PAGE_URL%/}/latest-full/pricing-recommendations.json"
+            if curl --fail --silent --show-error --location "$latest_full_url" --output output/pages-cache/latest-full-pricing-recommendations.json; then
+              node src/mergePricingRecommendations.js \
+                output/pages-cache/latest-full-pricing-recommendations.json \
+                output/pricing-recommendations.json \
+                output/final-pricing-recommendations.json
+              merge_source="latest-full-plus-current-short"
+            else
+              echo "::warning::Latest full recommendations are not available on Pages; short run will use only current recommendations."
+            fi
+          fi
+
+          echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Excel import workbook
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          if [[ -f output/final-pricing-recommendations.json ]]; then
+            python tools/update_excel_rates.py \
+              --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
+              --recommendations output/final-pricing-recommendations.json \
+              --config excel-rate-update.config.example.json \
+              --output output/rates-updated.xlsx \
+              | tee output/excel-rate-update-summary.json
+          else
+            echo "::warning::Final pricing recommendations are missing; Excel import workbook skipped."
+          fi
+
+      - name: Generate quality alerts
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          node src/workflowQualityAlerts.js \
+            --results=output/results-latest.json \
+            --recommendations=output/final-pricing-recommendations.json \
+            --excel-summary=output/excel-rate-update-summary.json \
+            --locations="${{ steps.options.outputs.locations }}" \
+            --output=output/quality-alerts.json
+
       - name: Prepare GitHub Pages site
+        id: pages-site
         if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
+        shell: bash
+        env:
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
         run: |
           mkdir -p pages
-          cp output/report.html pages/index.html
-          cp output/report.html pages/report.html
-          cp output/results-latest.json pages/results-latest.json
-          if [[ -f output/pricing-recommendations.json ]]; then
-            cp output/pricing-recommendations.json pages/pricing-recommendations.json
+
+          page_base="${PAGE_URL%/}"
+          preserve_file() {
+            local rel_path="$1"
+            local destination="pages/$rel_path"
+            if [[ -z "$page_base" ]]; then
+              return
+            fi
+            mkdir -p "$(dirname "$destination")"
+            if ! curl --fail --silent --show-error --location "$page_base/$rel_path" --output "$destination"; then
+              rm -f "$destination"
+            fi
+          }
+
+          for rel_path in \
+            index.html \
+            report.html \
+            latest-full/report.html \
+            latest-full/results-latest.json \
+            latest-full/pricing-recommendations.json \
+            latest-full/final-pricing-recommendations.json \
+            latest-full/rates-updated.xlsx \
+            latest-full/excel-rate-update-summary.json \
+            latest-full/run-log.txt \
+            latest-short/report.html \
+            latest-short/results-latest.json \
+            latest-short/pricing-recommendations.json \
+            latest-short/final-pricing-recommendations.json \
+            latest-short/rates-updated.xlsx \
+            latest-short/excel-rate-update-summary.json \
+            latest-short/run-log.txt \
+            latest-excel/rates-updated.xlsx \
+            latest-excel/final-pricing-recommendations.json \
+            latest-excel/excel-rate-update-summary.json; do
+            preserve_file "$rel_path"
+          done
+
+          if [[ "$RUN_TYPE" == "full" ]]; then
+            run_dir="latest-full"
+          elif [[ "$RUN_TYPE" == "short" ]]; then
+            run_dir="latest-short"
+          else
+            run_dir="latest-smoke"
           fi
-          cp output/run-log.txt pages/run-log.txt
+
+          mkdir -p "pages/$run_dir"
+          cp output/report.html "pages/$run_dir/report.html"
+          cp output/results-latest.json "pages/$run_dir/results-latest.json"
+          cp output/run-log.txt "pages/$run_dir/run-log.txt"
+          if [[ -f output/pricing-recommendations.json ]]; then
+            cp output/pricing-recommendations.json "pages/$run_dir/pricing-recommendations.json"
+          fi
+          if [[ -f output/final-pricing-recommendations.json ]]; then
+            cp output/final-pricing-recommendations.json "pages/$run_dir/final-pricing-recommendations.json"
+          fi
+          if [[ -f output/rates-updated.xlsx ]]; then
+            cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
+          fi
+          if [[ -f output/excel-rate-update-summary.json ]]; then
+            cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
+          fi
+
+          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "short" || "$RUN_TYPE" == "manual" ]]; then
+            mkdir -p pages/latest-excel
+            if [[ -f output/rates-updated.xlsx ]]; then
+              cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
+            fi
+            if [[ -f output/final-pricing-recommendations.json ]]; then
+              cp output/final-pricing-recommendations.json pages/latest-excel/final-pricing-recommendations.json
+            fi
+            if [[ -f output/excel-rate-update-summary.json ]]; then
+              cp output/excel-rate-update-summary.json pages/latest-excel/excel-rate-update-summary.json
+            fi
+          fi
+
+          if [[ "$RUN_TYPE" == "full" || ! -f pages/latest-full/report.html ]]; then
+            cp output/report.html pages/index.html
+            cp output/report.html pages/report.html
+          else
+            cp pages/latest-full/report.html pages/index.html
+            cp pages/latest-full/report.html pages/report.html
+          fi
+
+          if [[ -n "$page_base" ]]; then
+            echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
+            echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
+            echo "short_report_url=$page_base/latest-short/report.html" >> "$GITHUB_OUTPUT"
+            echo "excel_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Configure GitHub Pages
         if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
@@ -389,8 +527,10 @@ jobs:
           path: |
             output/results-latest.json
             output/pricing-recommendations.json
+            output/final-pricing-recommendations.json
             output/rates-updated.xlsx
             output/excel-rate-update-summary.json
+            output/quality-alerts.json
             output/report.html
             output/run-log.txt
             output/state.json
@@ -406,6 +546,8 @@ jobs:
           path: |
             output/rates-updated.xlsx
             output/excel-rate-update-summary.json
+            output/final-pricing-recommendations.json
+            output/quality-alerts.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -415,11 +557,15 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PAGE_URL: ${{ steps.pages-deployment.outputs.page_url || steps.pages-status.outputs.page_url }}
+          PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url || steps.pages-status.outputs.page_url }}
+          FULL_REPORT_URL: ${{ steps.pages-site.outputs.full_report_url }}
+          SHORT_REPORT_URL: ${{ steps.pages-site.outputs.short_report_url }}
+          PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          MERGE_SOURCE: ${{ steps.final-recommendations.outputs.merge_source }}
           RUN_STARTED_EPOCH: ${{ steps.gate.outputs.run_started_epoch }}
           RUN_STARTED_WARSAW: ${{ steps.gate.outputs.run_started_warsaw }}
           SCRAPER_STARTED_WARSAW: ${{ steps.scraper.outputs.started_warsaw }}
@@ -456,8 +602,8 @@ jobs:
           }
 
           recommendation_count="brak danych"
-          if [[ -f output/pricing-recommendations.json ]]; then
-            recommendation_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const count=Number.isFinite(data.recommendation_count) ? data.recommendation_count : list.filter((item) => item && item.action !== 'hold').length; process.stdout.write(String(count));")
+          if [[ -f output/final-pricing-recommendations.json ]]; then
+            recommendation_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/final-pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const count=Number.isFinite(data.recommendation_count) ? data.recommendation_count : list.filter((item) => item && item.action !== 'hold').length; process.stdout.write(String(count));")
           fi
 
           excel_change_count="brak danych"
@@ -465,6 +611,11 @@ jobs:
           if [[ -f output/excel-rate-update-summary.json ]]; then
             excel_change_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.change_count ?? 'brak danych'));")
             excel_row_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.pickup_date_expansion?.expanded_row_count ?? 'brak danych'));")
+          fi
+
+          quality_alerts="brak"
+          if [[ -f output/quality-alerts.json ]]; then
+            quality_alerts=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.alerts) ? data.alerts : []; process.stdout.write(alerts.length ? alerts.map((item) => '- ' + item).join('\n') : 'brak');")
           fi
 
           run_completed_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -493,10 +644,15 @@ jobs:
             excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
           fi
 
-          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s dni rolling, durations %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nTryb predkosci: %s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$ROLLING_DAYS" "$DURATIONS" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$SPEED_MODE")
+          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s dni rolling, durations %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$ROLLING_DAYS" "$DURATIONS" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
+
+          pages_section=""
+          if [[ -n "$FULL_REPORT_URL" || -n "$SHORT_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
+            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nKrotki raport:\n%s\nExcel latest:\n%s\n' "${FULL_REPORT_URL:-brak}" "${SHORT_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}")
+          fi
 
           if [[ -n "$PAGE_URL" ]]; then
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\nRaport:\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$PAGE_URL" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\nRaport tego runa:\n%s\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$PAGE_URL" "$pages_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           else
             message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           fi
