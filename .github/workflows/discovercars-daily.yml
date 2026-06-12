@@ -385,6 +385,7 @@ jobs:
               --recommendations output/final-pricing-recommendations.json \
               --config excel-rate-update.config.example.json \
               --output output/rates-updated.xlsx \
+              --import-output output/rates-import-ready.xlsx \
               | tee output/excel-rate-update-summary.json
           else
             echo "::warning::Final pricing recommendations are missing; Excel import workbook skipped."
@@ -432,6 +433,7 @@ jobs:
             latest-full/pricing-recommendations.json \
             latest-full/final-pricing-recommendations.json \
             latest-full/rates-updated.xlsx \
+            latest-full/rates-import-ready.xlsx \
             latest-full/excel-rate-update-summary.json \
             latest-full/run-log.txt \
             latest-short/report.html \
@@ -439,8 +441,10 @@ jobs:
             latest-short/pricing-recommendations.json \
             latest-short/final-pricing-recommendations.json \
             latest-short/rates-updated.xlsx \
+            latest-short/rates-import-ready.xlsx \
             latest-short/excel-rate-update-summary.json \
             latest-short/run-log.txt \
+            latest-excel/rates-import-ready.xlsx \
             latest-excel/rates-updated.xlsx \
             latest-excel/final-pricing-recommendations.json \
             latest-excel/excel-rate-update-summary.json; do
@@ -468,6 +472,9 @@ jobs:
           if [[ -f output/rates-updated.xlsx ]]; then
             cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
           fi
+          if [[ -f output/rates-import-ready.xlsx ]]; then
+            cp output/rates-import-ready.xlsx "pages/$run_dir/rates-import-ready.xlsx"
+          fi
           if [[ -f output/excel-rate-update-summary.json ]]; then
             cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
           fi
@@ -476,6 +483,9 @@ jobs:
             mkdir -p pages/latest-excel
             if [[ -f output/rates-updated.xlsx ]]; then
               cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
+            fi
+            if [[ -f output/rates-import-ready.xlsx ]]; then
+              cp output/rates-import-ready.xlsx pages/latest-excel/rates-import-ready.xlsx
             fi
             if [[ -f output/final-pricing-recommendations.json ]]; then
               cp output/final-pricing-recommendations.json pages/latest-excel/final-pricing-recommendations.json
@@ -497,7 +507,8 @@ jobs:
             echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
             echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
             echo "short_report_url=$page_base/latest-short/report.html" >> "$GITHUB_OUTPUT"
-            echo "excel_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
+            echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
+            echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Configure GitHub Pages
@@ -529,6 +540,7 @@ jobs:
             output/pricing-recommendations.json
             output/final-pricing-recommendations.json
             output/rates-updated.xlsx
+            output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json
             output/quality-alerts.json
             output/report.html
@@ -544,6 +556,7 @@ jobs:
         with:
           name: discovercars-excel-import-${{ github.run_number }}
           path: |
+            output/rates-import-ready.xlsx
             output/rates-updated.xlsx
             output/excel-rate-update-summary.json
             output/final-pricing-recommendations.json
@@ -561,6 +574,7 @@ jobs:
           FULL_REPORT_URL: ${{ steps.pages-site.outputs.full_report_url }}
           SHORT_REPORT_URL: ${{ steps.pages-site.outputs.short_report_url }}
           PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
+          PAGES_EXCEL_REPORT_URL: ${{ steps.pages-site.outputs.excel_report_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -648,7 +662,7 @@ jobs:
 
           pages_section=""
           if [[ -n "$FULL_REPORT_URL" || -n "$SHORT_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
-            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nKrotki raport:\n%s\nExcel latest:\n%s\n' "${FULL_REPORT_URL:-brak}" "${SHORT_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}")
+            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nKrotki raport:\n%s\nExcel importowy gotowy:\n%s\nRaport Excel:\n%s\n' "${FULL_REPORT_URL:-brak}" "${SHORT_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}" "${PAGES_EXCEL_REPORT_URL:-brak}")
           fi
 
           if [[ -n "$PAGE_URL" ]]; then

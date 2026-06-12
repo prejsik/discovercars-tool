@@ -207,7 +207,39 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 P
   assert.match(output.recommendations[0].reason, /co najmniej 5 PLN/);
 });
 
-runTest("buildPricingRecommendations lowers MM when another provider is top1", () => {
+runTest("buildPricingRecommendations uses top1 undercut when MM is top2 and less than 10 PLN per day from top1", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Warsaw"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Warsaw: {
+            top_3: [
+              { provider_name: "Car24", total_price: 180, currency: "PLN", rental_days: 2 },
+              { provider_name: "MM Cars Rental", total_price: 196, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 196, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top1_undercut");
+  assert.equal(output.recommendations[0].target_rank, 1);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 89);
+  assert.match(output.recommendations[0].reason, /jest top2/);
+});
+
+runTest("buildPricingRecommendations skips top1 undercut when MM top2 needs at least 10 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Warsaw"],
@@ -231,10 +263,7 @@ runTest("buildPricingRecommendations lowers MM when another provider is top1", (
     ]
   });
 
-  assert.equal(output.recommendation_count, 1);
-  assert.equal(output.recommendations[0].action, "decrease");
-  assert.equal(output.recommendations[0].recommendation_type, "top1_undercut");
-  assert.equal(output.recommendations[0].suggested_rate_pln_day, 89);
+  assert.equal(output.recommendation_count, 0);
 });
 
 runTest("buildPricingRecommendations flags a small decrease needed to enter top3", () => {
@@ -270,7 +299,7 @@ runTest("buildPricingRecommendations flags a small decrease needed to enter top3
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 119);
 });
 
-runTest("buildPricingRecommendations uses small decrease to pass a higher-ranked top3 rival", () => {
+runTest("buildPricingRecommendations uses top1 undercut for a small decrease from top2 to top1", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Poznan"],
@@ -297,9 +326,42 @@ runTest("buildPricingRecommendations uses small decrease to pass a higher-ranked
 
   assert.equal(output.recommendation_count, 1);
   assert.equal(output.recommendations[0].action, "decrease");
-  assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top1_undercut");
   assert.equal(output.recommendations[0].target_rank, 1);
   assert.equal(output.recommendations[0].benchmark_provider, "Car24");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
+});
+
+runTest("buildPricingRecommendations uses small decrease to pass a top2 rival when MM is top3", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Poznan"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Poznan: {
+            top_3: [
+              { provider_name: "Car24", total_price: 190, currency: "PLN", rental_days: 2 },
+              { provider_name: "Flex To Go", total_price: 200, currency: "PLN", rental_days: 2 },
+              { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
+  assert.equal(output.recommendations[0].target_rank, 2);
+  assert.equal(output.recommendations[0].benchmark_provider, "Flex To Go");
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
 });
 

@@ -118,6 +118,7 @@ def main():
         workbook_path = tmpdir / "rates.xlsx"
         recommendations_path = tmpdir / "pricing-recommendations.json"
         output_path = tmpdir / "rates-updated.xlsx"
+        import_output_path = tmpdir / "rates-import-ready.xlsx"
         build_workbook(workbook_path)
 
         recommendations_path.write_text(
@@ -140,7 +141,7 @@ def main():
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
-                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Warsaw",
                             "start_date": "2026-06-10",
                             "rental_days": 21,
@@ -153,7 +154,7 @@ def main():
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
-                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Warsaw",
                             "start_date": "2026-06-11",
                             "rental_days": 2,
@@ -195,9 +196,11 @@ def main():
             config=config,
             cli_groups=None,
             dry_run=False,
+            import_output_path=import_output_path,
         )
 
         assert_equal(summary["change_count"], 10, "change_count")
+        assert_equal(summary["import_output"], str(import_output_path), "import output path")
         assert_equal(summary["normalized_pickup_end_count"], 9, "normalized_pickup_end_count")
         assert_equal(summary["synced_booking_end_count"], 4, "synced_booking_end_count")
         updated = openpyxl.load_workbook(output_path)
@@ -211,6 +214,11 @@ def main():
         assert str(ws["A4"].fill.fgColor.rgb).endswith("1F4E78")
         review_ws = updated["Recommendations Review"]
         validation_ws = updated["Validation"]
+        import_ready = openpyxl.load_workbook(import_output_path)
+        assert_equal(import_ready.sheetnames, ["Sheet1"], "import-ready workbook sheets")
+        import_ready_ws = import_ready["Sheet1"]
+        assert_equal(import_ready_ws["J5"].value, 81, "import-ready updated rate")
+        assert_equal(import_ready_ws["N5"].value, 100, "import-ready long duration minimum")
         assert_equal(ws.max_row, 13, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
@@ -477,7 +485,7 @@ def main():
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
-                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Warsaw",
                             "start_date": "2026-06-11",
                             "rental_days": 1,
@@ -555,7 +563,7 @@ def main():
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
-                            "reason": "MM Cars Rental nie jest top1; cel to 1 PLN ponizej top1.",
+                            "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Krakow",
                             "start_date": "2026-06-11",
                             "rental_days": 2,

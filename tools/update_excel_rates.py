@@ -401,7 +401,8 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
         )
     if recommendation_type == "top1_undercut":
         return (
-            "MM Cars Rental nie jest na 1 miejscu. Cel jest ustawiony 1 PLN ponizej "
+            "MM Cars Rental jest na 2 miejscu i brakuje mniej niz 10 PLN/dzien, "
+            "zeby zostac top1. Cel jest ustawiony 1 PLN ponizej "
             f"benchmarku {benchmark_provider} ({benchmark_rate} PLN)."
         )
     return str(change.get("reason") or "")
@@ -704,7 +705,7 @@ def write_changed_positions_sheet(
     legend_items = [
         ("9DC3E6", "Top1 gap", "MM Cars Rental jest top1, a jego cena jest co najmniej 5 PLN/dzien nizsza niz top2; rekomendacja podnosi cene do 1 PLN ponizej top2."),
         ("FFC7CE", "Male obnizenie top3", "Obnizka ponizej 10 PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to 1 PLN ponizej tej oferty."),
-        ("F4B183", "Przebicie top1", "MM Cars Rental nie jest top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
+        ("F4B183", "Przebicie top1", "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
         ("FCE4D6", "Floor i kolory stawek", f"{get_floor_legend_text(config)} W Sheet1 zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien."),
     ]
     for row, (color, label, description) in enumerate(legend_items, start=2):
@@ -1338,6 +1339,14 @@ def maybe_sync_booking_end_to_pickup_end(ws: Any, row: int, columns: dict[str, A
     return True
 
 
+def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path) -> None:
+    for sheet in list(workbook.worksheets):
+        if sheet.title != sheet_name:
+            workbook.remove(sheet)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(output_path)
+
+
 def apply_updates(
     workbook_path: Path,
     recommendations_path: Path,
@@ -1347,6 +1356,7 @@ def apply_updates(
     dry_run: bool,
     accepted_only: bool = False,
     acceptance_workbook_path: Path | None = None,
+    import_output_path: Path | None = None,
 ) -> dict[str, Any]:
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -1476,10 +1486,13 @@ def apply_updates(
         write_validation_sheet(workbook, ws, config, duration_columns, changes, skipped_targets)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
+        if import_output_path is not None:
+            save_import_ready_workbook(workbook, sheet_name, import_output_path)
 
     return {
         "workbook": str(workbook_path),
         "output": str(output_path) if output_path else None,
+        "import_output": str(import_output_path) if import_output_path else None,
         "dry_run": dry_run,
         "change_count": len(changes),
         "normalized_pickup_end_count": normalized_pickup_end_count,
@@ -1508,6 +1521,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recommendations", required=True, help="pricing-recommendations.json path.")
     parser.add_argument("--config", required=True, help="Excel rate update config JSON path.")
     parser.add_argument("--output", help="Output .xlsx path.")
+    parser.add_argument("--import-output", help="Optional clean import .xlsx path containing only Sheet1.")
     parser.add_argument("--groups", help="Comma-separated car groups to update, or 'all'. Overrides config apply_groups.")
     parser.add_argument("--accepted-only", action="store_true", help="Apply only recommendations marked as accepted.")
     parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Akceptacja?/Accept? decisions.")
@@ -1527,6 +1541,7 @@ def main() -> None:
         dry_run=args.dry_run,
         accepted_only=args.accepted_only,
         acceptance_workbook_path=Path(args.acceptance_workbook) if args.acceptance_workbook else None,
+        import_output_path=Path(args.import_output) if args.import_output else None,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
 

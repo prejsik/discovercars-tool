@@ -63,7 +63,7 @@ Jak dziala:
 - krotki run buduje `final-pricing-recommendations.json` przez polaczenie ostatniego pelnego runa z aktualnym 14-dniowym runem; aktualne krotkie rekomendacje nadpisuja te same lokalizacje, daty i duration z pelnej bazy,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
 - publikuje GitHub Pages z oddzielnymi linkami dla pelnego raportu, krotkiego raportu i najnowszego Excela; krotki run nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
@@ -96,7 +96,8 @@ Pliki w artifact:
 - `results-latest.json` - dane techniczne do dalszego przetwarzania,
 - `pricing-recommendations.json` - rekomendacje stawek wygenerowane bezposrednio z danego runa scrapera,
 - `final-pricing-recommendations.json` - finalny zestaw rekomendacji do Excela; dla krotkiego runa jest scaleniem ostatniego pelnego runa i aktualnego 14-dniowego runa,
-- `rates-updated.xlsx` - gotowy plik importowy stawek wygenerowany z bazowego workbooka `input/mm-cars-rental-rates-inclusive-fp.xlsx`,
+- `rates-import-ready.xlsx` - gotowy plik importowy stawek, tylko `Sheet1`, ze wszystkimi rekomendowanymi zmianami zastosowanymi automatycznie,
+- `rates-updated.xlsx` - pelny workbook kontrolny z `Sheet1`, `Changed Positions`, `Recommendations Review` i `Validation`,
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
 - `quality-alerts.json` - alerty jakosciowe uzywane w Telegramie,
 - `run-log.txt` - surowy log z uruchomienia,
@@ -114,7 +115,8 @@ Stale linki:
 
 - `https://prejsik.github.io/discovercars-tool/latest-full/report.html` - ostatni pelny raport,
 - `https://prejsik.github.io/discovercars-tool/latest-short/report.html` - ostatni krotki raport,
-- `https://prejsik.github.io/discovercars-tool/latest-excel/rates-updated.xlsx` - najnowszy finalny Excel do pobrania.
+- `https://prejsik.github.io/discovercars-tool/latest-excel/rates-import-ready.xlsx` - najnowszy Excel gotowy do importu,
+- `https://prejsik.github.io/discovercars-tool/latest-excel/rates-updated.xlsx` - pelny raport Excel z arkuszami kontrolnymi.
 
 Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Build and deployment` -> `Source` na `GitHub Actions`. Po kolejnym udanym pelnym runie strona glowna pokaze pelny `report.html`.
 
@@ -122,7 +124,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`/`latest-excel`, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -370,7 +372,7 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje `rates-updated.xlsx` jako artifact `discovercars-excel-import-...`. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2027-01-31`, zachowuje rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje dwa pliki: `rates-import-ready.xlsx` jako plik gotowy do importu z samym `Sheet1` oraz `rates-updated.xlsx` jako pelny raport kontrolny. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2027-01-31`, zachowuje rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje w pelnym raporcie.
 Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
@@ -385,19 +387,13 @@ Najpierw uruchom dry-run:
 python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --dry-run
 ```
 
-Realny zapis kopii pliku:
+Realny zapis kopii pliku i czystego pliku importowego:
 
 ```powershell
-python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --output output/rates-updated.xlsx
+python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --output output/rates-updated.xlsx --import-output output/rates-import-ready.xlsx
 ```
 
-Tryb importu tylko zaakceptowanych pozycji:
-
-```powershell
-python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/final-pricing-recommendations.json --config excel-rate-update.config.example.json --acceptance-workbook output/rates-review.xlsx --accepted-only --output output/rates-accepted-only.xlsx
-```
-
-W arkuszu `Recommendations Review` w kolumnie `Akceptacja?` jako akceptacje sa traktowane m.in. `YES`, `Y`, `TAK`, `TRUE`, `1` albo `X`. Akceptacje ze starszych plikow z kolumna `Accept?` tez sa obslugiwane. Daily workflow nie wlacza `--accepted-only` automatycznie, bo wymaga to recznego uzupelnienia decyzji w review workbooku.
+Standardowy plik importowy zawiera wszystkie rekomendowane zmiany, ktore przeszly reguly, floor cenowy i wykluczenia grup. Tryb `--accepted-only` pozostaje tylko reczna opcja awaryjna, ale daily workflow go nie uzywa i nie tworzy osobnego pliku accepted-only.
 
 Kolory w Excelu:
 
@@ -409,7 +405,7 @@ Kolory w Excelu:
 - kolumna `O` w `Changed Positions` zawiera wyjasnienie proponowanej zmiany ceny, w tym efekt typu top1/top2/top3, bez lokalizacji, daty odbioru, duration i korekty grupy; pozostale komorki w tym arkuszu nie dostaja komentarzy.
 - w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o co najmniej `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
 - w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: obnizka mniejsza niz `10 PLN/dzien` pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel jest `1 PLN` ponizej tej oferty.
-- w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental nie jest top1; cel jest `1 PLN` ponizej obecnego top1.
+- w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental jest top2 i brakuje mniej niz `10 PLN/dzien`, zeby zostac top1; cel jest `1 PLN` ponizej obecnego top1.
 
 Minimalne stawki przy aktualizacji Excela:
 

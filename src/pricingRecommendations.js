@@ -4,6 +4,7 @@ const path = require("path");
 const DEFAULT_OPTIONS = {
   top1GapThresholdPlnDay: 5,
   top1RaiseBufferPlnDay: 1,
+  top1UndercutThresholdPlnDay: 10,
   undercutBufferPlnDay: 1,
   top3SmallDecreaseThresholdPlnDay: 10,
   minChangePlnDay: 0.5,
@@ -150,16 +151,43 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     };
   }
 
+  if (mmRank === 2) {
+    const top1Target = roundRate(top1Rate - options.undercutBufferPlnDay, options);
+    const top1Change = top1Target - mmRate;
+    if (
+      top1Change < 0 &&
+      Math.abs(top1Change) < options.top1UndercutThresholdPlnDay &&
+      Math.abs(top1Change) >= options.minChangePlnDay
+    ) {
+      return {
+        ...base,
+        action: "decrease",
+        recommendation_type: "top1_undercut",
+        target_rank: 1,
+        reason: `MM Cars Rental jest top2 i brakuje mniej niz ${options.top1UndercutThresholdPlnDay} PLN/dzien, zeby zostac top1; cel to ${options.undercutBufferPlnDay} PLN ponizej top1.`,
+        benchmark_provider: formatProviderName(top1),
+        benchmark_rate_pln_day: Number(top1Rate.toFixed(2)),
+        suggested_rate_pln_day: top1Target,
+        change_pln_day: Number(top1Change.toFixed(2))
+      };
+    }
+
+    return buildNoopRecommendation(
+      base,
+      `MM Cars Rental jest top2, ale przebicie top1 wymaga obnizki co najmniej ${options.top1UndercutThresholdPlnDay} PLN/dzien.`
+    );
+  }
+
   const smallDecreaseCompetitor =
     mmRank === "outside_top3"
       ? top3
-      : typeof mmRank === "number" && mmRank > 1 && mmRank <= 3
+      : typeof mmRank === "number" && mmRank > 2 && mmRank <= 3
         ? topOffers[mmRank - 2]
         : null;
   const smallDecreaseTargetRank =
     mmRank === "outside_top3"
       ? 3
-      : typeof mmRank === "number" && mmRank > 1 && mmRank <= 3
+      : typeof mmRank === "number" && mmRank > 2 && mmRank <= 3
         ? mmRank - 1
         : null;
   const smallDecreaseCompetitorRate = toDailyRate(smallDecreaseCompetitor);
@@ -185,23 +213,10 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     }
   }
 
-  const target = roundRate(top1Rate - options.undercutBufferPlnDay, options);
-  const change = target - mmRate;
-  if (Math.abs(change) < options.minChangePlnDay) {
-    return buildNoopRecommendation(base, "MM Cars Rental jest wystarczajaco blisko celu wzgledem top1.");
-  }
-
-  return {
-    ...base,
-    action: change < 0 ? "decrease" : "increase",
-    recommendation_type: "top1_undercut",
-    target_rank: 1,
-    reason: `MM Cars Rental nie jest top1; cel to ${options.undercutBufferPlnDay} PLN ponizej top1.`,
-    benchmark_provider: formatProviderName(top1),
-    benchmark_rate_pln_day: Number(top1Rate.toFixed(2)),
-    suggested_rate_pln_day: target,
-    change_pln_day: Number(change.toFixed(2))
-  };
+  return buildNoopRecommendation(
+    base,
+    "MM Cars Rental nie spelnia warunkow aktywnej rekomendacji cenowej dla tego scenariusza."
+  );
 }
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
