@@ -376,8 +376,7 @@ Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jes
 
 Workbook zawiera tez arkusze kontrolne:
 
-- `Recommendations Review` - jeden wiersz na zgrupowana rekomendacje z kolumna `Accept?`, statusem, flagami ryzyka i opisem decyzji.
-- `Competitor Evidence` - dane z rynku dla rekomendacji: MM Cars Rental, benchmark oraz top1/top2/top3, z data scenariusza i duration.
+- `Recommendations Review` - jeden wiersz na zgrupowana rekomendacje z kolumna `Akceptacja?`, polskim statusem, uwagami kontroli i opisem decyzji.
 - `Validation` - szybkie kontrole przed importem, m.in. zgodnosc dat, duplikaty, puste stawki, wykluczone grupy i brak benchmarku.
 
 Najpierw uruchom dry-run:
@@ -398,7 +397,7 @@ Tryb importu tylko zaakceptowanych pozycji:
 python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/final-pricing-recommendations.json --config excel-rate-update.config.example.json --acceptance-workbook output/rates-review.xlsx --accepted-only --output output/rates-accepted-only.xlsx
 ```
 
-W arkuszu `Recommendations Review` w kolumnie `Accept?` jako akceptacje sa traktowane m.in. `YES`, `Y`, `TAK`, `TRUE`, `1` albo `X`. Daily workflow nie wlacza `--accepted-only` automatycznie, bo wymaga to recznego uzupelnienia decyzji w review workbooku.
+W arkuszu `Recommendations Review` w kolumnie `Akceptacja?` jako akceptacje sa traktowane m.in. `YES`, `Y`, `TAK`, `TRUE`, `1` albo `X`. Akceptacje ze starszych plikow z kolumna `Accept?` tez sa obslugiwane. Daily workflow nie wlacza `--accepted-only` automatycznie, bo wymaga to recznego uzupelnienia decyzji w review workbooku.
 
 Kolory w Excelu:
 
@@ -408,8 +407,9 @@ Kolory w Excelu:
 - arkusz `Changed Positions` ma u gory legende kolorow i kopiuje tylko zmienione pozycje,
 - podobne zmiany dla wielu grup sa laczone w jednym wierszu, a grupy sa wypisane razem w kolumnie `A`; identyczne kwoty w kolumnach stawek i komentarzu sa pokazywane tylko raz,
 - kolumna `O` w `Changed Positions` zawiera wyjasnienie proponowanej zmiany ceny, w tym efekt typu top1/top2/top3, bez lokalizacji, daty odbioru, duration i korekty grupy; pozostale komorki w tym arkuszu nie dostaja komentarzy.
-- w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o ponad `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
-- w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: cel top3 wymaga roznicy mniejszej niz `10 PLN/dzien`; cel jest `1 PLN` ponizej top3.
+- w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o co najmniej `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
+- w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: obnizka mniejsza niz `10 PLN/dzien` pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel jest `1 PLN` ponizej tej oferty.
+- w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental nie jest top1; cel jest `1 PLN` ponizej obecnego top1.
 
 Minimalne stawki przy aktualizacji Excela:
 
@@ -427,7 +427,7 @@ W trybie konsolowym:
 - ceny w tabelach sa pokazywane jako stawki dobowe (`*_daily_rate`), liczone z `total_price / rental_days`,
 - `MM Cars Rental` jest podswietlane kolorem w kolumnach `top*_company` i `mm_cars_rental_daily_rate`.
 - `MM Cars Rental` ma czerwone podswietlenie, gdy jest drozsze maksymalnie o `10 PLN` na dobe od konkurenta na wyzszym miejscu.
-- `MM Cars Rental` ma niebieskie podswietlenie, gdy jest w `top1`, a `top2` jest drozsze o ponad `5 PLN` na dobe.
+- `MM Cars Rental` ma niebieskie podswietlenie, gdy jest w `top1`, a `top2` jest drozsze o co najmniej `5 PLN` na dobe.
 
 Kazdy rekord sukcesu zawiera:
 

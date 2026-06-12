@@ -35,7 +35,7 @@
   },
   "changed_positions_sheet": "Changed Positions",
   "recommendations_review_sheet": "Recommendations Review",
-  "competitor_evidence_sheet": "Competitor Evidence",
+  "competitor_evidence_sheet": "",
   "validation_sheet": "Validation",
   "minimum_rates": {
     "global_min_pln_day": 70,
@@ -60,7 +60,8 @@
   },
   "recommendation_colors": {
     "top1_gap": "9DC3E6",
-    "top3_small_decrease": "FFC7CE"
+    "top3_small_decrease": "FFC7CE",
+    "top1_undercut": "F4B183"
   },
   "min_excel_change_pln_day": 0.01,
   "colors": {

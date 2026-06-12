@@ -127,7 +127,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-06-10",
                             "rental_days": 2,
@@ -205,12 +205,11 @@ def main():
         changed_ws = updated["Changed Positions"]
         assert_equal(
             updated.sheetnames,
-            ["Sheet1", "Changed Positions", "Recommendations Review", "Competitor Evidence", "Validation"],
+            ["Sheet1", "Changed Positions", "Recommendations Review", "Validation"],
             "workbook sheets",
         )
         assert str(ws["A4"].fill.fgColor.rgb).endswith("1F4E78")
         review_ws = updated["Recommendations Review"]
-        evidence_ws = updated["Competitor Evidence"]
         validation_ws = updated["Validation"]
         assert_equal(ws.max_row, 13, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
@@ -246,16 +245,20 @@ def main():
         assert "brutto/dzien" not in ws["N5"].comment.text
         assert ws["J6"].comment is None
         assert_equal(changed_ws["A1"].value, "Legenda", "changed sheet legend title")
-        assert_equal(changed_ws["A2"].value, "top1_gap", "top1 legend label")
-        assert "ponad 5 PLN" in changed_ws["B2"].value
+        assert_equal(changed_ws["A2"].value, "Top1 gap", "top1 legend label")
+        assert "co najmniej 5 PLN" in changed_ws["B2"].value
         assert_equal(rgb(changed_ws["A2"]), "9DC3E6", "top1 legend color")
-        assert_equal(changed_ws["A3"].value, "top3_small_decrease", "top3 legend label")
+        assert_equal(changed_ws["A3"].value, "Male obnizenie top3", "top3 legend label")
         assert_equal(rgb(changed_ws["A3"]), "FFC7CE", "top3 legend color")
+        assert_equal(changed_ws["A4"].value, "Przebicie top1", "top1 undercut legend label")
+        assert_equal(rgb(changed_ws["A4"]), "F4B183", "top1 undercut legend color")
+        assert_equal(changed_ws["A5"].value, "Floor i kolory stawek", "floor legend label")
+        assert "Floor cenowy" in changed_ws["B5"].value
         assert_equal(changed_ws["O10"].value, "Komentarz zmiany", "changed sheet comment header")
         assert_equal(changed_ws.max_row, 14, "changed sheet row count")
         assert_equal(changed_ws["A11"].value, "CDMV, EDAH, ADMV", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O11"].value
-        assert "ponad 5 PLN" in changed_ws["O11"].value
+        assert "co najmniej 5 PLN" in changed_ws["O11"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O11"].value
         assert "Poprzednia stawka: 70 PLN" in changed_ws["O11"].value
         assert "Nowa stawka: 81 PLN" in changed_ws["O11"].value
@@ -275,6 +278,7 @@ def main():
         assert "Zastosowane minimum" not in changed_ws["O14"].value
         assert "Minimum sezonowe" not in changed_ws["O14"].value
         assert_equal(rgb(changed_ws["O11"]), "9DC3E6", "top1 gap row is blue")
+        assert_equal(rgb(changed_ws["O12"]), "F4B183", "top1 undercut row is orange")
         assert_equal(rgb(changed_ws["O14"]), "FFC7CE", "top3 small decrease row is red")
         assert changed_ws["O11"].comment is not None
         for row in range(1, changed_ws.max_row + 1):
@@ -283,23 +287,21 @@ def main():
         changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
-        assert_equal(review_ws["A1"].value, "Accept?", "review header")
+        assert_equal(review_ws["A1"].value, "Akceptacja?", "review header")
         assert_equal(review_ws["B1"].value, "Status", "review status header")
         assert_equal(review_ws.max_row, 5, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
         assert_equal(review_ws["F2"].value, "CDMV, EDAH, ADMV", "review grouped groups")
-        assert "large_delta" in review_ws["C2"].value or review_ws["C2"].value in {"ok", "group_adjustment"}
-        assert_equal(evidence_ws["A1"].value, "Scenario ID", "evidence header")
-        assert_equal(evidence_ws.max_row, 5, "evidence row count")
-        assert_equal(evidence_ws["C2"].value, "Warsaw", "evidence location")
-        assert_equal(evidence_ws["U2"].value, 81, "evidence suggested rate")
+        assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
+        assert "korekta grupy" in review_ws["C2"].value or review_ws["C2"].value == "OK"
         validation_rows = {
             validation_ws.cell(row, 1).value: validation_ws.cell(row, 2).value
             for row in range(2, validation_ws.max_row + 1)
         }
-        assert_equal(validation_rows["Booking end date equals pickup end date"], "OK", "booking date validation")
-        assert_equal(validation_rows["Pickup end date equals pickup start date"], "OK", "pickup date validation")
-        assert_equal(validation_rows["Blank rate cells in duration columns"], "OK", "blank rate validation")
+        assert_equal(validation_rows["Booking end date = Pickup end date"], "OK", "booking date validation")
+        assert_equal(validation_rows["Pickup end date = Pickup start date"], "OK", "pickup date validation")
+        assert_equal(validation_rows["Puste stawki w kolumnach duration"], "OK", "blank rate validation")
+        assert_equal(validation_rows["Zmienione stawki ponizej floor cenowego"], "OK", "floor validation")
 
         dedup_workbook_path = tmpdir / "dedup-rates.xlsx"
         dedup_recommendations_path = tmpdir / "dedup-recommendations.json"
@@ -318,7 +320,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-06-10",
                             "rental_days": 2,
@@ -405,7 +407,7 @@ def main():
         acceptance_review = openpyxl.Workbook()
         acceptance_review_ws = acceptance_review.active
         acceptance_review_ws.title = "Recommendations Review"
-        acceptance_review_ws.append(["Accept?", "Location", "Pickup date", "Duration band", "Scenario ID"])
+        acceptance_review_ws.append(["Akceptacja?", "Lokalizacja", "Data odbioru", "Przedzial duration", "ID scenariusza"])
         acceptance_review_ws.append(["YES", "Warsaw", "2026-06-10", "2", ""])
         acceptance_review.save(acceptance_review_path)
 
@@ -488,7 +490,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-06-11",
                             "rental_days": 2,

@@ -108,7 +108,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /50\.00 PLN\/day/);
 });
 
-runTest("buildHtmlReport marks MM Cars Rental when top2 is more than 5 PLN per day above MM top1", () => {
+runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per day above MM top1", () => {
   const html = buildHtmlReport({
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
@@ -143,7 +143,7 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is more than 5 PLN per d
   assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
 });
 
-runTest("buildPricingRecommendations raises MM top1 when top2 gap is more than 5 PLN per day", () => {
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 5 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Krakow"],
@@ -170,11 +170,12 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is more than 5
   assert.equal(output.recommendation_count, 1);
   assert.equal(output.recommendations[0].action, "increase");
   assert.equal(output.recommendations[0].recommendation_type, "top1_gap");
+  assert.equal(output.recommendations[0].target_rank, 1);
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 81);
   assert.match(output.recommendations[0].reason, /top2 jest drozszy/);
 });
 
-runTest("buildPricingRecommendations does not raise MM top1 when top2 gap is exactly 5 PLN per day", () => {
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Krakow"],
@@ -198,7 +199,12 @@ runTest("buildPricingRecommendations does not raise MM top1 when top2 gap is exa
     ]
   });
 
-  assert.equal(output.recommendation_count, 0);
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "increase");
+  assert.equal(output.recommendations[0].recommendation_type, "top1_gap");
+  assert.equal(output.recommendations[0].target_rank, 1);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 74);
+  assert.match(output.recommendations[0].reason, /co najmniej 5 PLN/);
 });
 
 runTest("buildPricingRecommendations lowers MM when another provider is top1", () => {
@@ -260,7 +266,41 @@ runTest("buildPricingRecommendations flags a small decrease needed to enter top3
   assert.equal(output.recommendations[0].action, "decrease");
   assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
   assert.equal(output.recommendations[0].benchmark_provider, "Kaizen Rent");
+  assert.equal(output.recommendations[0].target_rank, 3);
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 119);
+});
+
+runTest("buildPricingRecommendations uses small decrease to pass a higher-ranked top3 rival", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-06-09T07:00:00.000Z",
+    locations: ["Poznan"],
+    scenarios: [
+      {
+        scenario_id: "2026-06-10-2",
+        start_date: "2026-06-10",
+        pickup_date: "2026-06-10T10:00:00+02:00",
+        dropoff_date: "2026-06-12T10:00:00+02:00",
+        rental_days: 2,
+        top_3_plus_mm_by_location: {
+          Poznan: {
+            top_3: [
+              { provider_name: "Car24", total_price: 200, currency: "PLN", rental_days: 2 },
+              { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 },
+              { provider_name: "Flex To Go", total_price: 230, currency: "PLN", rental_days: 2 }
+            ],
+            mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 }
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "top3_small_decrease");
+  assert.equal(output.recommendations[0].target_rank, 1);
+  assert.equal(output.recommendations[0].benchmark_provider, "Car24");
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
 });
 
 runTest("mergePricingRecommendations lets short run replace matching full-run recommendations", () => {
@@ -346,7 +386,7 @@ runTest("buildQualityAlerts reports missing city data and workbook warnings", ()
       change_count: 0,
       validation: [
         {
-          check: "Rates below configured floor",
+          check: "Zmienione stawki ponizej floor cenowego",
           status: "WARNING",
           issue_count: 3
         }

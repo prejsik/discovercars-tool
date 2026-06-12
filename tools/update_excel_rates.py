@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
     },
     "changed_positions_sheet": "Changed Positions",
     "recommendations_review_sheet": "Recommendations Review",
-    "competitor_evidence_sheet": "Competitor Evidence",
+    "competitor_evidence_sheet": "",
     "validation_sheet": "Validation",
     "minimum_rates": {
         "global_min_pln_day": 70,
@@ -78,6 +78,7 @@ DEFAULT_CONFIG = {
     "recommendation_colors": {
         "top1_gap": "9DC3E6",
         "top3_small_decrease": "FFC7CE",
+        "top1_undercut": "F4B183",
     },
     "min_excel_change_pln_day": 0.01,
     "colors": {
@@ -237,9 +238,22 @@ def load_acceptance_keys(path: Path, sheet_name: str) -> set[tuple[str, str, str
         for index, cell in enumerate(ws[1], start=1)
         if cell.value not in (None, "")
     }
-    accept_col = headers.get("accept?")
+
+    def header_col(*names: str) -> int | None:
+        for name in names:
+            col = headers.get(normalize_key(name))
+            if col:
+                return col
+        return None
+
+    accept_col = header_col("Accept?", "Akceptacja?")
     if not accept_col:
-        raise ValueError("Acceptance sheet must contain an 'Accept?' column.")
+        raise ValueError("Acceptance sheet must contain an 'Accept?' or 'Akceptacja?' column.")
+
+    scenario_col = header_col("Scenario ID", "ID scenariusza")
+    location_col = header_col("Location", "Lokalizacja")
+    pickup_col = header_col("Pickup date", "Data odbioru")
+    duration_col = header_col("Duration band", "Przedzial duration")
 
     accepted: set[tuple[str, str, str, str]] = set()
     for row in range(2, ws.max_row + 1):
@@ -247,10 +261,10 @@ def load_acceptance_keys(path: Path, sheet_name: str) -> set[tuple[str, str, str
             continue
         accepted.add(
             get_acceptance_key(
-                ws.cell(row, headers.get("scenario id", 0)).value if headers.get("scenario id") else "",
-                ws.cell(row, headers.get("location", 0)).value if headers.get("location") else "",
-                ws.cell(row, headers.get("pickup date", 0)).value if headers.get("pickup date") else "",
-                ws.cell(row, headers.get("duration band", 0)).value if headers.get("duration band") else "",
+                ws.cell(row, scenario_col).value if scenario_col else "",
+                ws.cell(row, location_col).value if location_col else "",
+                ws.cell(row, pickup_col).value if pickup_col else "",
+                ws.cell(row, duration_col).value if duration_col else "",
             )
         )
     return accepted
@@ -375,14 +389,15 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
     benchmark_rate = format_rate_for_comment(parse_number(change.get("benchmark_rate")))
     if recommendation_type == "top1_gap":
         return (
-            "MM Cars Rental jest na 1 miejscu, a druga oferta jest drozsza o ponad "
-            "5 PLN/dzien. Cel jest ustawiony 1 PLN ponizej benchmarku "
+            "MM Cars Rental jest na 1 miejscu, a druga oferta jest drozsza o co najmniej "
+            "5 PLN/dzien. Cel jest ustawiony 1 PLN ponizej top2: "
             f"{benchmark_provider} ({benchmark_rate} PLN)."
         )
     if recommendation_type == "top3_small_decrease":
+        target_rank = int(parse_number(change.get("target_rank")) or 3)
         return (
-            "Cel top3 wymaga roznicy mniejszej niz 10 PLN/dzien. "
-            f"Benchmark: {benchmark_provider} ({benchmark_rate} PLN)."
+            "Male obnizenie ceny, ponizej 10 PLN/dzien, pozwala przeskoczyc "
+            f"rywala z top{target_rank}: {benchmark_provider} ({benchmark_rate} PLN)."
         )
     if recommendation_type == "top1_undercut":
         return (
@@ -397,7 +412,8 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
     if recommendation_type == "top1_gap":
         return "utrzymanie top1 przy cenie 1 PLN ponizej top2."
     if recommendation_type == "top3_small_decrease":
-        return "top3 przy cenie 1 PLN ponizej top3."
+        target_rank = int(parse_number(change.get("target_rank")) or 3)
+        return f"top{target_rank} przy cenie 1 PLN ponizej rywala z top{target_rank}."
     if recommendation_type == "top1_undercut":
         return "top1 przy cenie 1 PLN ponizej obecnego top1."
     return ""
@@ -566,27 +582,81 @@ def get_grouped_groups(changes: list[dict[str, Any]]) -> str:
     return ", ".join(groups)
 
 
-def build_review_risk_flags(changes: list[dict[str, Any]]) -> str:
-    flags: list[str] = []
+def get_floor_legend_text(config: dict[str, Any]) -> str:
+    rules = config.get("minimum_rates") or {}
+    parts: list[str] = []
+    global_min = parse_number(rules.get("global_min_pln_day"))
+    if global_min is not None:
+        parts.append(f"globalnie {format_rate_for_comment(global_min)} PLN")
+
+    long_days = int(parse_number(rules.get("long_duration_min_days")) or 0)
+    long_rate = parse_number(rules.get("long_duration_min_pln_day"))
+    if long_days and long_rate is not None:
+        parts.append(f"od {long_days} dni {format_rate_for_comment(long_rate)} PLN")
+
+    season_start = rules.get("season_start")
+    season_end = rules.get("season_end")
+    season_days = int(parse_number(rules.get("season_duration_column_min_days")) or 0)
+    season_rate = parse_number(rules.get("season_min_pln_day"))
+    if season_start and season_end and season_days and season_rate is not None:
+        parts.append(
+            f"{season_start}-{season_end} od {season_days} dni {format_rate_for_comment(season_rate)} PLN"
+        )
+
+    if not parts:
+        return "Brak aktywnych regul floor cenowego."
+    return "Floor cenowy chroni przed rekomendacja i zmiana ponizej: " + "; ".join(parts) + "."
+
+
+def build_review_notes(changes: list[dict[str, Any]]) -> str:
+    notes: list[str] = []
     strongest = get_strongest_delta_change(changes)
     strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
-    if strongest_delta >= 30:
-        flags.append("large_delta_30_plus")
-    elif strongest_delta >= 20:
-        flags.append("large_delta_20_plus")
+    if strongest_delta >= 40:
+        notes.append("duza zmiana >= 40 PLN")
 
     if any(change.get("minimum_reason") for change in changes):
-        flags.append("floor_limited")
+        notes.append("ochrona floor cenowego")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
-        flags.append("group_adjustment")
+        notes.append("korekta grupy EDAH/ADMV")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
-        flags.append("actual_action_differs")
+        notes.append("kierunek po floor rozny od rekomendacji")
     if any(parse_number(change.get("benchmark_rate")) is None for change in changes):
-        flags.append("missing_benchmark")
+        notes.append("brak ceny benchmarku")
     if any(parse_number(change.get("mm_rate")) is None for change in changes):
-        flags.append("missing_mm_rate")
+        notes.append("brak ceny MM")
 
-    return ", ".join(flags) if flags else "ok"
+    return "; ".join(notes) if notes else "OK"
+
+
+def get_review_status(changes: list[dict[str, Any]]) -> str:
+    strongest = get_strongest_delta_change(changes)
+    strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
+    critical = (
+        strongest_delta >= 40
+        or any(change.get("action") != change.get("recommendation_action") for change in changes)
+        or any(parse_number(change.get("benchmark_rate")) is None for change in changes)
+        or any(parse_number(change.get("mm_rate")) is None for change in changes)
+    )
+    if critical:
+        return "Sprawdz"
+    if any(change.get("minimum_reason") for change in changes) or any(
+        parse_number(change.get("group_adjustment_pln_day")) for change in changes
+    ):
+        return "Gotowe z uwaga"
+    return "Gotowe"
+
+
+def get_recommendation_label_pl(change: dict[str, Any]) -> str:
+    recommendation_type = change.get("recommendation_type")
+    if recommendation_type == "top1_gap":
+        return "Top1 gap"
+    if recommendation_type == "top3_small_decrease":
+        target_rank = int(parse_number(change.get("target_rank")) or 3)
+        return f"Male obnizenie do top{target_rank}"
+    if recommendation_type == "top1_undercut":
+        return "Przebicie top1"
+    return str(recommendation_type or "")
 
 
 def copy_cell(source_cell: Any, target_cell: Any) -> None:
@@ -632,10 +702,10 @@ def write_changed_positions_sheet(
     target_ws["A1"] = "Legenda"
     target_ws["A1"].font = Font(bold=True)
     legend_items = [
-        ("9DC3E6", "top1_gap", "MM Cars Rental jest top1, a top2 jest drozszy o ponad 5 PLN/dzien; cel jest 1 PLN ponizej top2."),
-        ("FFC7CE", "top3_small_decrease", "Cel top3 wymaga roznicy mniejszej niz 10 PLN; cel jest 1 PLN ponizej top3."),
-        ("00B050", "zielony w stawce", "zmiana dodatnia; mocniejszy kolor oznacza wieksza zmiane."),
-        ("C00000", "czerwony w stawce", "zmiana ujemna; mocniejszy kolor oznacza wieksza zmiane."),
+        ("9DC3E6", "Top1 gap", "MM Cars Rental jest top1, a jego cena jest co najmniej 5 PLN/dzien nizsza niz top2; rekomendacja podnosi cene do 1 PLN ponizej top2."),
+        ("FFC7CE", "Male obnizenie top3", "Obnizka ponizej 10 PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to 1 PLN ponizej tej oferty."),
+        ("F4B183", "Przebicie top1", "MM Cars Rental nie jest top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
+        ("FCE4D6", "Floor i kolory stawek", f"{get_floor_legend_text(config)} W Sheet1 zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien."),
     ]
     for row, (color, label, description) in enumerate(legend_items, start=2):
         target_ws.cell(row, 1).value = label
@@ -735,38 +805,38 @@ def write_recommendations_review_sheet(
         return
 
     headers = [
-        "Accept?",
+        "Akceptacja?",
         "Status",
-        "Risk flags",
-        "Location",
-        "Zone",
-        "Groups",
-        "Pickup date",
-        "Duration band",
-        "Old rate",
-        "New rate",
+        "Uwagi kontroli",
+        "Lokalizacja",
+        "Strefa",
+        "Grupy",
+        "Data odbioru",
+        "Przedzial duration",
+        "Poprzednia stawka",
+        "Nowa stawka",
         "Delta",
-        "Recommendation",
-        "Outcome",
-        "Benchmark provider",
-        "Benchmark rate",
-        "MM rate",
+        "Typ rekomendacji",
+        "Cel zmiany",
+        "Benchmark",
+        "Cena benchmarku",
+        "Cena MM",
         "Top1",
         "Top2",
         "Top3",
-        "Reason",
-        "Scenario ID",
-        "Excel cells",
+        "Powod",
+        "ID scenariusza",
+        "Komorki Excel",
     ]
     rows: list[list[Any]] = []
     for grouped_changes in group_changes_for_changed_positions(changes):
         change = grouped_changes[0]
-        risk_flags = build_review_risk_flags(grouped_changes)
-        status = "Needs review" if risk_flags != "ok" else "Ready"
+        notes = build_review_notes(grouped_changes)
+        status = get_review_status(grouped_changes)
         rows.append([
             "",
             status,
-            risk_flags,
+            notes,
             change.get("location", ""),
             change.get("zone", ""),
             get_grouped_groups(grouped_changes),
@@ -775,7 +845,7 @@ def write_recommendations_review_sheet(
             format_grouped_rates(grouped_changes, "old_rate"),
             format_grouped_rates(grouped_changes, "new_rate"),
             format_grouped_deltas(grouped_changes),
-            change.get("recommendation_type", ""),
+            get_recommendation_label_pl(change),
             get_recommendation_outcome_pl(change),
             change.get("benchmark_provider", ""),
             parse_number(change.get("benchmark_rate")),
@@ -789,16 +859,24 @@ def write_recommendations_review_sheet(
         ])
 
     widths = {
-        "Accept?": 10,
-        "Risk flags": 26,
-        "Groups": 34,
-        "Reason": 70,
-        "Excel cells": 26,
+        "Akceptacja?": 12,
+        "Uwagi kontroli": 34,
+        "Grupy": 34,
+        "Powod": 76,
+        "Komorki Excel": 26,
         "Top1": 30,
         "Top2": 30,
         "Top3": 30,
     }
-    write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 2, headers, rows, widths)
+    ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 2, headers, rows, widths)
+    for row in range(2, ws.max_row + 1):
+        status = ws.cell(row, 2).value
+        if status == "Gotowe":
+            ws.cell(row, 2).fill = PatternFill(fill_type="solid", fgColor="C6EFCE")
+        elif status == "Gotowe z uwaga":
+            ws.cell(row, 2).fill = PatternFill(fill_type="solid", fgColor="FCE4D6")
+        elif status == "Sprawdz":
+            ws.cell(row, 2).fill = PatternFill(fill_type="solid", fgColor="FFC7CE")
 
 
 def format_provider_rate(provider: Any, rate: Any) -> str:
@@ -824,30 +902,30 @@ def write_competitor_evidence_sheet(
         return
 
     headers = [
-        "Scenario ID",
-        "Source generated at",
-        "Location",
-        "Zone",
-        "Pickup date",
-        "Dropoff date",
-        "Rental days",
-        "Duration band",
-        "Currency",
-        "MM rank",
-        "MM provider",
-        "MM rate",
-        "Top1 provider",
-        "Top1 rate",
-        "Top2 provider",
-        "Top2 rate",
-        "Top3 provider",
-        "Top3 rate",
-        "Benchmark provider",
-        "Benchmark rate",
-        "Suggested before floor",
-        "Applied rate",
-        "Delta",
-        "Groups",
+        "ID scenariusza",
+        "Wygenerowano z danych",
+        "Lokalizacja",
+        "Strefa",
+        "Data odbioru",
+        "Data zwrotu",
+        "Dni najmu",
+        "Przedzial duration",
+        "Waluta",
+        "Pozycja MM",
+        "Dostawca MM",
+        "Cena MM",
+        "Dostawca top1",
+        "Cena top1",
+        "Dostawca top2",
+        "Cena top2",
+        "Dostawca top3",
+        "Cena top3",
+        "Benchmark",
+        "Cena benchmarku",
+        "Cel konkurencyjny przed floor",
+        "Stawka zastosowana",
+        "Zmiana",
+        "Grupy",
     ]
     rows: list[list[Any]] = []
     for grouped_changes in group_changes_for_changed_positions(changes):
@@ -880,14 +958,14 @@ def write_competitor_evidence_sheet(
         ])
 
     widths = {
-        "Scenario ID": 28,
-        "Source generated at": 24,
-        "Top1 provider": 24,
-        "Top2 provider": 24,
-        "Top3 provider": 24,
-        "Benchmark provider": 26,
-        "Applied rate": 18,
-        "Groups": 34,
+        "ID scenariusza": 28,
+        "Wygenerowano z danych": 24,
+        "Dostawca top1": 24,
+        "Dostawca top2": 24,
+        "Dostawca top3": 24,
+        "Benchmark": 26,
+        "Stawka zastosowana": 18,
+        "Grupy": 34,
     }
     write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 3, headers, rows, widths)
 
@@ -922,14 +1000,12 @@ def build_validation_rows(
     pickup_start_col = int(columns["pickup_start_date"])
     pickup_end_col = int(columns["pickup_end_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
-    min_rate = parse_number((config.get("minimum_rates") or {}).get("global_min_pln_day"))
     excluded_groups = {normalize_code(item) for item in config.get("excluded_groups", [])}
 
     data_rows = 0
     booking_mismatch: list[str] = []
     pickup_mismatch: list[str] = []
     missing_rates: list[str] = []
-    below_min_rates: list[str] = []
     duplicates: list[str] = []
     seen_keys: set[tuple[str, str, date]] = set()
     duplicate_keys: set[tuple[str, str, date]] = set()
@@ -962,8 +1038,6 @@ def build_validation_rows(
             value = parse_number(ws.cell(row, col).value)
             if value is None:
                 missing_rates.append(f"row {row} {get_column_letter(col)}")
-            elif min_rate is not None and value < min_rate:
-                below_min_rates.append(f"row {row} {get_column_letter(col)}={format_rate_for_comment(value)}")
 
     excluded_changed = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
@@ -975,18 +1049,29 @@ def build_validation_rows(
         for change in changes
         if parse_number(change.get("benchmark_rate")) is None
     ]
+    below_floor_changes: list[str] = []
+    for change in changes:
+        minimum_rate = parse_number(change.get("minimum_rate_pln_day"))
+        new_rate = parse_number(change.get("new_rate"))
+        if minimum_rate is None or new_rate is None or new_rate >= minimum_rate:
+            continue
+        below_floor_changes.append(
+            f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} "
+            f"{change.get('duration_band')}: {format_rate_for_comment(new_rate)} < "
+            f"{format_rate_for_comment(minimum_rate)}"
+        )
 
     return [
-        ["Data rows in Sheet1", "INFO", data_rows, ""],
-        ["Changed rate cells", "INFO", len(changes), ""],
-        ["Skipped recommendations", get_validation_status(len(skipped_targets), warning=True), len(skipped_targets), first_items([str(item.get("skip_reason", "")) for item in skipped_targets])],
-        ["Booking end date equals pickup end date", get_validation_status(len(booking_mismatch)), len(booking_mismatch), first_items(booking_mismatch)],
-        ["Pickup end date equals pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
-        ["Duplicate Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
-        ["Blank rate cells in duration columns", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
-        ["Rates below configured floor", get_validation_status(len(below_min_rates), warning=True), len(below_min_rates), first_items(below_min_rates)],
-        ["Excluded groups changed", get_validation_status(len(excluded_changed)), len(excluded_changed), first_items(excluded_changed)],
-        ["Changed recommendations missing benchmark rate", get_validation_status(len(missing_benchmark), warning=True), len(missing_benchmark), first_items(missing_benchmark)],
+        ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
+        ["Zmienione komorki stawek", "INFO", len(changes), ""],
+        ["Pominiete rekomendacje", get_validation_status(len(skipped_targets), warning=True), len(skipped_targets), first_items([str(item.get("skip_reason", "")) for item in skipped_targets])],
+        ["Booking end date = Pickup end date", get_validation_status(len(booking_mismatch)), len(booking_mismatch), first_items(booking_mismatch)],
+        ["Pickup end date = Pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
+        ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
+        ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
+        ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
+        ["Zmienione grupy wykluczone", get_validation_status(len(excluded_changed)), len(excluded_changed), first_items(excluded_changed)],
+        ["Zmienione rekomendacje bez ceny benchmarku", get_validation_status(len(missing_benchmark), warning=True), len(missing_benchmark), first_items(missing_benchmark)],
     ]
 
 
@@ -1001,9 +1086,9 @@ def write_validation_sheet(
     sheet_name = str(config.get("validation_sheet") or "").strip()
     if not sheet_name:
         return
-    headers = ["Check", "Status", "Issue count", "Details"]
+    headers = ["Kontrola", "Status", "Liczba problemow", "Szczegoly"]
     rows = build_validation_rows(source_ws, config, duration_columns, changes, skipped_targets)
-    widths = {"Check": 42, "Status": 14, "Issue count": 14, "Details": 90}
+    widths = {"Kontrola": 48, "Status": 14, "Liczba problemow": 18, "Szczegoly": 90}
     ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 4, headers, rows, widths)
     for row in range(2, ws.max_row + 1):
         status_cell = ws.cell(row, 2)
@@ -1340,6 +1425,7 @@ def apply_updates(
                 "action": actual_action,
                 "recommendation_action": target["action"],
                 "recommendation_type": target.get("recommendation_type", ""),
+                "target_rank": target.get("target_rank", ""),
                 "reason": target.get("reason", ""),
                 "location": target.get("location", ""),
                 "zone": zone,
@@ -1424,7 +1510,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", help="Output .xlsx path.")
     parser.add_argument("--groups", help="Comma-separated car groups to update, or 'all'. Overrides config apply_groups.")
     parser.add_argument("--accepted-only", action="store_true", help="Apply only recommendations marked as accepted.")
-    parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Accept? decisions.")
+    parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Akceptacja?/Accept? decisions.")
     parser.add_argument("--dry-run", action="store_true", help="Calculate matching changes without saving an .xlsx file.")
     return parser.parse_args()
 

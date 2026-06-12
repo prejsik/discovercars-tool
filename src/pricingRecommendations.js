@@ -124,10 +124,10 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     }
 
     const gap = top2Rate - mmRate;
-    if (gap <= options.top1GapThresholdPlnDay) {
+    if (gap < options.top1GapThresholdPlnDay) {
       return buildNoopRecommendation(
         base,
-        `MM Cars Rental jest top1, ale roznica do top2 nie przekracza ${options.top1GapThresholdPlnDay} PLN/dzien.`
+        `MM Cars Rental jest top1, ale roznica do top2 jest mniejsza niz ${options.top1GapThresholdPlnDay} PLN/dzien.`
       );
     }
 
@@ -141,7 +141,8 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       ...base,
       action: "increase",
       recommendation_type: "top1_gap",
-      reason: `MM Cars Rental jest top1, a top2 jest drozszy o ponad ${options.top1GapThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top2.`,
+      target_rank: 1,
+      reason: `MM Cars Rental jest top1, a top2 jest drozszy o co najmniej ${options.top1GapThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top2.`,
       benchmark_provider: formatProviderName(top2),
       benchmark_rate_pln_day: Number(top2Rate.toFixed(2)),
       suggested_rate_pln_day: target,
@@ -149,23 +150,37 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     };
   }
 
-  if (mmRank === "outside_top3" && top3Rate != null) {
-    const top3Target = roundRate(top3Rate - options.undercutBufferPlnDay, options);
-    const top3Change = top3Target - mmRate;
+  const smallDecreaseCompetitor =
+    mmRank === "outside_top3"
+      ? top3
+      : typeof mmRank === "number" && mmRank > 1 && mmRank <= 3
+        ? topOffers[mmRank - 2]
+        : null;
+  const smallDecreaseTargetRank =
+    mmRank === "outside_top3"
+      ? 3
+      : typeof mmRank === "number" && mmRank > 1 && mmRank <= 3
+        ? mmRank - 1
+        : null;
+  const smallDecreaseCompetitorRate = toDailyRate(smallDecreaseCompetitor);
+  if (smallDecreaseCompetitor && smallDecreaseCompetitorRate != null && smallDecreaseTargetRank != null) {
+    const smallDecreaseTarget = roundRate(smallDecreaseCompetitorRate - options.undercutBufferPlnDay, options);
+    const smallDecreaseChange = smallDecreaseTarget - mmRate;
     if (
-      top3Change < 0 &&
-      Math.abs(top3Change) < options.top3SmallDecreaseThresholdPlnDay &&
-      Math.abs(top3Change) >= options.minChangePlnDay
+      smallDecreaseChange < 0 &&
+      Math.abs(smallDecreaseChange) < options.top3SmallDecreaseThresholdPlnDay &&
+      Math.abs(smallDecreaseChange) >= options.minChangePlnDay
     ) {
       return {
         ...base,
         action: "decrease",
         recommendation_type: "top3_small_decrease",
-        reason: `Cel top3 wymaga roznicy mniejszej niz ${options.top3SmallDecreaseThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top3.`,
-        benchmark_provider: formatProviderName(top3),
-        benchmark_rate_pln_day: Number(top3Rate.toFixed(2)),
-        suggested_rate_pln_day: top3Target,
-        change_pln_day: Number(top3Change.toFixed(2))
+        target_rank: smallDecreaseTargetRank,
+        reason: `Male obnizenie ponizej ${options.top3SmallDecreaseThresholdPlnDay} PLN/dzien pozwala przeskoczyc rywala z top${smallDecreaseTargetRank}; cel to 1 PLN ponizej tej oferty.`,
+        benchmark_provider: formatProviderName(smallDecreaseCompetitor),
+        benchmark_rate_pln_day: Number(smallDecreaseCompetitorRate.toFixed(2)),
+        suggested_rate_pln_day: smallDecreaseTarget,
+        change_pln_day: Number(smallDecreaseChange.toFixed(2))
       };
     }
   }
@@ -180,6 +195,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     ...base,
     action: change < 0 ? "decrease" : "increase",
     recommendation_type: "top1_undercut",
+    target_rank: 1,
     reason: `MM Cars Rental nie jest top1; cel to ${options.undercutBufferPlnDay} PLN ponizej top1.`,
     benchmark_provider: formatProviderName(top1),
     benchmark_rate_pln_day: Number(top1Rate.toFixed(2)),
