@@ -5,6 +5,7 @@ const { parseMoney, toCsv } = require("../src/discovercars/utils");
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
+const { buildSanityComparison, selectSanitySample } = require("../src/mmRateSanityCheck");
 const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
 
 function runTest(name, fn) {
@@ -460,6 +461,87 @@ runTest("buildQualityAlerts reports missing city data and workbook warnings", ()
   assert(alerts.some((item) => item.includes("Brak aktywnych rekomendacji")));
   assert(alerts.some((item) => item.includes("Excel nie zawiera zmian")));
   assert(alerts.some((item) => item.includes("Validation WARNING")));
+});
+
+runTest("selectSanitySample picks active unique recommendation scenarios", () => {
+  const sample = selectSanitySample({
+    recommendations: [
+      { action: "hold", location: "Warsaw", start_date: "2026-06-20", rental_days: 2, mm_rate_pln_day: 90 },
+      { action: "decrease", location: "Warsaw", start_date: "2026-06-20", rental_days: 2, mm_rate_pln_day: 90 },
+      { action: "decrease", location: "Warsaw", start_date: "2026-06-20", rental_days: 2, mm_rate_pln_day: 91 },
+      { action: "increase", location: "Gdansk", start_date: "2026-06-21", rental_days: 3, mm_rate_pln_day: 110 },
+      { action: "increase", location: "Poznan", start_date: "2026-06-22", rental_days: 4, mm_rate_pln_day: null }
+    ]
+  }, 3);
+
+  assert.equal(sample.length, 2);
+  assert.deepEqual(sample.map((item) => `${item.location}-${item.start_date}-${item.rental_days}`), [
+    "Gdansk-2026-06-21-3",
+    "Warsaw-2026-06-20-2"
+  ]);
+});
+
+runTest("buildSanityComparison warns when live MM rate differs from recommendation source", () => {
+  const comparison = buildSanityComparison({
+    thresholdPlnDay: 10,
+    recommendation: {
+      location: "Katowice",
+      start_date: "2026-06-17",
+      rental_days: 10,
+      recommendation_type: "top3_small_decrease",
+      mm_rate_pln_day: 85.5,
+      suggested_rate_pln_day: 80,
+      source_generated_at: "2026-06-15T02:41:25.842Z"
+    },
+    livePayload: {
+      generated_at: "2026-06-15T08:45:18.668Z",
+      mm_cars_rental_by_location: {
+        Katowice: {
+          provider_name: "MM Cars Rental",
+          total_price: 1064,
+          rental_days: 10
+        }
+      },
+      top_3_by_location: {
+        Katowice: [
+          { provider_name: "Kaizen Rent" },
+          { provider_name: "GO Rental Cars" },
+          { provider_name: "CarFree Rent a Car" }
+        ]
+      }
+    }
+  });
+
+  assert.equal(comparison.status, "WARNING");
+  assert.equal(comparison.live_mm_rate_pln_day, 106.4);
+  assert.equal(comparison.delta_pln_day, 20.9);
+  assert.equal(comparison.live_mm_rank, "outside_top3");
+});
+
+runTest("buildQualityAlerts includes MM sanity check warnings", () => {
+  const alerts = buildQualityAlerts({
+    expectedLocations: "",
+    results: { scenarios: [] },
+    recommendations: { recommendations: [{ action: "increase" }] },
+    excelSummary: { change_count: 1, validation: [] },
+    sanityCheck: {
+      threshold_pln_day: 10,
+      checked_count: 1,
+      warning_count: 1,
+      checks: [
+        {
+          status: "WARNING",
+          location: "Katowice",
+          start_date: "2026-06-17",
+          rental_days: 10,
+          delta_pln_day: 20.9
+        }
+      ]
+    }
+  });
+
+  assert(alerts.some((item) => item.includes("Sanity check MM")));
+  assert(alerts.some((item) => item.includes("Katowice 2026-06-17 10d")));
 });
 
 if (!process.exitCode) {

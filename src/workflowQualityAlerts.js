@@ -32,12 +32,19 @@ function listRecommendations(payload) {
   return [];
 }
 
+function listSanityWarnings(payload) {
+  if (!payload || !Array.isArray(payload.checks)) {
+    return [];
+  }
+  return payload.checks.filter((item) => item && item.status !== "OK");
+}
+
 function hasLocationData(scenario, location) {
   const data = scenario?.top_3_plus_mm_by_location?.[location];
   return Boolean(data && (Array.isArray(data.top_3) && data.top_3.length > 0));
 }
 
-function buildQualityAlerts({ results, recommendations, excelSummary, expectedLocations }) {
+function buildQualityAlerts({ results, recommendations, excelSummary, sanityCheck, expectedLocations }) {
   const alerts = [];
   const scenarios = listScenarios(results);
   const locations = splitCsv(expectedLocations);
@@ -76,6 +83,24 @@ function buildQualityAlerts({ results, recommendations, excelSummary, expectedLo
     }
   }
 
+  if (sanityCheck) {
+    const warnings = listSanityWarnings(sanityCheck);
+    if (warnings.length) {
+      const threshold = sanityCheck.threshold_pln_day ?? "brak danych";
+      const details = warnings
+        .slice(0, 3)
+        .map((item) => {
+          const scenario = `${item.location || "?"} ${item.start_date || "?"} ${item.rental_days || "?"}d`;
+          const delta = item.delta_pln_day ?? "brak danych";
+          return `${scenario}: roznica ${delta} PLN/dzien`;
+        })
+        .join("; ");
+      alerts.push(
+        `Sanity check MM: ${warnings.length}/${sanityCheck.checked_count || 0} probek przekracza prog ${threshold} PLN/dzien. ${details}`
+      );
+    }
+  }
+
   return alerts;
 }
 
@@ -97,6 +122,7 @@ function runCli(argv) {
     results: readJsonIfExists(args.results),
     recommendations: readJsonIfExists(args.recommendations),
     excelSummary: readJsonIfExists(args["excel-summary"]),
+    sanityCheck: readJsonIfExists(args["sanity-check"]),
     expectedLocations: args.locations
   });
   const output = {

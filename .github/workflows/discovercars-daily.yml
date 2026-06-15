@@ -391,6 +391,29 @@ jobs:
             echo "::warning::Final pricing recommendations are missing; Excel import workbook skipped."
           fi
 
+      - name: Run MM rate sanity check
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        continue-on-error: true
+        env:
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+        run: |
+          if [[ "$RUN_TYPE" == "push-smoke" ]]; then
+            echo "Skipping MM sanity check for push smoke run."
+            exit 0
+          fi
+          if [[ -f output/final-pricing-recommendations.json ]]; then
+            node src/mmRateSanityCheck.js \
+              --recommendations=output/final-pricing-recommendations.json \
+              --output=output/mm-rate-sanity-check.json \
+              --work-dir=output/mm-rate-sanity-live \
+              --sample-size=6 \
+              --threshold=10 \
+              --speed-mode="${{ steps.options.outputs.speed_mode }}"
+          else
+            echo "::warning::Final pricing recommendations are missing; MM sanity check skipped."
+          fi
+
       - name: Generate quality alerts
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
@@ -399,6 +422,7 @@ jobs:
             --results=output/results-latest.json \
             --recommendations=output/final-pricing-recommendations.json \
             --excel-summary=output/excel-rate-update-summary.json \
+            --sanity-check=output/mm-rate-sanity-check.json \
             --locations="${{ steps.options.outputs.locations }}" \
             --output=output/quality-alerts.json
 
@@ -435,6 +459,7 @@ jobs:
             latest-full/rates-updated.xlsx \
             latest-full/rates-import-ready.xlsx \
             latest-full/excel-rate-update-summary.json \
+            latest-full/mm-rate-sanity-check.json \
             latest-full/run-log.txt \
             latest-short/report.html \
             latest-short/results-latest.json \
@@ -443,11 +468,13 @@ jobs:
             latest-short/rates-updated.xlsx \
             latest-short/rates-import-ready.xlsx \
             latest-short/excel-rate-update-summary.json \
+            latest-short/mm-rate-sanity-check.json \
             latest-short/run-log.txt \
             latest-excel/rates-import-ready.xlsx \
             latest-excel/rates-updated.xlsx \
             latest-excel/final-pricing-recommendations.json \
-            latest-excel/excel-rate-update-summary.json; do
+            latest-excel/excel-rate-update-summary.json \
+            latest-excel/mm-rate-sanity-check.json; do
             preserve_file "$rel_path"
           done
 
@@ -478,6 +505,9 @@ jobs:
           if [[ -f output/excel-rate-update-summary.json ]]; then
             cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
           fi
+          if [[ -f output/mm-rate-sanity-check.json ]]; then
+            cp output/mm-rate-sanity-check.json "pages/$run_dir/mm-rate-sanity-check.json"
+          fi
 
           if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "short" || "$RUN_TYPE" == "manual" ]]; then
             mkdir -p pages/latest-excel
@@ -492,6 +522,9 @@ jobs:
             fi
             if [[ -f output/excel-rate-update-summary.json ]]; then
               cp output/excel-rate-update-summary.json pages/latest-excel/excel-rate-update-summary.json
+            fi
+            if [[ -f output/mm-rate-sanity-check.json ]]; then
+              cp output/mm-rate-sanity-check.json pages/latest-excel/mm-rate-sanity-check.json
             fi
           fi
 
@@ -542,6 +575,7 @@ jobs:
             output/rates-updated.xlsx
             output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json
+            output/mm-rate-sanity-check.json
             output/quality-alerts.json
             output/report.html
             output/run-log.txt
@@ -559,6 +593,7 @@ jobs:
             output/rates-import-ready.xlsx
             output/rates-updated.xlsx
             output/excel-rate-update-summary.json
+            output/mm-rate-sanity-check.json
             output/final-pricing-recommendations.json
             output/quality-alerts.json
           if-no-files-found: warn

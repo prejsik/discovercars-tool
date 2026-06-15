@@ -63,7 +63,7 @@ Jak dziala:
 - krotki run buduje `final-pricing-recommendations.json` przez polaczenie ostatniego pelnego runa z aktualnym 14-dniowym runem; aktualne krotkie rekomendacje nadpisuja te same lokalizacje, daty i duration z pelnej bazy,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `mm-rate-sanity-check.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
 - publikuje GitHub Pages z oddzielnymi linkami dla pelnego raportu, krotkiego raportu i najnowszego Excela; krotki run nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
@@ -99,6 +99,7 @@ Pliki w artifact:
 - `rates-import-ready.xlsx` - gotowy plik importowy stawek, tylko `Sheet1`, ze wszystkimi rekomendowanymi zmianami zastosowanymi automatycznie,
 - `rates-updated.xlsx` - pelny workbook kontrolny z `Sheet1`, `Changed Positions`, `Recommendations Review` i `Validation`,
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
+- `mm-rate-sanity-check.json` - live sanity check kilku rekomendacji; porownuje aktualna cene MM Cars Rental ze strony z cena MM zapisana w rekomendacji,
 - `quality-alerts.json` - alerty jakosciowe uzywane w Telegramie,
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
@@ -124,7 +125,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Alerty jakosciowe obejmuja tez sanity check MM: kilka probek jest ponownie sprawdzanych live na DiscoverCars i roznica powyzej `10 PLN/dzien` trafia do Telegrama. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.

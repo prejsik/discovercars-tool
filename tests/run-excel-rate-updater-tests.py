@@ -565,13 +565,13 @@ def main():
                             "recommendation_type": "top1_undercut",
                             "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Krakow",
-                            "start_date": "2026-06-11",
+                            "start_date": "2026-06-16",
                             "rental_days": 2,
                             "suggested_rate_pln_day": 80,
                             "mm_rate_pln_day": 121,
                             "benchmark_provider": "Car24",
                             "benchmark_rate_pln_day": 81,
-                            "scenario_id": "real-template-2026-06-11-2",
+                            "scenario_id": "real-template-2026-06-16-2",
                         }
                     ]
                 }
