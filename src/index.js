@@ -19,7 +19,17 @@ const {
   savePayloadToFile
 } = require("./formatters");
 
-const DEFAULT_LOCATIONS = ["Warsaw", "Krakow", "Gdansk", "Katowice", "Wroclaw", "Poznan"];
+const DEFAULT_LOCATIONS = [
+  "Warsaw",
+  "Krakow",
+  "Gdansk",
+  "Katowice",
+  "Wroclaw",
+  "Poznan",
+  "Lodz",
+  "Bydgoszcz",
+  "Torun"
+];
 const DEFAULT_START_DAYS = ["friday"];
 const DEFAULT_RENTAL_DURATIONS = Array.from({ length: 10 }, (_, index) => index + 1);
 const ALL_START_DAYS = ["thursday", "friday"];

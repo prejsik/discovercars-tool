@@ -1,7 +1,9 @@
 import json
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 import openpyxl
 from openpyxl.styles import PatternFill
@@ -42,6 +44,36 @@ def header_rows_snapshot(ws, rows=4):
             for row in range(1, rows + 1)
         ],
     }
+
+
+def workbook_zones(path):
+    namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    zones = set()
+    with zipfile.ZipFile(path) as archive:
+        shared_strings = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+            for item in shared_root.findall("x:si", namespace):
+                shared_strings.append("".join(text.text or "" for text in item.findall(".//x:t", namespace)))
+
+        sheet_root = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+        for row in sheet_root.findall(".//x:sheetData/x:row", namespace):
+            if int(row.attrib.get("r", "0")) < 5:
+                continue
+            for cell in row.findall("x:c", namespace):
+                reference = cell.attrib.get("r", "")
+                column = "".join(char for char in reference if char.isalpha())
+                if column != "D":
+                    continue
+                value_node = cell.find("x:v", namespace)
+                if value_node is None or value_node.text is None:
+                    continue
+                value = value_node.text
+                if cell.attrib.get("t") == "s":
+                    value = shared_strings[int(value)]
+                if str(value).strip():
+                    zones.add(str(value).strip().upper())
+    return zones
 
 
 def build_workbook(path):
@@ -113,6 +145,41 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
+    example_config = merge_config(json.loads((ROOT / "excel-rate-update.config.example.json").read_text(encoding="utf-8")))
+    location_zones = {
+        str(location): {str(zone).upper() for zone in zones}
+        for location, zones in example_config["location_zones"].items()
+    }
+    expected_location_zones = {
+        "Bydgoszcz Airport (BZG)": {"BYLO"},
+        "Gdansk Downtown": {"GD1"},
+        "Gdansk Airport (GDN)": {"GDLO"},
+        "Katowice Downtown": {"KA1"},
+        "Katowice Airport (KTW)": {"KALO"},
+        "Krakow Train Station": {"KRDW", "KRGA"},
+        "Galeria Krakowska Shopping Mall": {"KRGA"},
+        "Krakow Airport (KRK)": {"KRLO", "KRTI"},
+        "Lodz Downtown": {"LO1"},
+        "Lodz Lublinek Airport (LCJ)": {"LOLO"},
+        "Lubin Downtown": {"LU1"},
+        "Olsztyn Downtown": {"OL1"},
+        "Opole Downtown": {"OP1"},
+        "Poznan Downtown": {"PO1"},
+        "Poznan Airport (POZ)": {"POLO"},
+        "Torun Downtown": {"TO1"},
+        "Warsaw West Train Station": {"WA1"},
+        "Warsaw Train Station": {"WA2"},
+        "Warsaw Chopin Airport (WAW)": {"WALO"},
+        "Wroclaw Downtown": {"WR1"},
+        "Wroclaw Airport (WRO)": {"WRLO"},
+    }
+    for location, zones in expected_location_zones.items():
+        assert_equal(location_zones.get(location), zones, f"location zone mapping for {location}")
+
+    covered_zones = set().union(*location_zones.values())
+    real_zones = workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
+    assert_equal(sorted(real_zones - covered_zones), [], "all real workbook zones are covered by location_zones")
+
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
         workbook_path = tmpdir / "rates.xlsx"
@@ -310,6 +377,56 @@ def main():
         assert_equal(validation_rows["Pickup end date = Pickup start date"], "OK", "pickup date validation")
         assert_equal(validation_rows["Puste stawki w kolumnach duration"], "OK", "blank rate validation")
         assert_equal(validation_rows["Zmienione stawki ponizej floor cenowego"], "OK", "floor validation")
+
+        exact_location_workbook_path = tmpdir / "exact-location-rates.xlsx"
+        exact_location_recommendations_path = tmpdir / "exact-location-recommendations.json"
+        exact_location_output_path = tmpdir / "exact-location-rates-updated.xlsx"
+        build_minimal_workbook(
+            exact_location_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
+                ["CDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
+            ],
+        )
+        exact_location_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "action": "increase",
+                            "recommendation_type": "top1_gap",
+                            "location": "Warsaw West Train Station",
+                            "start_date": "2026-06-20",
+                            "rental_days": 2,
+                            "suggested_rate_pln_day": 90,
+                            "mm_rate_pln_day": 70,
+                            "benchmark_provider": "GO Rental Cars",
+                            "benchmark_rate_pln_day": 91,
+                            "scenario_id": "exact-location-2026-06-20-2",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        exact_location_summary = apply_updates(
+            workbook_path=exact_location_workbook_path,
+            recommendations_path=exact_location_recommendations_path,
+            output_path=exact_location_output_path,
+            config=merge_config(
+                {
+                    "location_zones": example_config["location_zones"],
+                    "pickup_date_expansion": {"enabled": False},
+                }
+            ),
+            cli_groups=None,
+            dry_run=False,
+        )
+        exact_location_updated = openpyxl.load_workbook(exact_location_output_path)
+        exact_location_ws = exact_location_updated["Sheet1"]
+        assert_equal(exact_location_summary["change_count"], 1, "exact location updates only one zone")
+        assert_equal(exact_location_ws["J5"].value, 90, "WA1 exact location update")
+        assert_equal(exact_location_ws["J6"].value, 70, "WA2 is not changed by WA1 exact location")
 
         dedup_workbook_path = tmpdir / "dedup-rates.xlsx"
         dedup_recommendations_path = tmpdir / "dedup-recommendations.json"

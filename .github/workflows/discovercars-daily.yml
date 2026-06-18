@@ -13,21 +13,12 @@ on:
       - "tools/update_excel_rates.py"
       - "package.json"
       - "package-lock.json"
-  # GitHub cron uses UTC. Paired entries below target Warsaw local time during
-  # both summer and winter time, while the gate keeps only the intended local
-  # hours: full run near 01:17 and short runs near 07:17, 10:17, 13:17.
-  # The one-off test entry runs only on 2026-05-05 at 10:13 Europe/Warsaw;
-  # the gate prevents it from running on future May 5 dates if the line remains.
+  # GitHub cron uses UTC. Paired entries below target the single full morning
+  # run near 07:17 Europe/Warsaw in both summer and winter time; the gate keeps
+  # only the UTC trigger that maps to 07:xx locally.
   schedule:
-    - cron: "17 23 * * *"
-    - cron: "17 0 * * *"
     - cron: "17 5 * * *"
     - cron: "17 6 * * *"
-    - cron: "17 8 * * *"
-    - cron: "17 9 * * *"
-    - cron: "17 11 * * *"
-    - cron: "17 12 * * *"
-    - cron: "13 8 5 5 *"
   workflow_dispatch:
     inputs:
       locations:
@@ -57,16 +48,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Scheduled run defaults: all local-tool cities, next 30 pickup dates, rental durations 1..10.
-  SCHEDULE_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
+  # Scheduled run defaults: city + airport points for core locations, next 30 pickup dates, rental durations 1..10.
+  SCHEDULE_LOCATIONS: "Gdansk Downtown,Gdansk Airport (GDN),Katowice Downtown,Katowice Airport (KTW),Krakow Train Station,Krakow Airport (KRK),Poznan Downtown,Poznan Airport (POZ),Warsaw Train Station,Warsaw Chopin Airport (WAW),Wroclaw Downtown,Wroclaw Airport (WRO)"
   SCHEDULE_ROLLING_DAYS: "30"
   SCHEDULE_DURATIONS: "1,2,3,4,5,6,7,8,9,10"
   SCHEDULE_SPEED_MODE: "fast"
-  # Short scheduled runs: same cities and durations, shorter 14-day rolling window.
-  SHORT_RUN_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
-  SHORT_RUN_ROLLING_DAYS: "14"
-  SHORT_RUN_DURATIONS: "1,2,3,4,5,6,7,8,9,10"
-  SHORT_RUN_SPEED_MODE: "fast"
   # Push-triggered smoke test defaults: keep validation quick after code/workflow changes.
   PUSH_TEST_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
   PUSH_TEST_ROLLING_DAYS: "2"
@@ -109,19 +95,6 @@ jobs:
             exit 0
           fi
 
-          if [[ "$trigger_schedule" == "13 8 5 5 *" ]]; then
-            if [[ "$warsaw_date" == "2026-05-05" ]]; then
-              echo "One-off scheduled test matched for 2026-05-05, running scraper."
-              echo "should_run=true" >> "$GITHUB_OUTPUT"
-              echo "run_type=push-smoke" >> "$GITHUB_OUTPUT"
-            else
-              echo "One-off scheduled test is no longer current, skipping."
-              echo "should_run=false" >> "$GITHUB_OUTPUT"
-              echo "run_type=skip" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
           scheduled_minute="${trigger_schedule%% *}"
           schedule_tail="${trigger_schedule#* }"
           scheduled_hour="${schedule_tail%% *}"
@@ -132,16 +105,12 @@ jobs:
           echo "Schedule expression: $trigger_schedule"
           echo "Scheduled UTC trigger maps to Warsaw: $intended_warsaw_time"
 
-          if [[ "$intended_warsaw_hour" == "01" ]]; then
-            echo "This scheduled trigger targets 01:xx in Warsaw, running scraper."
+          if [[ "$intended_warsaw_hour" == "07" ]]; then
+            echo "This scheduled trigger targets the single full morning run in Warsaw, running scraper."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "run_type=full" >> "$GITHUB_OUTPUT"
-          elif [[ "$intended_warsaw_hour" == "07" || "$intended_warsaw_hour" == "10" || "$intended_warsaw_hour" == "13" ]]; then
-            echo "This scheduled trigger targets a short run hour in Warsaw, running scraper."
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "run_type=short" >> "$GITHUB_OUTPUT"
           else
-            echo "This scheduled trigger does not target an enabled Warsaw run hour, skipping."
+            echo "This scheduled trigger does not target the enabled Warsaw morning run hour, skipping."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             echo "run_type=skip" >> "$GITHUB_OUTPUT"
           fi
@@ -184,20 +153,9 @@ jobs:
           INPUT_ROLLING_DAYS: ${{ inputs.rolling_days }}
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
-          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
           RUN_TYPE: ${{ steps.gate.outputs.run_type }}
         run: |
-          if [[ "$TRIGGER_SCHEDULE" == "13 8 5 5 *" ]]; then
-            default_locations="$PUSH_TEST_LOCATIONS"
-            default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
-            default_durations="$PUSH_TEST_DURATIONS"
-            default_speed_mode="$PUSH_TEST_SPEED_MODE"
-          elif [[ "$RUN_TYPE" == "short" ]]; then
-            default_locations="$SHORT_RUN_LOCATIONS"
-            default_rolling_days="$SHORT_RUN_ROLLING_DAYS"
-            default_durations="$SHORT_RUN_DURATIONS"
-            default_speed_mode="$SHORT_RUN_SPEED_MODE"
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]]; then
             default_locations="$PUSH_TEST_LOCATIONS"
             default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
             default_durations="$PUSH_TEST_DURATIONS"
@@ -296,19 +254,12 @@ jobs:
       - name: Generate pricing recommendations
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
-        env:
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
         run: |
           if [[ -f output/results-latest.json ]]; then
-            extra_args=()
-            if [[ "$RUN_TYPE" == "short" ]]; then
-              extra_args+=(--include-noop)
-            fi
             node src/pricingRecommendations.js \
               output/results-latest.json \
               output/pricing-recommendations.json \
-              --config=pricing-rules.config.example.json \
-              "${extra_args[@]}"
+              --config=pricing-rules.config.example.json
           else
             echo "::warning::DiscoverCars JSON output is missing; pricing recommendations skipped."
           fi
@@ -346,9 +297,6 @@ jobs:
         id: final-recommendations
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
-        env:
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
-          PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
         run: |
           if [[ ! -f output/pricing-recommendations.json ]]; then
             echo "::warning::Pricing recommendations are missing; final recommendations skipped."
@@ -358,20 +306,6 @@ jobs:
 
           cp output/pricing-recommendations.json output/final-pricing-recommendations.json
           merge_source="current"
-
-          if [[ "$RUN_TYPE" == "short" && -n "$PAGE_URL" ]]; then
-            mkdir -p output/pages-cache
-            latest_full_url="${PAGE_URL%/}/latest-full/pricing-recommendations.json"
-            if curl --fail --silent --show-error --location "$latest_full_url" --output output/pages-cache/latest-full-pricing-recommendations.json; then
-              node src/mergePricingRecommendations.js \
-                output/pages-cache/latest-full-pricing-recommendations.json \
-                output/pricing-recommendations.json \
-                output/final-pricing-recommendations.json
-              merge_source="latest-full-plus-current-short"
-            else
-              echo "::warning::Latest full recommendations are not available on Pages; short run will use only current recommendations."
-            fi
-          fi
 
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
@@ -461,15 +395,6 @@ jobs:
             latest-full/excel-rate-update-summary.json \
             latest-full/mm-rate-sanity-check.json \
             latest-full/run-log.txt \
-            latest-short/report.html \
-            latest-short/results-latest.json \
-            latest-short/pricing-recommendations.json \
-            latest-short/final-pricing-recommendations.json \
-            latest-short/rates-updated.xlsx \
-            latest-short/rates-import-ready.xlsx \
-            latest-short/excel-rate-update-summary.json \
-            latest-short/mm-rate-sanity-check.json \
-            latest-short/run-log.txt \
             latest-excel/rates-import-ready.xlsx \
             latest-excel/rates-updated.xlsx \
             latest-excel/final-pricing-recommendations.json \
@@ -480,8 +405,6 @@ jobs:
 
           if [[ "$RUN_TYPE" == "full" ]]; then
             run_dir="latest-full"
-          elif [[ "$RUN_TYPE" == "short" ]]; then
-            run_dir="latest-short"
           else
             run_dir="latest-smoke"
           fi
@@ -509,7 +432,7 @@ jobs:
             cp output/mm-rate-sanity-check.json "pages/$run_dir/mm-rate-sanity-check.json"
           fi
 
-          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "short" || "$RUN_TYPE" == "manual" ]]; then
+          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
             mkdir -p pages/latest-excel
             if [[ -f output/rates-updated.xlsx ]]; then
               cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
@@ -539,7 +462,6 @@ jobs:
           if [[ -n "$page_base" ]]; then
             echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
             echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
-            echo "short_report_url=$page_base/latest-short/report.html" >> "$GITHUB_OUTPUT"
             echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
             echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
           fi
@@ -607,7 +529,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url || steps.pages-status.outputs.page_url }}
           FULL_REPORT_URL: ${{ steps.pages-site.outputs.full_report_url }}
-          SHORT_REPORT_URL: ${{ steps.pages-site.outputs.short_report_url }}
           PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
           PAGES_EXCEL_REPORT_URL: ${{ steps.pages-site.outputs.excel_report_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
@@ -676,9 +597,7 @@ jobs:
 
           run_type_label="$RUN_TYPE"
           if [[ "$RUN_TYPE" == "full" ]]; then
-            run_type_label="pelny nocny"
-          elif [[ "$RUN_TYPE" == "short" ]]; then
-            run_type_label="krotki dzienny"
+            run_type_label="pelny poranny"
           elif [[ "$RUN_TYPE" == "push-smoke" ]]; then
             run_type_label="test po pushu"
           elif [[ "$RUN_TYPE" == "manual" ]]; then
@@ -696,8 +615,8 @@ jobs:
           summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s dni rolling, durations %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$ROLLING_DAYS" "$DURATIONS" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
 
           pages_section=""
-          if [[ -n "$FULL_REPORT_URL" || -n "$SHORT_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
-            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nKrotki raport:\n%s\nExcel importowy gotowy:\n%s\nRaport Excel:\n%s\n' "${FULL_REPORT_URL:-brak}" "${SHORT_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}" "${PAGES_EXCEL_REPORT_URL:-brak}")
+          if [[ -n "$FULL_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
+            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nExcel importowy gotowy:\n%s\nRaport Excel:\n%s\n' "${FULL_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}" "${PAGES_EXCEL_REPORT_URL:-brak}")
           fi
 
           if [[ -n "$PAGE_URL" ]]; then

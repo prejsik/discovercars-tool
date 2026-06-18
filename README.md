@@ -5,7 +5,7 @@ Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 - oblicza dynamicznie zakresy dat w strefie `Europe/Warsaw`:
   - domyslnie: start najmu od jutra, a potem kazdego kolejnego dnia przez 30 dni,
   - dla kazdego startu: domyslnie wynajem na 1..10 dni, z opcja wyboru do 20 dni,
-- szuka ofert na `https://www.discovercars.com/` dla lokalizacji `Warsaw`, `Krakow`, `Gdansk`, `Katowice`, `Wroclaw`, `Poznan`,
+- szuka ofert na `https://www.discovercars.com/` dla lokalizacji `Warsaw`, `Krakow`, `Gdansk`, `Katowice`, `Wroclaw`, `Poznan`, `Lodz`, `Bydgoszcz`, `Torun`,
 - priorytetowo wyciaga oferty z odpowiedzi sieciowych JSON/API (backend DiscoverCars),
 - ma fallback do parsowania DOM, jesli payloady sieciowe nie zawieraja kompletnych danych,
 - ma dodatkowy fallback awaryjny do stabilnego flow Playwright (legacy scraper), jesli direct API flow nie zwroci ofert,
@@ -56,27 +56,19 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- uruchamia pelny scraper codziennie okolo `01:17` czasu `Europe/Warsaw`,
-- po nocnym runie ma trzy krotsze runy dzienne okolo `07:17`, `10:17` i `13:17` czasu `Europe/Warsaw`; obejmuja te same miasta i duration, ale tylko `14` dni rolling,
-- GitHub cron dziala w UTC, dlatego workflow ma sparowane triggery UTC oraz bramke, ktora realnie puszcza tylko lokalne godziny wlaczone dla pelnego albo krotkiego runa,
+- uruchamia jeden pelny scraper codziennie okolo `07:17` czasu `Europe/Warsaw`,
+- GitHub cron dziala w UTC, dlatego workflow ma sparowane triggery UTC oraz bramke, ktora realnie puszcza tylko lokalna godzine `07`,
 - nie uruchamia scraperow rownolegle; jesli GitHub opozni run, kolejny czeka w kolejce zamiast nakladac sie na poprzedni,
-- krotki run buduje `final-pricing-recommendations.json` przez polaczenie ostatniego pelnego runa z aktualnym 14-dniowym runem; aktualne krotkie rekomendacje nadpisuja te same lokalizacje, daty i duration z pelnej bazy,
+- `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `mm-rate-sanity-check.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
-- publikuje GitHub Pages z oddzielnymi linkami dla pelnego raportu, krotkiego raportu i najnowszego Excela; krotki run nie powinien nadpisywac glownego pelnego raportu.
+- publikuje GitHub Pages z linkami dla pelnego raportu i najnowszego Excela; test po pushu nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
 
-- `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
+- `locations`: `Gdansk Downtown,Gdansk Airport (GDN),Katowice Downtown,Katowice Airport (KTW),Krakow Train Station,Krakow Airport (KRK),Poznan Downtown,Poznan Airport (POZ),Warsaw Train Station,Warsaw Chopin Airport (WAW),Wroclaw Downtown,Wroclaw Airport (WRO)`
 - `rolling_days`: `30`
-- `durations`: `1,2,3,4,5,6,7,8,9,10`
-- `speed_mode`: `fast`
-
-Krotsze runy dzienne uzywaja:
-
-- `locations`: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
-- `rolling_days`: `14`
 - `durations`: `1,2,3,4,5,6,7,8,9,10`
 - `speed_mode`: `fast`
 
@@ -95,7 +87,7 @@ Pliki w artifact:
 - `report.html` - najlepszy do ogladania wynikow, ma kolorowe tabele jak lokalna konsola,
 - `results-latest.json` - dane techniczne do dalszego przetwarzania,
 - `pricing-recommendations.json` - rekomendacje stawek wygenerowane bezposrednio z danego runa scrapera,
-- `final-pricing-recommendations.json` - finalny zestaw rekomendacji do Excela; dla krotkiego runa jest scaleniem ostatniego pelnego runa i aktualnego 14-dniowego runa,
+- `final-pricing-recommendations.json` - finalny zestaw rekomendacji do Excela z aktualnego runa,
 - `rates-import-ready.xlsx` - gotowy plik importowy stawek, tylko `Sheet1`, ze wszystkimi rekomendowanymi zmianami zastosowanymi automatycznie,
 - `rates-updated.xlsx` - pelny workbook kontrolny z `Sheet1`, `Changed Positions`, `Recommendations Review` i `Validation`,
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
@@ -115,7 +107,6 @@ https://prejsik.github.io/discovercars-tool/
 Stale linki:
 
 - `https://prejsik.github.io/discovercars-tool/latest-full/report.html` - ostatni pelny raport,
-- `https://prejsik.github.io/discovercars-tool/latest-short/report.html` - ostatni krotki raport,
 - `https://prejsik.github.io/discovercars-tool/latest-excel/rates-import-ready.xlsx` - najnowszy Excel gotowy do importu,
 - `https://prejsik.github.io/discovercars-tool/latest-excel/rates-updated.xlsx` - pelny raport Excel z arkuszami kontrolnymi.
 
@@ -125,7 +116,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalymi linkami `latest-full`/`latest-short`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Alerty jakosciowe obejmuja tez sanity check MM: kilka probek jest ponownie sprawdzanych live na DiscoverCars i roznica powyzej `10 PLN/dzien` trafia do Telegrama. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalym linkiem `latest-full`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Alerty jakosciowe obejmuja tez sanity check MM: kilka probek jest ponownie sprawdzanych live na DiscoverCars i roznica powyzej `10 PLN/dzien` trafia do Telegrama. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -337,13 +328,13 @@ Aby przyspieszyc jeszcze bardziej:
 Przyklad szybki (z zachowaniem tych samych tabel):
 
 ```powershell
-node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --retries=1 --scenario-concurrency=auto --location-concurrency=auto --timeout=auto --direct-candidate-limit=2 --direct-offers-wait=6000
+node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan,Lodz,Bydgoszcz,Torun --strategy=legacy-batch --retries=1 --scenario-concurrency=auto --location-concurrency=auto --timeout=auto --direct-candidate-limit=2 --direct-offers-wait=6000
 ```
 
 Ten sam zakres w szybkim profilu:
 
 ```powershell
-node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan --strategy=legacy-batch --speed-mode=fast
+node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan,Lodz,Bydgoszcz,Torun --strategy=legacy-batch --speed-mode=fast
 ```
 
 ## Co zwraca skrypt
@@ -376,6 +367,33 @@ node src/pricingRecommendations.js output/results-latest.json output/pricing-rec
 Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje dwa pliki: `rates-import-ready.xlsx` jako plik gotowy do importu z samym `Sheet1` oraz `rates-updated.xlsx` jako pelny raport kontrolny. Glowny arkusz importowy rozwija pozycje na kazdy dzien od dnia uruchomienia do `2027-01-31`, zachowuje rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje w pelnym raporcie.
 Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
+
+Mapowanie lokalizacji scrapera na kody importowe jest zapisane w `excel-rate-update.config.example.json` w `location_zones`. Dokladne lokalizacje sa preferowane przed ogolnym miastem, a ogolne aliasy typu `Warsaw` zostaja tylko dla wstecznej kompatybilnosci starszych runow.
+
+| Kod importu | Lokalizacja w scraperze | Uwagi |
+|---|---|---|
+| BYLO | Bydgoszcz Airport (BZG) | placeID 5827 |
+| GD1 | Gdansk Downtown | placeID 3451 |
+| GDLO | Gdansk Airport (GDN) | placeID 2106 |
+| KA1 | Katowice Downtown | placeID 4145 |
+| KALO | Katowice Airport (KTW) | placeID 4144 |
+| KRDW | Krakow Train Station | placeID 8504 |
+| KRGA | Krakow Train Station | Galeria Krakowska z UI mapuje sie do najblizszego punktu DiscoverCars: Krakow Train Station, placeID 8504 |
+| KRLO | Krakow Airport (KRK) | placeID 4146 |
+| KRTI | Krakow Airport (KRK) | uzywa tych samych stawek co KRLO |
+| LO1 | Lodz Downtown | placeID 3446 |
+| LOLO | Lodz Lublinek Airport (LCJ) | placeID 1942 |
+| LU1 | Lubin Downtown | placeID 7306 |
+| OL1 | Olsztyn Downtown | placeID 5856 |
+| OP1 | Opole Downtown | placeID 6089 |
+| PO1 | Poznan Downtown | placeID 3449 |
+| POLO | Poznan Airport (POZ) | placeID 1663 |
+| TO1 | Torun Downtown | placeID 5829 |
+| WA1 | Warsaw West Train Station | placeID 356108 |
+| WA2 | Warsaw Train Station | placeID 8305 |
+| WALO | Warsaw Chopin Airport (WAW) | placeID 1664 |
+| WR1 | Wroclaw Downtown | placeID 3459 |
+| WRLO | Wroclaw Airport (WRO) | placeID 2103 |
 
 Workbook zawiera tez arkusze kontrolne:
 
@@ -526,4 +544,4 @@ Uwagi:
 - UI pyta o dwa parametry: durations i start-dates.
 - Pozostale parametry sa stale:
   - przekazuje wybrane daty przez `--start-dates=...`,
-  - miasta: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan`.
+  - miasta: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan,Lodz,Bydgoszcz,Torun`.
