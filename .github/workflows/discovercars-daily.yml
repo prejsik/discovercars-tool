@@ -119,25 +119,7 @@ jobs:
               "$workflow_runs_url"
           )"
           duplicate_summary="$(
-            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" python3 -c '
-          import json
-          import os
-          import sys
-
-          current_run_id = str(os.environ.get("CURRENT_RUN_ID", ""))
-          data = json.load(sys.stdin)
-          for run in data.get("workflow_runs", []):
-              if str(run.get("id")) == current_run_id:
-                  continue
-              status = run.get("status")
-              conclusion = run.get("conclusion")
-              if status in {"queued", "in_progress", "waiting", "requested", "pending"}:
-                  print(f"{run.get('id')} {status} {run.get('html_url')}")
-                  break
-              if status == "completed" and conclusion == "success":
-                  print(f"{run.get('id')} completed/success {run.get('html_url')}")
-                  break
-'
+            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" python3 -c 'import json, os, sys; current=str(os.environ.get("CURRENT_RUN_ID","")); runs=json.load(sys.stdin).get("workflow_runs", []); match=next((r for r in runs if str(r.get("id")) != current and (r.get("status") in ("queued","in_progress","waiting","requested","pending") or (r.get("status") == "completed" and r.get("conclusion") == "success"))), None); label="" if match is None else ("completed/success" if match.get("status") == "completed" else str(match.get("status"))); sys.stdout.write("" if match is None else str(match.get("id")) + " " + label + " " + str(match.get("html_url")))'
           )"
 
           if [[ -n "$duplicate_summary" ]]; then
