@@ -13,12 +13,14 @@ on:
       - "tools/update_excel_rates.py"
       - "package.json"
       - "package-lock.json"
-  # GitHub cron uses UTC. Paired entries below target the single full morning
-  # run near 07:17 Europe/Warsaw in both summer and winter time; the gate keeps
-  # only the UTC trigger that maps to 07:xx locally.
+  # GitHub cron uses UTC and can occasionally miss a scheduled event. These
+  # Warsaw-morning windows give the run fallback chances, while the gate below
+  # keeps only one real full run per day once a scheduled run is already queued,
+  # running, or completed successfully.
   schedule:
-    - cron: "17 5 * * *"
-    - cron: "17 6 * * *"
+    - cron: "17 3 * * *"
+    - cron: "47 3 * * *"
+    - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       locations:
@@ -40,6 +42,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -72,6 +75,8 @@ jobs:
       - name: Check Warsaw schedule gate
         id: gate
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           run_started_epoch="$(date +%s)"
           run_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -105,14 +110,48 @@ jobs:
           echo "Schedule expression: $trigger_schedule"
           echo "Scheduled UTC trigger maps to Warsaw: $intended_warsaw_time"
 
-          if [[ "$intended_warsaw_hour" == "07" ]]; then
-            echo "This scheduled trigger targets the single full morning run in Warsaw, running scraper."
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "run_type=full" >> "$GITHUB_OUTPUT"
-          else
-            echo "This scheduled trigger does not target the enabled Warsaw morning run hour, skipping."
+          warsaw_day_start_utc="$(TZ=Europe/Warsaw date -d "$warsaw_date 00:00:00" -u '+%Y-%m-%dT%H:%M:%SZ')"
+          workflow_runs_url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/workflows/discovercars-daily.yml/runs"
+          existing_runs_json="$(
+            curl --fail --silent --show-error --get \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --data-urlencode "event=schedule" \
+              --data-urlencode "created=>${warsaw_day_start_utc}" \
+              --data-urlencode "per_page=30" \
+              "$workflow_runs_url"
+          )"
+          duplicate_summary="$(
+            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" python3 -c '
+import json
+import os
+import sys
+
+current_run_id = str(os.environ.get("CURRENT_RUN_ID", ""))
+data = json.load(sys.stdin)
+for run in data.get("workflow_runs", []):
+    if str(run.get("id")) == current_run_id:
+        continue
+    status = run.get("status")
+    conclusion = run.get("conclusion")
+    if status in {"queued", "in_progress", "waiting", "requested", "pending"}:
+        print(f"{run.get('id')} {status} {run.get('html_url')}")
+        break
+    if status == "completed" and conclusion == "success":
+        print(f"{run.get('id')} completed/success {run.get('html_url')}")
+        break
+'
+          )"
+
+          if [[ -n "$duplicate_summary" ]]; then
+            echo "A scheduled DiscoverCars run for Warsaw date $warsaw_date already exists: $duplicate_summary"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             echo "run_type=skip" >> "$GITHUB_OUTPUT"
+          else
+            echo "This scheduled trigger is the first successful/active Warsaw morning run window, running scraper."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "run_type=full" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout repository
