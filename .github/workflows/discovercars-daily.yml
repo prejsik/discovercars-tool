@@ -42,7 +42,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
   pages: write
   id-token: write
 
@@ -75,8 +74,6 @@ jobs:
       - name: Check Warsaw schedule gate
         id: gate
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           run_started_epoch="$(date +%s)"
           run_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -115,7 +112,6 @@ jobs:
           existing_runs_json="$(
             curl --fail --silent --show-error --get \
               --header "Accept: application/vnd.github+json" \
-              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
               --header "X-GitHub-Api-Version: 2022-11-28" \
               --data-urlencode "event=schedule" \
               --data-urlencode "created=>${warsaw_day_start_utc}" \
