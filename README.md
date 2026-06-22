@@ -56,8 +56,8 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- uruchamia jeden pelny scraper codziennie okolo `07:17` czasu `Europe/Warsaw`,
-- GitHub cron dziala w UTC, dlatego workflow ma sparowane triggery UTC oraz bramke, ktora realnie puszcza tylko lokalna godzine `07`,
+- uruchamia jeden pelny scraper codziennie z wyprzedzeniem, aby wynik byl gotowy rano; GitHub cron bywa opozniony, dlatego triggery sa ustawione kilka godzin wczesniej,
+- GitHub cron dziala w UTC, dlatego workflow ma kilka wczesnych okien fallback oraz bramke, ktora realnie puszcza tylko pierwszy aktywny albo zakonczony sukcesem pelny run w ostatnim nocnym oknie,
 - nie uruchamia scraperow rownolegle; jesli GitHub opozni run, kolejny czeka w kolejce zamiast nakladac sie na poprzedni,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
