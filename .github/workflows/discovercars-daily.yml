@@ -13,14 +13,14 @@ on:
       - "tools/update_excel_rates.py"
       - "package.json"
       - "package-lock.json"
-  # GitHub cron uses UTC and can be delayed by several hours. These earlier
-  # windows give the run fallback chances, while the gate below keeps only one
-  # real full run per day once a scheduled run is already queued, running, or
-  # completed successfully.
+  # GitHub cron uses UTC and can be delayed by several hours. These evening
+  # windows target the next Warsaw-morning report with fallback chances, while
+  # the gate below keeps only one real full run per report date once a scheduled
+  # run is already queued, running, or completed successfully.
   schedule:
+    - cron: "17 20 * * *"
+    - cron: "47 20 * * *"
     - cron: "17 21 * * *"
-    - cron: "47 21 * * *"
-    - cron: "17 22 * * *"
   workflow_dispatch:
     inputs:
       locations:
@@ -107,7 +107,13 @@ jobs:
           echo "Schedule expression: $trigger_schedule"
           echo "Scheduled UTC trigger maps to Warsaw: $intended_warsaw_time"
 
-          duplicate_window_start_utc="$(date -u -d '18 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          warsaw_hour="$(TZ=Europe/Warsaw date +%H)"
+          if (( 10#$warsaw_hour >= 18 )); then
+            target_report_date="$(TZ=Europe/Warsaw date -d 'tomorrow' +%Y-%m-%d)"
+          else
+            target_report_date="$warsaw_date"
+          fi
+          duplicate_window_start_utc="$(date -u -d '36 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
           workflow_runs_url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/workflows/discovercars-daily.yml/runs"
           existing_runs_json="$(
             curl --fail --silent --show-error --get \
@@ -119,11 +125,12 @@ jobs:
               "$workflow_runs_url"
           )"
           duplicate_summary="$(
-            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" python3 -c 'import json, os, sys; current=str(os.environ.get("CURRENT_RUN_ID","")); runs=json.load(sys.stdin).get("workflow_runs", []); match=next((r for r in runs if str(r.get("id")) != current and (r.get("status") in ("queued","in_progress","waiting","requested","pending") or (r.get("status") == "completed" and r.get("conclusion") == "success"))), None); label="" if match is None else ("completed/success" if match.get("status") == "completed" else str(match.get("status"))); sys.stdout.write("" if match is None else str(match.get("id")) + " " + label + " " + str(match.get("html_url")))'
+            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" TARGET_REPORT_DATE="$target_report_date" python3 -c 'import json, os, sys; from datetime import datetime, timedelta; from zoneinfo import ZoneInfo; current=str(os.environ.get("CURRENT_RUN_ID","")); target=os.environ.get("TARGET_REPORT_DATE",""); warsaw=ZoneInfo("Europe/Warsaw"); report_date=lambda r: (lambda dt: (dt.date() + (timedelta(days=1) if dt.hour >= 18 else timedelta())).isoformat())(datetime.fromisoformat(str(r.get("created_at","")).replace("Z","+00:00")).astimezone(warsaw)); runs=json.load(sys.stdin).get("workflow_runs", []); match=next((r for r in runs if str(r.get("id")) != current and report_date(r) == target and (r.get("status") in ("queued","in_progress","waiting","requested","pending") or (r.get("status") == "completed" and r.get("conclusion") == "success"))), None); label="" if match is None else ("completed/success" if match.get("status") == "completed" else str(match.get("status"))); sys.stdout.write("" if match is None else str(match.get("id")) + " " + label + " target=" + target + " " + str(match.get("html_url")))'
           )"
 
+          echo "Target Warsaw morning report date: $target_report_date"
           if [[ -n "$duplicate_summary" ]]; then
-            echo "A recent scheduled DiscoverCars run already exists: $duplicate_summary"
+            echo "A scheduled DiscoverCars run for this report date already exists: $duplicate_summary"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             echo "run_type=skip" >> "$GITHUB_OUTPUT"
           else
