@@ -38,10 +38,18 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
-    "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
+    "excluded_groups": ["CGAV", "SFAV", "SWAV"],
     "group_rate_adjustments_pln_day": {
         "EDAH": 1,
-        "ADMV": 1,
+        "EDMV": 1,
+    },
+    "group_price_parity": {
+        "enabled": True,
+        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAC", "DDAV", "IDAH", "IGMV"],
+        "premium_adjustments_pln_day": {
+            "EDAH": 1,
+            "EDMV": 1,
+        },
     },
     "normalize_pickup_end_to_start": True,
     "pickup_date_expansion": {
@@ -300,6 +308,22 @@ def get_group_rate_adjustment(group: Any, config: dict[str, Any]) -> float:
         for key, value in (config.get("group_rate_adjustments_pln_day") or {}).items()
     }
     return float(adjustments.get(normalize_code(group), 0))
+
+
+def get_group_price_parity(config: dict[str, Any]) -> tuple[list[str], dict[str, float]] | None:
+    parity = config.get("group_price_parity") or {}
+    if parity.get("enabled") is False:
+        return None
+
+    base_groups = [normalize_code(item) for item in parity.get("base_groups", []) if normalize_code(item)]
+    premium_adjustments = {
+        normalize_code(key): float(parse_number(value) or 0)
+        for key, value in (parity.get("premium_adjustments_pln_day") or {}).items()
+        if normalize_code(key)
+    }
+    if not base_groups or not premium_adjustments:
+        return None
+    return base_groups, premium_adjustments
 
 
 def classify_actual_action(old_rate: float | None, new_rate: float, fallback_action: str) -> str:
@@ -619,7 +643,7 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
     if any(change.get("minimum_reason") for change in changes):
         notes.append("ochrona floor cenowego")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
-        notes.append("korekta grupy EDAH/ADMV")
+        notes.append("korekta grupy EDAH/EDMV")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
         notes.append("kierunek po floor rozny od rekomendacji")
     if any(parse_number(change.get("benchmark_rate")) is None for change in changes):
@@ -1347,6 +1371,82 @@ def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path
     workbook.save(output_path)
 
 
+def enforce_group_price_parity(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    dry_run: bool,
+) -> int:
+    parity = get_group_price_parity(config)
+    if parity is None:
+        return 0
+
+    base_groups, premium_adjustments = parity
+    tracked_groups = set(base_groups) | set(premium_adjustments)
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    min_change = float(config.get("min_excel_change_pln_day", 0.01))
+    rows_by_key: dict[tuple[str, date], dict[str, int]] = defaultdict(dict)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        if group not in tracked_groups:
+            continue
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_start = parse_date_value(ws.cell(row, pickup_col).value)
+        if not zone or pickup_start is None:
+            continue
+        rows_by_key[(zone, pickup_start)][group] = row
+
+    change_count = 0
+    for groups in rows_by_key.values():
+        for col in rate_cols:
+            base_rate = None
+            for group in base_groups:
+                row = groups.get(group)
+                if row is None:
+                    continue
+                base_rate = parse_number(ws.cell(row, col).value)
+                if base_rate is not None:
+                    break
+            if base_rate is None:
+                continue
+
+            target_rates = {group: base_rate for group in base_groups}
+            target_rates.update({
+                group: base_rate + adjustment
+                for group, adjustment in premium_adjustments.items()
+            })
+
+            for group, target_rate in target_rates.items():
+                row = groups.get(group)
+                if row is None:
+                    continue
+                cell = ws.cell(row, col)
+                old_rate = parse_number(cell.value)
+                if old_rate is not None and abs(target_rate - old_rate) < min_change:
+                    continue
+
+                change_count += 1
+                if dry_run:
+                    continue
+
+                cell.value = int(target_rate) if float(target_rate).is_integer() else round(target_rate, 2)
+                cell.fill = get_delta_fill(
+                    {
+                        "action": classify_actual_action(old_rate, target_rate, "increase"),
+                        "delta": None if old_rate is None else round(target_rate - old_rate, 2),
+                    },
+                    config,
+                )
+
+    return change_count
+
+
 def apply_updates(
     workbook_path: Path,
     recommendations_path: Path,
@@ -1389,6 +1489,7 @@ def apply_updates(
     changes: list[dict[str, Any]] = []
     normalized_pickup_end_count = 0
     synced_booking_end_count = 0
+    group_price_parity_change_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
@@ -1477,6 +1578,8 @@ def apply_updates(
 
             changes.append(change)
 
+    group_price_parity_change_count = enforce_group_price_parity(ws, config, duration_columns, dry_run)
+
     if not dry_run:
         if output_path is None:
             raise ValueError("Output path is required unless --dry-run is used.")
@@ -1495,6 +1598,7 @@ def apply_updates(
         "import_output": str(import_output_path) if import_output_path else None,
         "dry_run": dry_run,
         "change_count": len(changes),
+        "group_price_parity_change_count": group_price_parity_change_count,
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,

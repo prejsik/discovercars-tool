@@ -11,7 +11,7 @@ from openpyxl.styles import PatternFill
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.update_excel_rates import apply_updates, merge_config  # noqa: E402
+from tools.update_excel_rates import apply_updates, merge_config, parse_date_value, parse_number  # noqa: E402
 
 
 def assert_equal(actual, expected, message):
@@ -103,7 +103,8 @@ def build_workbook(path):
         ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
         ["CGAV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
         ["EDAH", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["ADMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+        ["EDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
+        ["IDAH", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
         ["SWAV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
         ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "11-06-26", "12-06-26", 160, 90, 80, 90, 100, 120],
         ["EDAH", None, None, "WA1", "09-06-26", "10-06-26", "11-06-26", "12-06-26", 160, 90, 80, 90, 100, 120],
@@ -266,9 +267,10 @@ def main():
             import_output_path=import_output_path,
         )
 
-        assert_equal(summary["change_count"], 10, "change_count")
+        assert_equal(summary["change_count"], 12, "change_count")
+        assert_equal(summary["group_price_parity_change_count"], 18, "group_price_parity_change_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
-        assert_equal(summary["normalized_pickup_end_count"], 9, "normalized_pickup_end_count")
+        assert_equal(summary["normalized_pickup_end_count"], 10, "normalized_pickup_end_count")
         assert_equal(summary["synced_booking_end_count"], 4, "synced_booking_end_count")
         updated = openpyxl.load_workbook(output_path)
         ws = updated["Sheet1"]
@@ -286,25 +288,33 @@ def main():
         import_ready_ws = import_ready["Sheet1"]
         assert_equal(import_ready_ws["J5"].value, 81, "import-ready updated rate")
         assert_equal(import_ready_ws["N5"].value, 100, "import-ready long duration minimum")
-        assert_equal(ws.max_row, 13, "main import sheet row count")
+        assert_equal(ws.max_row, 14, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
         assert_equal(ws["J7"].value, 82, "EDAH adjusted rate")
-        assert_equal(ws["J8"].value, 82, "ADMV adjusted rate")
-        assert_equal(ws["J9"].value, 70, "excluded SWAV rate")
+        assert_equal(ws["J8"].value, 82, "EDMV adjusted rate")
+        assert_equal(ws["J9"].value, 81, "IDAH base rate")
+        assert_equal(ws["J10"].value, 70, "excluded SWAV rate")
+        assert_equal(ws["I7"].value, 161, "EDAH parity-only duration 1 rate")
+        assert_equal(ws["I8"].value, 161, "EDMV parity-only duration 1 rate")
+        assert_equal(ws["I9"].value, 160, "IDAH parity duration 1 base rate")
+        assert_equal(ws["K7"].value, 81, "EDAH parity-only duration 3-4 rate")
+        assert_equal(ws["K8"].value, 81, "EDMV parity-only duration 3-4 rate")
         assert_equal(ws["N5"].value, 100, "long duration minimum")
         assert_equal(ws["N7"].value, 101, "long duration minimum with EDAH adjustment")
-        assert_equal(ws["J10"].value, 70, "global minimum")
-        assert_equal(ws["J11"].value, 71, "global minimum with EDAH adjustment")
-        assert_equal(ws["M12"].value, 115, "seasonal duration minimum")
-        assert_equal(ws["M13"].value, 116, "seasonal duration minimum with EDAH adjustment")
+        assert_equal(ws["N8"].value, 101, "long duration minimum with EDMV adjustment")
+        assert_equal(ws["N9"].value, 100, "long duration minimum with IDAH base rate")
+        assert_equal(ws["J11"].value, 70, "global minimum")
+        assert_equal(ws["J12"].value, 71, "global minimum with EDAH adjustment")
+        assert_equal(ws["M13"].value, 115, "seasonal duration minimum")
+        assert_equal(ws["M14"].value, 116, "seasonal duration minimum with EDAH adjustment")
         assert_equal(ws["H5"].value, ws["G5"].value, "pickup end normalized for CDMV")
         assert_equal(ws["H6"].value, ws["G6"].value, "pickup end normalized for excluded CGAV")
-        for row in range(5, 14):
+        for row in range(5, 15):
             assert_equal(ws.cell(row, 6).value, ws.cell(row, 8).value, f"booking end equals pickup end in row {row}")
         assert_not_equal(rgb(ws["J5"]), "C6EFCE", "increase color uses dynamic scale")
         assert_equal(rgb(ws["J5"]), "A9D18E", "increase color uses a stepped green scale")
-        assert_not_equal(rgb(ws["J10"]), rgb(ws["M12"]), "larger decrease uses a stronger red")
+        assert_not_equal(rgb(ws["J11"]), rgb(ws["M13"]), "larger decrease uses a stronger red")
         assert ws["J5"].comment is not None
         assert_equal(
             ws["J5"].comment.text,
@@ -331,7 +341,7 @@ def main():
         assert "Floor cenowy" in changed_ws["B5"].value
         assert_equal(changed_ws["O10"].value, "Komentarz zmiany", "changed sheet comment header")
         assert_equal(changed_ws.max_row, 14, "changed sheet row count")
-        assert_equal(changed_ws["A11"].value, "CDMV, EDAH, ADMV", "first changed group set")
+        assert_equal(changed_ws["A11"].value, "CDMV, EDAH, EDMV, IDAH", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O11"].value
         assert "co najmniej 5 PLN" in changed_ws["O11"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O11"].value
@@ -339,7 +349,7 @@ def main():
         assert "Nowa stawka: 81 PLN" in changed_ws["O11"].value
         assert "Zmiana: +11 PLN" in changed_ws["O11"].value
         assert "EDAH: 82 PLN" not in changed_ws["O11"].value
-        assert "ADMV: 82 PLN" not in changed_ws["O11"].value
+        assert "EDMV: 82 PLN" not in changed_ws["O11"].value
         assert "brutto/dzien" not in changed_ws["O11"].value
         assert "Lokalizacja" not in changed_ws["O11"].value
         assert "Data odbioru" not in changed_ws["O11"].value
@@ -366,7 +376,7 @@ def main():
         assert_equal(review_ws["B1"].value, "Status", "review status header")
         assert_equal(review_ws.max_row, 5, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
-        assert_equal(review_ws["F2"].value, "CDMV, EDAH, ADMV", "review grouped groups")
+        assert_equal(review_ws["F2"].value, "CDMV, EDAH, EDMV, IDAH", "review grouped groups")
         assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
         assert "korekta grupy" in review_ws["C2"].value or review_ws["C2"].value == "OK"
         validation_rows = {
@@ -673,22 +683,37 @@ def main():
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
         real_recommendations_path = tmpdir / "real-recommendations.json"
         real_output_path = tmpdir / "real-rates-updated.xlsx"
+        real_before = openpyxl.load_workbook(real_workbook_path)
+        real_ws = real_before["Sheet1"]
+        before_snapshot = header_rows_snapshot(real_ws)
+        real_target = None
+        for row in range(5, real_ws.max_row + 1):
+            group = str(real_ws.cell(row, 1).value or "").strip().upper()
+            zone = str(real_ws.cell(row, 4).value or "").strip().upper()
+            pickup_date = parse_date_value(real_ws.cell(row, 7).value)
+            old_rate = parse_number(real_ws.cell(row, 10).value)
+            if group == "CDMV" and zone in {"KRDW", "KRGA", "KRLO", "KRTI"} and pickup_date and old_rate is not None:
+                real_target = (pickup_date, old_rate)
+                break
+        if real_target is None:
+            raise AssertionError("Real workbook smoke test needs a CDMV Krakow row with a duration 2 rate.")
+        real_pickup_date, real_old_rate = real_target
         real_recommendations_path.write_text(
             json.dumps(
                 {
                     "recommendations": [
                         {
-                            "action": "decrease",
+                            "action": "increase",
                             "recommendation_type": "top1_undercut",
                             "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Krakow",
-                            "start_date": "2026-06-16",
+                            "start_date": real_pickup_date.isoformat(),
                             "rental_days": 2,
-                            "suggested_rate_pln_day": 80,
-                            "mm_rate_pln_day": 121,
+                            "suggested_rate_pln_day": real_old_rate + 10,
+                            "mm_rate_pln_day": real_old_rate,
                             "benchmark_provider": "Car24",
-                            "benchmark_rate_pln_day": 81,
-                            "scenario_id": "real-template-2026-06-16-2",
+                            "benchmark_rate_pln_day": real_old_rate + 11,
+                            "scenario_id": f"real-template-{real_pickup_date.isoformat()}-2",
                         }
                     ]
                 }
@@ -696,8 +721,6 @@ def main():
             encoding="utf-8",
         )
 
-        real_before = openpyxl.load_workbook(real_workbook_path)
-        before_snapshot = header_rows_snapshot(real_before["Sheet1"])
         real_summary = apply_updates(
             workbook_path=real_workbook_path,
             recommendations_path=real_recommendations_path,
