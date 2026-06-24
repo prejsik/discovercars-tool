@@ -38,14 +38,14 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
-    "excluded_groups": ["CGAV", "SFAV", "SWAV"],
+    "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
     "group_rate_adjustments_pln_day": {
         "EDAH": 1,
         "EDMV": 1,
     },
     "group_price_parity": {
         "enabled": True,
-        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAC", "DDAV", "IDAH", "IGMV"],
+        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAC", "DDAV", "IGMV"],
         "premium_adjustments_pln_day": {
             "EDAH": 1,
             "EDMV": 1,

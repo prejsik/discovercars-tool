@@ -267,7 +267,7 @@ def main():
             import_output_path=import_output_path,
         )
 
-        assert_equal(summary["change_count"], 12, "change_count")
+        assert_equal(summary["change_count"], 10, "change_count")
         assert_equal(summary["group_price_parity_change_count"], 18, "group_price_parity_change_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
         assert_equal(summary["normalized_pickup_end_count"], 10, "normalized_pickup_end_count")
@@ -293,17 +293,17 @@ def main():
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
         assert_equal(ws["J7"].value, 82, "EDAH adjusted rate")
         assert_equal(ws["J8"].value, 82, "EDMV adjusted rate")
-        assert_equal(ws["J9"].value, 81, "IDAH base rate")
+        assert_equal(ws["J9"].value, 70, "excluded IDAH rate")
         assert_equal(ws["J10"].value, 70, "excluded SWAV rate")
         assert_equal(ws["I7"].value, 161, "EDAH parity-only duration 1 rate")
         assert_equal(ws["I8"].value, 161, "EDMV parity-only duration 1 rate")
-        assert_equal(ws["I9"].value, 160, "IDAH parity duration 1 base rate")
+        assert_equal(ws["I9"].value, 160, "excluded IDAH duration 1 rate")
         assert_equal(ws["K7"].value, 81, "EDAH parity-only duration 3-4 rate")
         assert_equal(ws["K8"].value, 81, "EDMV parity-only duration 3-4 rate")
         assert_equal(ws["N5"].value, 100, "long duration minimum")
         assert_equal(ws["N7"].value, 101, "long duration minimum with EDAH adjustment")
         assert_equal(ws["N8"].value, 101, "long duration minimum with EDMV adjustment")
-        assert_equal(ws["N9"].value, 100, "long duration minimum with IDAH base rate")
+        assert_equal(ws["N9"].value, 120, "excluded IDAH long duration rate")
         assert_equal(ws["J11"].value, 70, "global minimum")
         assert_equal(ws["J12"].value, 71, "global minimum with EDAH adjustment")
         assert_equal(ws["M13"].value, 115, "seasonal duration minimum")
@@ -341,7 +341,7 @@ def main():
         assert "Floor cenowy" in changed_ws["B5"].value
         assert_equal(changed_ws["O10"].value, "Komentarz zmiany", "changed sheet comment header")
         assert_equal(changed_ws.max_row, 14, "changed sheet row count")
-        assert_equal(changed_ws["A11"].value, "CDMV, EDAH, EDMV, IDAH", "first changed group set")
+        assert_equal(changed_ws["A11"].value, "CDMV, EDAH, EDMV", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O11"].value
         assert "co najmniej 5 PLN" in changed_ws["O11"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O11"].value
@@ -371,12 +371,13 @@ def main():
                 assert changed_ws.cell(row, col).comment is None
         changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
+        assert "IDAH" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
         assert_equal(review_ws["A1"].value, "Akceptacja?", "review header")
         assert_equal(review_ws["B1"].value, "Status", "review status header")
         assert_equal(review_ws.max_row, 5, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
-        assert_equal(review_ws["F2"].value, "CDMV, EDAH, EDMV, IDAH", "review grouped groups")
+        assert_equal(review_ws["F2"].value, "CDMV, EDAH, EDMV", "review grouped groups")
         assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
         assert "korekta grupy" in review_ws["C2"].value or review_ws["C2"].value == "OK"
         validation_rows = {

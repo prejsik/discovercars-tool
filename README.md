@@ -432,7 +432,7 @@ Minimalne stawki przy aktualizacji Excela:
 - dla duration od `21` dni (kolumna N) stawka nie spada ponizej `100 PLN brutto/dzien`,
 - od `2026-06-25` do `2026-08-31` dla kolumn od `8` dni (M oraz N) stawka nie spada ponizej `115 PLN brutto/dzien`.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `SFAV` i `SWAV`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAC`/`DDAV`, `IDAH` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAC`/`DDAV` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 
 W trybie konsolowym:
 
