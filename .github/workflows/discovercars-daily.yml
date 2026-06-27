@@ -8,6 +8,7 @@ on:
       - ".github/workflows/discovercars-daily.yml"
       - "excel-rate-update.config.example.json"
       - "input/**"
+      - "manual-reports/**"
       - "pricing-rules.config.example.json"
       - "src/**"
       - "tools/update_excel_rates.py"
@@ -410,6 +411,9 @@ jobs:
           for rel_path in \
             index.html \
             report.html \
+            manual-reports/index.html \
+            manual-reports/lipiec-2026/report.html \
+            manual-reports/sierpien-2026/report.html \
             latest-full/report.html \
             latest-full/results-latest.json \
             latest-full/pricing-recommendations.json \
@@ -426,6 +430,11 @@ jobs:
             latest-excel/mm-rate-sanity-check.json; do
             preserve_file "$rel_path"
           done
+
+          if [[ -d manual-reports ]]; then
+            mkdir -p pages/manual-reports
+            cp -R manual-reports/. pages/manual-reports/
+          fi
 
           if [[ "$RUN_TYPE" == "full" ]]; then
             run_dir="latest-full"

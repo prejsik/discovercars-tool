@@ -22,6 +22,8 @@
 !build-release.ps1
 !input/
 !input/mm-cars-rental-rates-inclusive-fp.xlsx
+!manual-reports/
+!manual-reports/**
 
 !.github/
 !.github/workflows/
