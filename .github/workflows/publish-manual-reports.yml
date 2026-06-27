@@ -1,0 +1,144 @@
+name: Publish manual DiscoverCars reports
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-manual-reports.yml"
+      - "manual-reports/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish-manual-reports
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish manual reports
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check GitHub Pages status
+        id: pages-status
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          pages_api_url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/pages"
+          status=$(
+            curl --silent --show-error \
+              --output /tmp/pages.json \
+              --write-out "%{http_code}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "$pages_api_url"
+          )
+
+          if [[ "$status" == "200" ]]; then
+            page_url=$(python3 -c "import json; print(json.load(open('/tmp/pages.json')).get('html_url', ''), end='')")
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "page_url=$page_url" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages is enabled: $page_url"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "page_url=" >> "$GITHUB_OUTPUT"
+            echo "::error::GitHub Pages is not enabled; manual report publish skipped."
+            exit 1
+          fi
+
+      - name: Prepare GitHub Pages site
+        id: pages-site
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
+        run: |
+          mkdir -p pages
+
+          page_base="${PAGE_URL%/}"
+          preserve_file() {
+            local rel_path="$1"
+            local destination="pages/$rel_path"
+            mkdir -p "$(dirname "$destination")"
+            if ! curl --fail --silent --show-error --location "$page_base/$rel_path" --output "$destination"; then
+              rm -f "$destination"
+            fi
+          }
+
+          for rel_path in \
+            index.html \
+            report.html \
+            latest-full/report.html \
+            latest-full/results-latest.json \
+            latest-full/pricing-recommendations.json \
+            latest-full/final-pricing-recommendations.json \
+            latest-full/rates-updated.xlsx \
+            latest-full/rates-import-ready.xlsx \
+            latest-full/excel-rate-update-summary.json \
+            latest-full/mm-rate-sanity-check.json \
+            latest-full/run-log.txt \
+            latest-excel/rates-import-ready.xlsx \
+            latest-excel/rates-updated.xlsx \
+            latest-excel/final-pricing-recommendations.json \
+            latest-excel/excel-rate-update-summary.json \
+            latest-excel/mm-rate-sanity-check.json; do
+            preserve_file "$rel_path"
+          done
+
+          mkdir -p pages/manual-reports
+          cp -R manual-reports/. pages/manual-reports/
+
+          echo "manual_index_url=$page_base/manual-reports/index.html" >> "$GITHUB_OUTPUT"
+          echo "july_url=$page_base/manual-reports/lipiec-2026/report.html" >> "$GITHUB_OUTPUT"
+          echo "august_url=$page_base/manual-reports/sierpien-2026/report.html" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Notify Telegram
+        if: always()
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INDEX_URL: ${{ steps.pages-site.outputs.manual_index_url }}
+          JULY_URL: ${{ steps.pages-site.outputs.july_url }}
+          AUGUST_URL: ${{ steps.pages-site.outputs.august_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            echo "::warning::Telegram secrets are missing; notification skipped."
+            exit 0
+          fi
+
+          message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nLipiec 2026:\n%s\n\nSierpien 2026:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$JULY_URL" "$AUGUST_URL" "$RUN_URL")
+
+          if ! curl --fail --show-error --silent \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            --data-urlencode "disable_web_page_preview=true"; then
+            echo "::warning::Telegram notification failed; reports were still published."
+          fi

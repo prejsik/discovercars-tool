@@ -8,7 +8,6 @@ on:
       - ".github/workflows/discovercars-daily.yml"
       - "excel-rate-update.config.example.json"
       - "input/**"
-      - "manual-reports/**"
       - "pricing-rules.config.example.json"
       - "src/**"
       - "tools/update_excel_rates.py"
