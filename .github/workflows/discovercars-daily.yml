@@ -31,6 +31,10 @@ on:
         description: "How many pickup start dates from tomorrow"
         required: true
         default: "2"
+      start_dates:
+        description: "Optional comma-separated pickup start dates in YYYY-MM-DD format; overrides rolling_days"
+        required: false
+        default: ""
       durations:
         description: "Comma-separated rental durations"
         required: true
@@ -175,6 +179,7 @@ jobs:
         env:
           INPUT_LOCATIONS: ${{ inputs.locations }}
           INPUT_ROLLING_DAYS: ${{ inputs.rolling_days }}
+          INPUT_START_DATES: ${{ inputs.start_dates }}
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
           RUN_TYPE: ${{ steps.gate.outputs.run_type }}
@@ -193,6 +198,7 @@ jobs:
 
           locations="${INPUT_LOCATIONS:-$default_locations}"
           rolling_days="${INPUT_ROLLING_DAYS:-$default_rolling_days}"
+          start_dates="${INPUT_START_DATES:-}"
           durations="${INPUT_DURATIONS:-$default_durations}"
           speed_mode="${INPUT_SPEED_MODE:-$default_speed_mode}"
 
@@ -210,11 +216,26 @@ jobs:
             [[ -n "$item" ]] && duration_count=$((duration_count + 1))
           done
 
-          scenario_count=$((rolling_days * duration_count))
+          start_date_count=0
+          if [[ -n "$start_dates" ]]; then
+            IFS=',' read -ra start_date_items <<< "$start_dates"
+            for item in "${start_date_items[@]}"; do
+              item="${item//[[:space:]]/}"
+              [[ -n "$item" ]] && start_date_count=$((start_date_count + 1))
+            done
+          fi
+
+          if (( start_date_count > 0 )); then
+            scenario_count=$((start_date_count * duration_count))
+          else
+            scenario_count=$((rolling_days * duration_count))
+          fi
           location_check_count=$((scenario_count * location_count))
 
           echo "locations=$locations" >> "$GITHUB_OUTPUT"
           echo "rolling_days=$rolling_days" >> "$GITHUB_OUTPUT"
+          echo "start_dates=$start_dates" >> "$GITHUB_OUTPUT"
+          echo "start_date_count=$start_date_count" >> "$GITHUB_OUTPUT"
           echo "durations=$durations" >> "$GITHUB_OUTPUT"
           echo "speed_mode=$speed_mode" >> "$GITHUB_OUTPUT"
           echo "location_count=$location_count" >> "$GITHUB_OUTPUT"
@@ -226,6 +247,7 @@ jobs:
           echo "Run type: $RUN_TYPE"
           echo "Locations: $locations"
           echo "Rolling days: $rolling_days"
+          echo "Start dates: ${start_dates:-none}"
           echo "Durations: $durations"
           echo "Speed mode: $speed_mode"
           echo "Scenarios: $scenario_count"
@@ -243,11 +265,15 @@ jobs:
           scraper_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
 
           set +e
+          date_args=(--scenario-mode=rolling --rolling-days="${{ steps.options.outputs.rolling_days }}")
+          if [[ -n "${{ steps.options.outputs.start_dates }}" ]]; then
+            date_args=(--start-dates="${{ steps.options.outputs.start_dates }}")
+          fi
+
           node src/index.js \
             --save=output/results-latest.json \
             --locations="${{ steps.options.outputs.locations }}" \
-            --scenario-mode=rolling \
-            --rolling-days="${{ steps.options.outputs.rolling_days }}" \
+            "${date_args[@]}" \
             --durations="${{ steps.options.outputs.durations }}" \
             --strategy=legacy-batch \
             --speed-mode="${{ steps.options.outputs.speed_mode }}" \
@@ -632,6 +658,8 @@ jobs:
           SCRAPER_DURATION_SECONDS: ${{ steps.scraper.outputs.duration_seconds }}
           LOCATIONS: ${{ steps.options.outputs.locations }}
           ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
+          START_DATES: ${{ steps.options.outputs.start_dates }}
+          START_DATE_COUNT: ${{ steps.options.outputs.start_date_count }}
           DURATIONS: ${{ steps.options.outputs.durations }}
           SPEED_MODE: ${{ steps.options.outputs.speed_mode }}
           SCENARIO_COUNT: ${{ steps.options.outputs.scenario_count }}
@@ -700,13 +728,17 @@ jobs:
 
           scraper_time="$(format_duration "$SCRAPER_DURATION_SECONDS")"
           run_time="$(format_duration "$run_duration_seconds")"
+          range_label="${ROLLING_DAYS} dni rolling, durations ${DURATIONS}"
+          if [[ -n "$START_DATES" ]]; then
+            range_label="konkretne daty (${START_DATE_COUNT}), durations ${DURATIONS}"
+          fi
 
           excel_section=""
           if [[ -n "$EXCEL_ARTIFACT_URL" ]]; then
             excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
           fi
 
-          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s dni rolling, durations %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$ROLLING_DAYS" "$DURATIONS" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
+          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
 
           pages_section=""
           if [[ -n "$FULL_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
