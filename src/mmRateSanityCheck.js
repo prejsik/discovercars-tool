@@ -115,12 +115,24 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
   const live = extractLiveMmRate(livePayload, location);
   const recommendationRate = asNumber(recommendation.mm_rate_pln_day);
   const suggestedRate = asNumber(recommendation.suggested_rate_pln_day);
+  const siteTargetRate = asNumber(recommendation.site_target_rate_pln_day);
+  const predictedSiteRate = asNumber(recommendation.predicted_site_rate_pln_day);
+  const brokerMarkupMultiplier = asNumber(recommendation.broker_markup_multiplier);
   const delta = live.dailyRate === null || recommendationRate === null
     ? null
     : Math.round((live.dailyRate - recommendationRate) * 100) / 100;
   const suggestedDelta = live.dailyRate === null || suggestedRate === null
     ? null
     : Math.round((live.dailyRate - suggestedRate) * 100) / 100;
+  const siteTargetDelta = live.dailyRate === null || siteTargetRate === null
+    ? null
+    : Math.round((live.dailyRate - siteTargetRate) * 100) / 100;
+  const predictedSiteDelta = live.dailyRate === null || predictedSiteRate === null
+    ? null
+    : Math.round((live.dailyRate - predictedSiteRate) * 100) / 100;
+  const observedBrokerMarkupMultiplier = live.dailyRate === null || suggestedRate === null || suggestedRate <= 0
+    ? null
+    : Math.round((live.dailyRate / suggestedRate) * 10000) / 10000;
   const status = delta === null
     ? "WARNING"
     : Math.abs(delta) > thresholdPlnDay
@@ -137,7 +149,15 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
     live_mm_rate_pln_day: live.dailyRate,
     delta_pln_day: delta,
     suggested_rate_pln_day: suggestedRate,
+    site_target_rate_pln_day: siteTargetRate,
+    predicted_site_rate_pln_day: predictedSiteRate,
     live_minus_suggested_pln_day: suggestedDelta,
+    live_minus_site_target_pln_day: siteTargetDelta,
+    live_minus_predicted_site_pln_day: predictedSiteDelta,
+    broker_markup_multiplier: brokerMarkupMultiplier,
+    broker_markup_percent: asNumber(recommendation.broker_markup_percent),
+    broker_markup_source: recommendation.broker_markup_source || "",
+    observed_broker_markup_multiplier: observedBrokerMarkupMultiplier,
     live_mm_rank: live.rank,
     source_generated_at: recommendation.source_generated_at || "",
     live_generated_at: live.generatedAt

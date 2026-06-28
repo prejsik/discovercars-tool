@@ -87,6 +87,11 @@
     "season_duration_column_min_days": 8,
     "season_min_pln_day": 115
   },
+  "broker_markup_learning": {
+    "enabled": true,
+    "min_multiplier": 1,
+    "max_multiplier": 1.2
+  },
   "delta_color_scale": {
     "max_delta_pln_day": 30,
     "increase_light": "E2F0D9",

@@ -40,6 +40,7 @@ const DEFAULT_DIRECT_CANDIDATE_LIMIT = 2;
 const DEFAULT_DIRECT_OFFERS_WAIT_MS = 6_000;
 const DEFAULT_CHECKPOINT_PATH = path.resolve(process.cwd(), "output", "state.json");
 const WARSAW_TIME_ZONE = "Europe/Warsaw";
+const DEFAULT_RENTAL_HOUR = 11;
 const DEFAULT_SPEED_MODE = "safe";
 const SPEED_MODES = ["safe", "fast", "turbo"];
 
@@ -521,7 +522,7 @@ function computeRentalWindowFromStartDate(startDate, rentalDays, timeZone = WARS
     year: pickupDate.year,
     month: pickupDate.month,
     day: pickupDate.day,
-    hour: 10,
+    hour: DEFAULT_RENTAL_HOUR,
     minute: 0,
     second: 0
   };
@@ -530,7 +531,7 @@ function computeRentalWindowFromStartDate(startDate, rentalDays, timeZone = WARS
     year: dropoffDate.year,
     month: dropoffDate.month,
     day: dropoffDate.day,
-    hour: 10,
+    hour: DEFAULT_RENTAL_HOUR,
     minute: 0,
     second: 0
   };
@@ -598,8 +599,8 @@ function buildScenarioDefinitions(cli) {
     for (const rentalDays of cli.rentalDurations) {
       const weekend = computeNearestRentalWindow({
         timeZone: WARSAW_TIME_ZONE,
-        pickupHour: 10,
-        dropoffHour: 10,
+        pickupHour: DEFAULT_RENTAL_HOUR,
+        dropoffHour: DEFAULT_RENTAL_HOUR,
         startDay,
         rentalDays
       });

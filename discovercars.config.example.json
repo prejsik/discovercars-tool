@@ -8,9 +8,9 @@
     "Katowice"
   ],
   "pickupDate": "2026-04-24",
-  "pickupTime": "10:00",
+  "pickupTime": "11:00",
   "dropoffDate": "2026-04-26",
-  "dropoffTime": "10:00",
+  "dropoffTime": "11:00",
   "pickupWeekdays": ["thursday", "friday"],
   "durationsDays": [2, 3],
   "residenceCountry": "Poland",

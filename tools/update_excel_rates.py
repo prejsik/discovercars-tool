@@ -351,6 +351,14 @@ def format_delta_for_comment(value: float | None) -> str:
     return formatted
 
 
+def format_percent_for_comment(value: float | None) -> str:
+    if value is None:
+        return ""
+    if float(value).is_integer():
+        return f"{int(value)}%"
+    return f"{value:.2f}%"
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
@@ -495,6 +503,15 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
         f"Nowa stawka: {format_rate_for_comment(change.get('new_rate'))} PLN",
         f"Zmiana: {format_delta_for_comment(change.get('delta'))} PLN",
     ]
+    site_target = parse_number(change.get("site_target_rate"))
+    predicted_site_rate = parse_number(change.get("predicted_site_rate"))
+    broker_markup_percent = parse_number(change.get("broker_markup_percent"))
+    if site_target is not None:
+        lines.append(f"Cel na stronie: {format_rate_for_comment(site_target)} PLN")
+    if predicted_site_rate is not None:
+        lines.append(f"Prognoza na stronie: {format_rate_for_comment(predicted_site_rate)} PLN")
+    if broker_markup_percent is not None:
+        lines.append(f"Szac. narzut brokera: {format_percent_for_comment(broker_markup_percent)}")
     return Comment("\n".join(lines), "Codex")
 
 
@@ -557,6 +574,17 @@ def build_change_explanation(changes: list[dict[str, Any]]) -> str:
         lines.append(
             f"Benchmark: {benchmark_provider or 'n/a'} "
             f"{format_rate_for_comment(benchmark_rate)} PLN"
+        )
+    site_target = parse_number(change.get("site_target_rate"))
+    predicted_site_rate = parse_number(change.get("predicted_site_rate"))
+    broker_markup_percent = parse_number(change.get("broker_markup_percent"))
+    if site_target is not None:
+        lines.append(f"Cel na stronie DiscoverCars: {format_rate_for_comment(site_target)} PLN")
+    if predicted_site_rate is not None or broker_markup_percent is not None:
+        lines.append(
+            "Kalibracja brokera: "
+            f"narzut {format_percent_for_comment(broker_markup_percent) or 'n/a'}, "
+            f"prognoza na stronie {format_rate_for_comment(predicted_site_rate)} PLN."
         )
     return "\n".join(lines)
 
@@ -644,6 +672,8 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
         notes.append("ochrona floor cenowego")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
         notes.append("korekta grupy EDAH/EDMV")
+    if any(parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
+        notes.append("uwzgledniono szacowany narzut brokera")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
         notes.append("kierunek po floor rozny od rekomendacji")
     if any(parse_number(change.get("benchmark_rate")) is None for change in changes):
@@ -841,6 +871,9 @@ def write_recommendations_review_sheet(
         "Poprzednia stawka",
         "Nowa stawka",
         "Delta",
+        "Cel na stronie",
+        "Prognoza na stronie",
+        "Narzut brokera",
         "Typ rekomendacji",
         "Cel zmiany",
         "Benchmark",
@@ -870,6 +903,9 @@ def write_recommendations_review_sheet(
             format_grouped_rates(grouped_changes, "old_rate"),
             format_grouped_rates(grouped_changes, "new_rate"),
             format_grouped_deltas(grouped_changes),
+            parse_number(change.get("site_target_rate")),
+            parse_number(change.get("predicted_site_rate")),
+            format_percent_for_comment(parse_number(change.get("broker_markup_percent"))),
             get_recommendation_label_pl(change),
             get_recommendation_outcome_pl(change),
             change.get("benchmark_provider", ""),
@@ -887,6 +923,9 @@ def write_recommendations_review_sheet(
         "Akceptacja?": 12,
         "Uwagi kontroli": 34,
         "Grupy": 34,
+        "Cel na stronie": 18,
+        "Prognoza na stronie": 20,
+        "Narzut brokera": 16,
         "Powod": 76,
         "Komorki Excel": 26,
         "Top1": 30,
@@ -1123,6 +1162,86 @@ def write_validation_sheet(
             status_cell.fill = PatternFill(fill_type="solid", fgColor="FCE4D6")
         elif status_cell.value == "FAIL":
             status_cell.fill = PatternFill(fill_type="solid", fgColor="FFC7CE")
+
+
+def average(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    settings = config.get("broker_markup_learning") or {}
+    if settings.get("enabled") is False:
+        return {
+            "enabled": False,
+            "count": 0,
+            "observations": [],
+        }
+
+    min_multiplier = parse_number(settings.get("min_multiplier")) or 1
+    max_multiplier = parse_number(settings.get("max_multiplier")) or 1.25
+    observations: list[dict[str, Any]] = []
+
+    for change in changes:
+        old_rate = parse_number(change.get("old_rate"))
+        mm_rate = parse_number(change.get("mm_rate"))
+        if old_rate is None or old_rate <= 0 or mm_rate is None or mm_rate <= 0:
+            continue
+        if parse_number(change.get("group_adjustment_pln_day")):
+            continue
+
+        multiplier = mm_rate / old_rate
+        if multiplier < min_multiplier or multiplier > max_multiplier:
+            continue
+
+        observations.append({
+            "location": change.get("location", ""),
+            "zone": change.get("zone", ""),
+            "group": change.get("group", ""),
+            "pickup_date": change.get("pickup_date", ""),
+            "duration_days": change.get("duration_days"),
+            "duration_band": change.get("duration_band"),
+            "old_import_rate_pln_day": old_rate,
+            "live_mm_rate_pln_day": mm_rate,
+            "observed_multiplier": round(multiplier, 6),
+            "observed_markup_percent": round((multiplier - 1) * 100, 2),
+        })
+
+    by_location: dict[str, list[float]] = defaultdict(list)
+    by_duration: dict[str, list[float]] = defaultdict(list)
+    for observation in observations:
+        multiplier = float(observation["observed_multiplier"])
+        location = str(observation.get("location") or "").strip()
+        duration = str(observation.get("duration_days") or "").strip()
+        if location:
+            by_location[location].append(multiplier)
+        if duration:
+            by_duration[duration].append(multiplier)
+
+    def summarize(values: list[float]) -> dict[str, Any]:
+        result = average(values)
+        return {
+            "count": len(values),
+            "average_multiplier": round(result, 6) if result is not None else None,
+            "average_markup_percent": round((result - 1) * 100, 2) if result is not None else None,
+        }
+
+    all_values = [float(item["observed_multiplier"]) for item in observations]
+    return {
+        "enabled": True,
+        "count": len(observations),
+        **summarize(all_values),
+        "by_location": {
+            location: summarize(values)
+            for location, values in sorted(by_location.items())
+        },
+        "by_duration": {
+            duration: summarize(values)
+            for duration, values in sorted(by_duration.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 0)
+        },
+        "observations": observations[:100],
+    }
 
 
 def build_targets(
@@ -1551,6 +1670,11 @@ def apply_updates(
                 "new_rate": new_rate,
                 "delta": None if old_rate is None else round(new_rate - old_rate, 2),
                 "suggested_rate_before_minimum": suggested_rate,
+                "site_target_rate": target.get("site_target_rate_pln_day"),
+                "predicted_site_rate": target.get("predicted_site_rate_pln_day"),
+                "broker_markup_multiplier": target.get("broker_markup_multiplier"),
+                "broker_markup_percent": target.get("broker_markup_percent"),
+                "broker_markup_source": target.get("broker_markup_source", ""),
                 "minimum_rate_pln_day": minimum_rate,
                 "minimum_reason": minimum_reason if base_rate > suggested_rate else "",
                 "group_adjustment_pln_day": group_adjustment,
@@ -1615,6 +1739,7 @@ def apply_updates(
             }
             for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets)
         ],
+        "broker_markup_observations": build_broker_markup_observations(changes, config),
         "changes": changes[:100],
     }
 

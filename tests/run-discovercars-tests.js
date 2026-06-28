@@ -6,6 +6,7 @@ const { mergePricingRecommendations } = require("../src/mergePricingRecommendati
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
 const { buildSanityComparison, selectSanitySample } = require("../src/mmRateSanityCheck");
+const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
 
 function runTest(name, fn) {
@@ -333,6 +334,50 @@ runTest("buildPricingRecommendations uses top1 undercut for a small decrease fro
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
 });
 
+runTest("buildPricingRecommendations converts site target to import rate with broker markup calibration", () => {
+  const output = buildPricingRecommendations(
+    {
+      generated_at: "2026-06-09T07:00:00.000Z",
+      locations: ["Poznan"],
+      scenarios: [
+        {
+          scenario_id: "2026-06-10-2",
+          start_date: "2026-06-10",
+          pickup_date: "2026-06-10T10:00:00+02:00",
+          dropoff_date: "2026-06-12T10:00:00+02:00",
+          rental_days: 2,
+          top_3_plus_mm_by_location: {
+            Poznan: {
+              top_3: [
+                { provider_name: "Car24", total_price: 200, currency: "PLN", rental_days: 2 },
+                { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 }
+              ],
+              mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 210, currency: "PLN", rental_days: 2 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      brokerMarkupCalibration: {
+        enabled: true,
+        defaultMultiplier: 1.075,
+        locationMultipliers: {
+          Poznan: 1.1
+        }
+      }
+    }
+  );
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].site_target_rate_pln_day, 99);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 90);
+  assert.equal(output.recommendations[0].predicted_site_rate_pln_day, 99);
+  assert.equal(output.recommendations[0].broker_markup_multiplier, 1.1);
+  assert.equal(output.recommendations[0].broker_markup_source, "location:Poznan");
+  assert.equal(output.recommendations[0].change_pln_day, -6);
+});
+
 runTest("buildPricingRecommendations uses small decrease to pass a top2 rival when MM is top3", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
@@ -491,6 +536,11 @@ runTest("buildSanityComparison warns when live MM rate differs from recommendati
       recommendation_type: "top3_small_decrease",
       mm_rate_pln_day: 85.5,
       suggested_rate_pln_day: 80,
+      site_target_rate_pln_day: 86,
+      predicted_site_rate_pln_day: 85.6,
+      broker_markup_multiplier: 1.07,
+      broker_markup_percent: 7,
+      broker_markup_source: "default",
       source_generated_at: "2026-06-15T02:41:25.842Z"
     },
     livePayload: {
@@ -515,7 +565,59 @@ runTest("buildSanityComparison warns when live MM rate differs from recommendati
   assert.equal(comparison.status, "WARNING");
   assert.equal(comparison.live_mm_rate_pln_day, 106.4);
   assert.equal(comparison.delta_pln_day, 20.9);
+  assert.equal(comparison.site_target_rate_pln_day, 86);
+  assert.equal(comparison.predicted_site_rate_pln_day, 85.6);
+  assert.equal(comparison.live_minus_site_target_pln_day, 20.4);
+  assert.equal(comparison.live_minus_predicted_site_pln_day, 20.8);
+  assert.equal(comparison.broker_markup_multiplier, 1.07);
+  assert.equal(comparison.observed_broker_markup_multiplier, 1.33);
   assert.equal(comparison.live_mm_rank, "outside_top3");
+});
+
+runTest("buildCalibrationUpdate learns broker markup from Excel observations with smoothing", () => {
+  const output = buildCalibrationUpdate({
+    baseConfig: {
+      pricing: {
+        brokerMarkupCalibration: {
+          enabled: true,
+          defaultMultiplier: 1.075,
+          minMultiplier: 1,
+          maxMultiplier: 1.2,
+          locationMultipliers: {
+            Poznan: 1.09
+          }
+        }
+      }
+    },
+    excelSummary: {
+      broker_markup_observations: {
+        enabled: true,
+        count: 2,
+        average_multiplier: 1.1,
+        average_markup_percent: 10,
+        by_location: {
+          Poznan: {
+            count: 2,
+            average_multiplier: 1.12,
+            average_markup_percent: 12
+          }
+        },
+        by_duration: {
+          3: {
+            count: 2,
+            average_multiplier: 1.08,
+            average_markup_percent: 8
+          }
+        }
+      }
+    },
+    alpha: 0.5
+  });
+
+  assert.equal(output.learning.observation_count, 2);
+  assert.equal(output.brokerMarkupCalibration.defaultMultiplier, 1.0875);
+  assert.equal(output.brokerMarkupCalibration.locationMultipliers.Poznan, 1.105);
+  assert.equal(output.brokerMarkupCalibration.durationMultipliers["3"], 1.08);
 });
 
 runTest("buildQualityAlerts includes MM sanity check warnings", () => {

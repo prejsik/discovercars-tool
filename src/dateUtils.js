@@ -222,8 +222,8 @@ function resolvePickupDateParts(pickupDateInput, timeZone = WARSAW_TIME_ZONE) {
 
 function computeRentalWindowFromPickupDate(options = {}) {
   const timeZone = options.timeZone || WARSAW_TIME_ZONE;
-  const pickupHour = Number.isFinite(options.pickupHour) ? options.pickupHour : 10;
-  const dropoffHour = Number.isFinite(options.dropoffHour) ? options.dropoffHour : 10;
+  const pickupHour = Number.isFinite(options.pickupHour) ? options.pickupHour : 11;
+  const dropoffHour = Number.isFinite(options.dropoffHour) ? options.dropoffHour : 11;
   const rentalDays =
     Number.isFinite(options.rentalDays) && options.rentalDays > 0 ? Number(options.rentalDays) : 2;
   const pickupDate = resolvePickupDateParts(options.pickupDateParts || options.pickupDate, timeZone);
@@ -265,8 +265,8 @@ function computeRentalWindowFromPickupDate(options = {}) {
 
 function computeNearestRentalWindow(options = {}) {
   const timeZone = options.timeZone || WARSAW_TIME_ZONE;
-  const pickupHour = Number.isFinite(options.pickupHour) ? options.pickupHour : 10;
-  const dropoffHour = Number.isFinite(options.dropoffHour) ? options.dropoffHour : 10;
+  const pickupHour = Number.isFinite(options.pickupHour) ? options.pickupHour : 11;
+  const dropoffHour = Number.isFinite(options.dropoffHour) ? options.dropoffHour : 11;
   const rentalDays =
     Number.isFinite(options.rentalDays) && options.rentalDays > 0 ? Number(options.rentalDays) : 2;
   const startDayNormalized = String(options.startDay || "friday").trim().toLowerCase();

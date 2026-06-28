@@ -321,9 +321,9 @@ Usage:
     --location "Warsaw" ^
     --location "Krakow" ^
     --pickup-date 2026-05-15 ^
-    --pickup-time 10:00 ^
+    --pickup-time 11:00 ^
     --dropoff-date 2026-05-18 ^
-    --dropoff-time 10:00
+    --dropoff-time 11:00
 
 Options:
   --config PATH

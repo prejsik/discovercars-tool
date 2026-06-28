@@ -414,6 +414,8 @@ python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommen
 
 Standardowy plik importowy zawiera wszystkie rekomendowane zmiany, ktore przeszly reguly, floor cenowy i wykluczenia grup. Tryb `--accepted-only` pozostaje tylko reczna opcja awaryjna, ale daily workflow go nie uzywa i nie tworzy osobnego pliku accepted-only.
 
+Rekomendacje uwzgledniaja kalibracje narzutu brokera DiscoverCars. `site_target_rate_pln_day` oznacza cene, w ktora narzedzie celuje na stronie DiscoverCars, a `suggested_rate_pln_day` oznacza stawke wpisywana do pliku importowego po odwroceniu szacowanego narzutu. Workflow publikuje `broker-markup-calibration.json`, uczy sie z obserwacji `stawka w pliku -> live cena MM` i uzywa najnowszej kalibracji w kolejnym runie.
+
 Kolory w Excelu:
 
 - zielony w glownym arkuszu - cena podniesiona; im mocniejszy zielony, tym wieksza dodatnia zmiana PLN/dzien,
@@ -463,7 +465,7 @@ Daty sa liczone dynamicznie (bez hardcode):
 
 - strefa: `Europe/Warsaw`
 - domyslnie:
-  - pierwszy `pickup`: jutro o `10:00`,
+  - pierwszy `pickup`: jutro o `11:00`,
   - kolejne pickupy: kazdego nastepnego dnia przez 30 dni,
   - `rental_days`: domyslnie 1..10 dla kazdego startu, opcjonalnie do 20 dni
 - opcjonalnie (tryb weekday): start wg dnia tygodnia (`--scenario-mode=weekday --start-day=...`)

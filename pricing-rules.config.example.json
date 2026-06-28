@@ -6,6 +6,23 @@
     "undercutBufferPlnDay": 1,
     "top3SmallDecreaseThresholdPlnDay": 10,
     "minChangePlnDay": 0.5,
-    "roundingIncrementPlnDay": 1
+    "roundingIncrementPlnDay": 1,
+    "brokerMarkupCalibration": {
+      "enabled": true,
+      "defaultMultiplier": 1.075,
+      "minMultiplier": 1,
+      "maxMultiplier": 1.2,
+      "locationMultipliers": {
+        "Warsaw": 1.0623,
+        "Krakow": 1.0807,
+        "Poznan": 1.0904,
+        "Gdansk": 1.0652
+      },
+      "durationMultipliers": {
+        "3": 1.0764,
+        "5": 1.0786,
+        "7": 1.0689
+      }
+    }
   }
 }

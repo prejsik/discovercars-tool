@@ -1,5 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  mergeBrokerMarkupCalibration,
+  resolveBrokerMarkupCalibration
+} = require("./brokerMarkupCalibration");
 
 const DEFAULT_OPTIONS = {
   top1GapThresholdPlnDay: 5,
@@ -9,6 +13,10 @@ const DEFAULT_OPTIONS = {
   top3SmallDecreaseThresholdPlnDay: 10,
   minChangePlnDay: 0.5,
   roundingIncrementPlnDay: 1,
+  brokerMarkupCalibration: {
+    enabled: false,
+    defaultMultiplier: 1
+  },
   includeNoop: false
 };
 
@@ -47,7 +55,7 @@ function roundRate(value, options) {
     return Number(value.toFixed(2));
   }
 
-  return Number((Math.floor(value / increment) * increment).toFixed(2));
+  return Number((Math.floor((value + Number.EPSILON * 100) / increment) * increment).toFixed(2));
 }
 
 function formatProviderName(offer) {
@@ -74,6 +82,31 @@ function buildNoopRecommendation(base, reason) {
     reason,
     suggested_rate_pln_day: null,
     change_pln_day: 0
+  };
+}
+
+function buildActiveRecommendation({ base, options, action, recommendationType, targetRank, reason, benchmarkOffer, siteTarget }) {
+  const benchmarkRate = toDailyRate(benchmarkOffer);
+  const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
+  const suggestedImportRate = roundRate(siteTarget / calibration.multiplier, options);
+  const predictedSiteRate = Number((suggestedImportRate * calibration.multiplier).toFixed(2));
+  const siteChange = siteTarget - Number(base.mm_rate_pln_day);
+
+  return {
+    ...base,
+    action,
+    recommendation_type: recommendationType,
+    target_rank: targetRank,
+    reason,
+    benchmark_provider: formatProviderName(benchmarkOffer),
+    benchmark_rate_pln_day: benchmarkRate == null ? null : Number(benchmarkRate.toFixed(2)),
+    site_target_rate_pln_day: Number(siteTarget.toFixed(2)),
+    suggested_rate_pln_day: suggestedImportRate,
+    predicted_site_rate_pln_day: predictedSiteRate,
+    broker_markup_multiplier: calibration.multiplier,
+    broker_markup_percent: calibration.percent,
+    broker_markup_source: calibration.source,
+    change_pln_day: Number(siteChange.toFixed(2))
   };
 }
 
@@ -138,17 +171,16 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       return buildNoopRecommendation(base, "Wyliczona podwyzka jest ponizej minimalnego progu zmiany.");
     }
 
-    return {
-      ...base,
+    return buildActiveRecommendation({
+      base,
+      options,
       action: "increase",
-      recommendation_type: "top1_gap",
-      target_rank: 1,
+      recommendationType: "top1_gap",
+      targetRank: 1,
       reason: `MM Cars Rental jest top1, a top2 jest drozszy o co najmniej ${options.top1GapThresholdPlnDay} PLN/dzien; cel to 1 PLN ponizej top2.`,
-      benchmark_provider: formatProviderName(top2),
-      benchmark_rate_pln_day: Number(top2Rate.toFixed(2)),
-      suggested_rate_pln_day: target,
-      change_pln_day: Number(change.toFixed(2))
-    };
+      benchmarkOffer: top2,
+      siteTarget: target
+    });
   }
 
   if (mmRank === 2) {
@@ -159,17 +191,16 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       Math.abs(top1Change) < options.top1UndercutThresholdPlnDay &&
       Math.abs(top1Change) >= options.minChangePlnDay
     ) {
-      return {
-        ...base,
+      return buildActiveRecommendation({
+        base,
+        options,
         action: "decrease",
-        recommendation_type: "top1_undercut",
-        target_rank: 1,
+        recommendationType: "top1_undercut",
+        targetRank: 1,
         reason: `MM Cars Rental jest top2 i brakuje mniej niz ${options.top1UndercutThresholdPlnDay} PLN/dzien, zeby zostac top1; cel to ${options.undercutBufferPlnDay} PLN ponizej top1.`,
-        benchmark_provider: formatProviderName(top1),
-        benchmark_rate_pln_day: Number(top1Rate.toFixed(2)),
-        suggested_rate_pln_day: top1Target,
-        change_pln_day: Number(top1Change.toFixed(2))
-      };
+        benchmarkOffer: top1,
+        siteTarget: top1Target
+      });
     }
 
     return buildNoopRecommendation(
@@ -199,17 +230,16 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       Math.abs(smallDecreaseChange) < options.top3SmallDecreaseThresholdPlnDay &&
       Math.abs(smallDecreaseChange) >= options.minChangePlnDay
     ) {
-      return {
-        ...base,
+      return buildActiveRecommendation({
+        base,
+        options,
         action: "decrease",
-        recommendation_type: "top3_small_decrease",
-        target_rank: smallDecreaseTargetRank,
+        recommendationType: "top3_small_decrease",
+        targetRank: smallDecreaseTargetRank,
         reason: `Male obnizenie ponizej ${options.top3SmallDecreaseThresholdPlnDay} PLN/dzien pozwala przeskoczyc rywala z top${smallDecreaseTargetRank}; cel to 1 PLN ponizej tej oferty.`,
-        benchmark_provider: formatProviderName(smallDecreaseCompetitor),
-        benchmark_rate_pln_day: Number(smallDecreaseCompetitorRate.toFixed(2)),
-        suggested_rate_pln_day: smallDecreaseTarget,
-        change_pln_day: Number(smallDecreaseChange.toFixed(2))
-      };
+        benchmarkOffer: smallDecreaseCompetitor,
+        siteTarget: smallDecreaseTarget
+      });
     }
   }
 
@@ -261,6 +291,7 @@ function parseArgs(argv) {
     inputPath: null,
     outputPath: null,
     configPath: null,
+    calibrationPath: null,
     includeNoop: false
   };
 
@@ -271,6 +302,10 @@ function parseArgs(argv) {
     }
     if (arg.startsWith("--config=")) {
       args.configPath = arg.slice("--config=".length);
+      continue;
+    }
+    if (arg.startsWith("--calibration=")) {
+      args.calibrationPath = arg.slice("--calibration=".length);
       continue;
     }
     if (!args.inputPath) {
@@ -293,7 +328,7 @@ function runCli(argv) {
   const args = parseArgs(argv);
   if (!args.inputPath || !args.outputPath) {
     process.stderr.write(
-      "Usage: node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json [--config=pricing-rules.json] [--include-noop]\n"
+      "Usage: node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json [--config=pricing-rules.json] [--calibration=broker-markup-calibration.json] [--include-noop]\n"
     );
     process.exitCode = 1;
     return;
@@ -301,8 +336,13 @@ function runCli(argv) {
 
   const payload = loadJson(args.inputPath);
   const config = args.configPath ? loadJson(args.configPath) : {};
+  const configPricing = config.pricing || config;
+  const learnedCalibration = args.calibrationPath && fs.existsSync(path.resolve(args.calibrationPath))
+    ? loadJson(args.calibrationPath)
+    : {};
   const output = buildPricingRecommendations(payload, {
-    ...(config.pricing || config),
+    ...configPricing,
+    brokerMarkupCalibration: mergeBrokerMarkupCalibration(configPricing.brokerMarkupCalibration, learnedCalibration),
     includeNoop: args.includeNoop || Boolean(config.includeNoop)
   });
   const outputPath = path.resolve(args.outputPath);
