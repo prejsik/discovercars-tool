@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
+const { extractOffersFromSearchApiPayload } = require("../src/discovercars/scraper");
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
@@ -68,6 +69,63 @@ runTest("automatic transmission filter removes manual and unknown offers", () =>
     filtered.map((offer) => offer.provider_name),
     ["Automatic Supplier"]
   );
+});
+
+runTest("DiscoverCars search API parser uses data.offers and ignores filter pseudo-prices", () => {
+  const offers = extractOffersFromSearchApiPayload(
+    {
+      data: {
+        offers: [
+          {
+            price: { raw: 120, formatted: "PLN 120.00" },
+            supplier: { name: "Manual Supplier", rating: { score: "8.1" } },
+            vehicle: {
+              carName: "Toyota Yaris",
+              sipp: "EDMR",
+              specifications: { isAutomaticTransmission: 0 }
+            }
+          },
+          {
+            price: { raw: 150, formatted: "PLN 150.00" },
+            supplier: { name: "Automatic Supplier", rating: { score: "8.8" } },
+            vehicle: {
+              carName: "Toyota Corolla",
+              sipp: "CDAR",
+              specifications: { isAutomaticTransmission: 1 }
+            }
+          },
+          {
+            price: { raw: 99, formatted: "PLN 99.00" },
+            supplier: { name: "DiscoverCars choice", rating: { score: "9.0" } },
+            vehicle: {
+              carName: "Promo",
+              sipp: "EDAR",
+              specifications: { isAutomaticTransmission: 1 }
+            }
+          }
+        ],
+        filter: {
+          supplier: [
+            { title: "Fake Filter Supplier", min: "PLN 1.00" }
+          ],
+          carSpecifications: [
+            { key: "transmission-a", min: "PLN 99.00", title: "Automatic Transmission" }
+          ]
+        }
+      }
+    },
+    "Krakow Airport (KRK)",
+    "https://www.discovercars.com/api/v2/search/test"
+  );
+
+  assert.deepEqual(
+    offers.map((offer) => [offer.provider, offer.totalPrice, offer.transmission]),
+    [
+      ["Manual Supplier", 120, "manual"],
+      ["Automatic Supplier", 150, "automatic"]
+    ]
+  );
+  assert.equal(filterOffersByTransmission(offers, "automatic")[0].provider, "Automatic Supplier");
 });
 
 runTest("mergePayloads combines chunked scenarios in date and duration order", () => {

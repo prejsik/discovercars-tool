@@ -184,6 +184,8 @@ function parseCliArgs(argv) {
     residenceCountry: "Poland",
     transmissionFilter: "automatic",
     strategy: "legacy-batch",
+    apiFirst: true,
+    apiDomSanityRate: 0.05,
     directCandidateLimit: DEFAULT_DIRECT_CANDIDATE_LIMIT,
     directOffersWaitMs: DEFAULT_DIRECT_OFFERS_WAIT_MS,
     speedMode: DEFAULT_SPEED_MODE,
@@ -364,6 +366,24 @@ function parseCliArgs(argv) {
       const strategy = String(arg.split("=")[1] || "").trim().toLowerCase();
       if (["legacy-batch", "hybrid", "direct-only"].includes(strategy)) {
         options.strategy = strategy;
+      }
+      continue;
+    }
+
+    if (arg === "--api-first") {
+      options.apiFirst = true;
+      continue;
+    }
+
+    if (arg === "--no-api-first") {
+      options.apiFirst = false;
+      continue;
+    }
+
+    if (arg.startsWith("--api-dom-sanity-rate=")) {
+      const rate = Number.parseFloat(arg.split("=")[1]);
+      if (Number.isFinite(rate) && rate >= 0 && rate <= 1) {
+        options.apiDomSanityRate = rate;
       }
       continue;
     }
@@ -915,6 +935,8 @@ function buildMultiScenarioPayload({ scenarios, cli, resolvedProfile }) {
       location_concurrency: resolvedProfile.locationConcurrency,
       timeout_ms: resolvedProfile.timeoutMs,
       max_active_pages: resolvedProfile.maxActivePages,
+      api_first: cli.apiFirst,
+      api_dom_sanity_rate: cli.apiDomSanityRate,
       auto_tuned: resolvedProfile.auto_tuned
     },
     scenarios,
@@ -991,6 +1013,8 @@ function buildRunSignature(cli, scenarios, resolvedProfile) {
     },
     direct_candidate_limit: cli.directCandidateLimit,
     direct_offers_wait_ms: cli.directOffersWaitMs,
+    api_first: cli.apiFirst,
+    api_dom_sanity_rate: cli.apiDomSanityRate,
     scenario_windows: (scenarios || []).map((scenario) => ({
       scenario_id: scenario.scenario_id,
       pickup: scenario.weekend?.pickupIso,
@@ -1165,6 +1189,8 @@ async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs 
     locationConcurrency: cli.locationConcurrency,
     directCandidateLimit: cli.directCandidateLimit,
     directOffersWaitMs: cli.directOffersWaitMs,
+    apiFirst: cli.apiFirst,
+    apiDomSanityRate: cli.apiDomSanityRate,
     speedMode: cli.speedMode,
     quietLegacyLogs,
     logger
@@ -1352,6 +1378,10 @@ Flags:
                         Max direct-search location candidates in legacy flow (default: 2, max: 8).
   --direct-offers-wait=MS
                         Max wait for direct-flow offers in legacy flow (default: 6000, max: 20000).
+  --api-first           Use DiscoverCars /api/v2/search data.offers first (default).
+  --no-api-first        Disable API-first and use browser DOM flow.
+  --api-dom-sanity-rate=N
+                        Deterministic DOM validation sample rate for API-first, 0..1 (default: 0.05).
   --retries=N           Retry count per location (default: 1).
   --resume              Enable resume from checkpoint (default).
   --no-resume           Disable checkpoint resume for this run.
@@ -1623,6 +1653,8 @@ async function main() {
       location_concurrency: resolvedProfile.locationConcurrency,
       timeout_ms: resolvedProfile.timeoutMs,
       max_active_pages: resolvedProfile.maxActivePages,
+      api_first: cli.apiFirst,
+      api_dom_sanity_rate: cli.apiDomSanityRate,
       auto_tuned: resolvedProfile.auto_tuned
     };
   }

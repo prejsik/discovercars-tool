@@ -227,6 +227,27 @@ Tryb bardzo agresywny, tylko do porownania:
 node src/index.js --speed-mode=turbo
 ```
 
+API-first scraper (domyslnie wlaczony):
+
+```powershell
+node src/index.js --api-first
+```
+
+Ten tryb pobiera oferty bezposrednio z backendu DiscoverCars (`/api/v2/search/...`) i parsuje tylko `data.offers[]`, dzieki czemu ignoruje techniczne ceny z filtrow oraz pseudo-dostawcow typu `DiscoverCars choice`. Filtr skrzyni automatycznej korzysta z pola `vehicle.specifications.isAutomaticTransmission` oraz SIPP. DOM/Playwright zostaje jako fallback dla pustych/slabych wynikow i jako kontrolna probka sanity.
+
+Sterowanie kontrola DOM:
+
+```powershell
+node src/index.js --api-dom-sanity-rate=0.05
+node src/index.js --api-dom-sanity-rate=0
+```
+
+Awaryjny powrot do starego flow DOM:
+
+```powershell
+node src/index.js --no-api-first
+```
+
 Checkpoint resume (domyslnie wlaczone):
 
 ```powershell

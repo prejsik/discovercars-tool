@@ -31,6 +31,11 @@ const COOKIE_BUTTON_PATTERNS = [
 
 const SEARCH_BUTTON_PATTERNS = [/search now/i, /^search$/i, /show cars/i, /find cars/i];
 const PICKUP_VALIDATION_ERROR_PATTERN = /pick-?up location/i;
+const IGNORED_API_PROVIDER_PATTERNS = [
+  /^discover\s*cars\s*choice$/i,
+  /^discovercars\s*choice$/i
+];
+const DEFAULT_API_DOM_SANITY_RATE = 0.05;
 
 function clampPositiveInteger(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(value, 10);
@@ -57,7 +62,13 @@ class DiscoverCarsScraper {
 
   async run() {
     ensureDir(this.config.artifactsDir);
-    const browser = await chromium.launch(this.resolveLaunchOptions());
+    let browserPromise = null;
+    const getBrowser = async () => {
+      if (!browserPromise) {
+        browserPromise = chromium.launch(this.resolveLaunchOptions());
+      }
+      return await browserPromise;
+    };
 
     const results = [];
     const failures = [];
@@ -77,7 +88,7 @@ class DiscoverCarsScraper {
           }
 
           const location = locations[currentIndex];
-          outcomes[currentIndex] = await this.runSingleLocation(browser, location);
+          outcomes[currentIndex] = await this.runSingleLocation(location, getBrowser);
         }
       });
 
@@ -104,7 +115,9 @@ class DiscoverCarsScraper {
         console.log(`ERR ${location} -> ${outcome.error.message}`);
       }
     } finally {
-      await browser.close();
+      if (browserPromise) {
+        await (await browserPromise).close();
+      }
     }
 
     return { results, failures };
@@ -130,7 +143,37 @@ class DiscoverCarsScraper {
     return options;
   }
 
-  async runSingleLocation(browser, location) {
+  async runSingleLocation(location, getBrowser) {
+    if (this.isApiFirstEnabled()) {
+      let apiOutcome = null;
+      try {
+        apiOutcome = await this.runSingleLocationViaApi(location);
+        if (!this.shouldValidateApiOutcome(location, apiOutcome.results)) {
+          return apiOutcome;
+        }
+      } catch (apiError) {
+        apiOutcome = {
+          ok: false,
+          error: apiError instanceof Error ? apiError : new Error(String(apiError))
+        };
+      }
+
+      const browser = await getBrowser();
+      const browserOutcome = await this.runSingleLocationWithBrowser(browser, location);
+      if (!apiOutcome.ok) {
+        return browserOutcome;
+      }
+      if (browserOutcome.ok && this.shouldPreferBrowserOutcome(apiOutcome.results, browserOutcome.results)) {
+        return browserOutcome;
+      }
+      return apiOutcome;
+    }
+
+    const browser = await getBrowser();
+    return await this.runSingleLocationWithBrowser(browser, location);
+  }
+
+  async runSingleLocationWithBrowser(browser, location) {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1200 },
       locale: "en-US"
@@ -217,6 +260,81 @@ class DiscoverCarsScraper {
     } finally {
       await context.close();
     }
+  }
+
+  isApiFirstEnabled() {
+    return this.config.apiFirst !== false;
+  }
+
+  shouldValidateApiOutcome(location, offers) {
+    const selectedOffers = Array.isArray(offers) ? offers : [];
+    if (!selectedOffers.length) {
+      return true;
+    }
+    if (selectedOffers.length < 3) {
+      return true;
+    }
+    const sanityRate = clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1);
+    if (sanityRate <= 0) {
+      return false;
+    }
+    return deterministicSample(location, this.config.pickupDate, this.config.dropoffDate, sanityRate);
+  }
+
+  shouldPreferBrowserOutcome(apiOffers, browserOffers) {
+    const apiList = Array.isArray(apiOffers) ? apiOffers : [];
+    const browserList = Array.isArray(browserOffers) ? browserOffers : [];
+    if (!apiList.length) {
+      return browserList.length > 0;
+    }
+    if (!browserList.length) {
+      return false;
+    }
+
+    const apiHasMm = apiList.some((offer) => isMmCarsRentalProvider(offer.provider));
+    const browserHasMm = browserList.some((offer) => isMmCarsRentalProvider(offer.provider));
+    if (!apiHasMm && browserHasMm) {
+      return true;
+    }
+    if (apiList.length < 3 && browserList.length > apiList.length) {
+      return true;
+    }
+
+    return false;
+  }
+
+  async runSingleLocationViaApi(location) {
+    const candidates = await this.resolveLocationCandidatesViaApi(location);
+    if (!candidates.length) {
+      throw new Error("No location candidates found in DiscoverCars autocomplete API.");
+    }
+
+    const baseUrl = new URL(this.config.baseUrl);
+    const directCandidateLimit = clampPositiveInteger(this.config.directCandidateLimit, 2, 1, 8);
+    const uniqueCandidates = dedupeLocationCandidates(candidates).slice(0, directCandidateLimit);
+
+    for (const candidate of uniqueCandidates) {
+      const searchUrl = this.buildDirectSearchApiUrl(baseUrl.origin, candidate.placeID);
+      const payload = await fetchJson(searchUrl, this.config.timeoutMs, this.config.currency);
+      const apiOffers = this.filterOffersByConfiguredTransmission(
+        extractOffersFromSearchApiPayload(payload, location, searchUrl)
+      );
+      const locationOffers = selectBestOffersByProvider(
+        apiOffers,
+        location,
+        this.config.maxProvidersPerLocation,
+        ["MM Cars Rental"]
+      );
+      if (locationOffers.length) {
+        return {
+          ok: true,
+          cheapest: locationOffers[0],
+          results: locationOffers
+        };
+      }
+    }
+
+    throw new Error("No automatic offers extracted from DiscoverCars search API.");
   }
 
   isFastMode() {
@@ -326,6 +444,35 @@ class DiscoverCarsScraper {
     return [...candidates];
   }
 
+  async resolveLocationCandidatesViaApi(location) {
+    const cacheKey = normalizeWhitespace(location).toLowerCase();
+    if (this.locationCandidateCache.has(cacheKey)) {
+      return [...this.locationCandidateCache.get(cacheKey)];
+    }
+
+    const baseUrl = new URL(this.config.baseUrl);
+    const endpoint = `${baseUrl.origin}/api/v2/autocomplete?location=${encodeURIComponent(location)}`;
+    const payload = await fetchJson(endpoint, this.config.timeoutMs, this.config.currency).catch(() => null);
+    const rawCandidates = Array.isArray(payload?.result) ? payload.result : [];
+    if (!rawCandidates.length) {
+      return [];
+    }
+
+    const normalizedLocation = normalizeWhitespace(location).toLowerCase();
+    const allLocations = rawCandidates.filter((item) => /all locations/i.test(String(item.place || "")));
+    const cityMatches = rawCandidates.filter((item) => normalizeWhitespace(item.city).toLowerCase().includes(normalizedLocation));
+    const exactMatches = rawCandidates.filter((item) => normalizeWhitespace(item.place).toLowerCase().includes(normalizedLocation));
+
+    const candidates = [
+      ...allLocations,
+      ...cityMatches,
+      ...exactMatches,
+      ...rawCandidates
+    ];
+    this.locationCandidateCache.set(cacheKey, candidates);
+    return [...candidates];
+  }
+
   buildDirectSearchUrl(origin, placeId) {
     const sqPayload = {
       PickupLocationId: placeId,
@@ -340,6 +487,22 @@ class DiscoverCarsScraper {
     const sq = encodeSqPayload(sqPayload);
     const guid = crypto.randomUUID();
     return `${origin}/search/${guid}?sq=${sq}`;
+  }
+
+  buildDirectSearchApiUrl(origin, placeId) {
+    const sqPayload = {
+      PickupLocationId: placeId,
+      DropOffLocationId: placeId,
+      PickupDateTime: `${this.config.pickupDate}T${this.config.pickupTime}:00`,
+      DropOffDateTime: `${this.config.dropoffDate}T${this.config.dropoffTime}:00`,
+      ResidenceCountry: normalizeCountryCode(this.config.residenceCountry) || "PL",
+      DriverAge: Number.isFinite(this.config.driverAge) ? this.config.driverAge : 30,
+      Hash: ""
+    };
+
+    const sq = encodeSqPayload(sqPayload);
+    const guid = crypto.randomUUID();
+    return `${origin}/api/v2/search/${guid}?sq=${sq}&searchVersion=2`;
   }
 
   createResponseCollector() {
@@ -379,7 +542,7 @@ class DiscoverCarsScraper {
 
     try {
       const payload = await response.json();
-      const offers = this.extractOffersFromUnknownPayload(payload, fallbackLocation, "network");
+      const offers = this.extractOffersFromUnknownPayload(payload, fallbackLocation, url);
       if (offers.length) {
         collector.add(offers);
       }
@@ -1023,6 +1186,11 @@ class DiscoverCarsScraper {
   }
 
   extractOffersFromUnknownPayload(payload, fallbackLocation, source) {
+    const apiOffers = extractOffersFromSearchApiPayload(payload, fallbackLocation, source);
+    if (apiOffers.length) {
+      return dedupeOffers(apiOffers);
+    }
+
     const offers = [];
     const visited = new Set();
 
@@ -1411,6 +1579,126 @@ function firstDefinedString(values) {
   return "";
 }
 
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  const base = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, base));
+}
+
+function deterministicSample(...parts) {
+  const rate = Number(parts.pop());
+  const hash = crypto
+    .createHash("sha1")
+    .update(parts.map((part) => String(part ?? "")).join("|"))
+    .digest("hex");
+  const bucket = Number.parseInt(hash.slice(0, 8), 16) / 0xffffffff;
+  return bucket < rate;
+}
+
+function isIgnoredApiProvider(provider) {
+  const normalized = normalizeWhitespace(provider);
+  return IGNORED_API_PROVIDER_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isMmCarsRentalProvider(provider) {
+  const normalized = normalizeWhitespace(provider)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+  return normalized.includes("mm cars rental");
+}
+
+function transmissionFromSearchApiOffer(offer) {
+  const automaticFlag = offer?.vehicle?.specifications?.isAutomaticTransmission;
+  if (automaticFlag === 1 || automaticFlag === true || automaticFlag === "1") {
+    return "automatic";
+  }
+  if (automaticFlag === 0 || automaticFlag === false || automaticFlag === "0") {
+    return "manual";
+  }
+
+  return normalizeTransmission(offer?.vehicle?.sipp || offer?.sipp || "");
+}
+
+function extractOffersFromSearchApiPayload(payload, fallbackLocation, sourceUrl = "api") {
+  const rawOffers = Array.isArray(payload?.data?.offers) ? payload.data.offers : [];
+  const offers = [];
+
+  for (const offer of rawOffers) {
+    if (!offer || typeof offer !== "object") {
+      continue;
+    }
+
+    const provider = normalizeWhitespace(offer.supplier?.name || offer.provider?.name || offer.company?.name || "");
+    if (!provider || isIgnoredApiProvider(provider)) {
+      continue;
+    }
+
+    const parsedMoney = firstMoney([
+      offer.price?.raw,
+      offer.price?.formatted,
+      offer.price,
+      offer.totalPrice,
+      offer.pricing?.total
+    ]);
+    if (!parsedMoney || !Number.isFinite(parsedMoney.value)) {
+      continue;
+    }
+
+    const transmission = transmissionFromSearchApiOffer(offer);
+    offers.push({
+      provider,
+      providerRating: firstRating([
+        offer.supplier?.rating?.score,
+        offer.supplier?.rating,
+        offer.supplierRating,
+        offer.rating
+      ]),
+      totalPrice: parsedMoney.value,
+      currency: normalizeCurrency(parsedMoney.currency || "PLN"),
+      location: normalizeWhitespace(
+        firstDefinedString([
+          offer.location?.name,
+          offer.location?.title,
+          offer.location?.city,
+          fallbackLocation
+        ])
+      ) || fallbackLocation,
+      carName: normalizeWhitespace(offer.vehicle?.carName || offer.vehicle?.name || offer.carName || "") || null,
+      transmission: transmission || null,
+      source: "api",
+      sourceUrl,
+      sipp: normalizeWhitespace(offer.vehicle?.sipp || offer.sipp || "") || null
+    });
+  }
+
+  return dedupeOffers(offers);
+}
+
+async function fetchJson(url, timeoutMs, currency = "PLN") {
+  if (typeof fetch !== "function") {
+    throw new Error("Node fetch API is unavailable.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), clampPositiveInteger(timeoutMs, 45000, 5000, 180000));
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        "user-agent": "Mozilla/5.0 DiscoverCars scraper",
+        cookie: `currency=${normalizeCurrency(currency || "PLN") || "PLN"}`
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`DiscoverCars API returned HTTP ${response.status}.`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeRatingValue(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 10) {
@@ -1577,7 +1865,8 @@ function selectBestOffersByProvider(offers, fallbackLocation, maxProviders, forc
       location: normalizeWhitespace(fallbackLocation || offer.location),
       source: normalizeWhitespace(offer.source),
       carName: normalizeWhitespace(offer.carName || offer.car_name || "") || null,
-      transmission: normalizeTransmission(offer.transmission) || null
+      transmission: normalizeTransmission(offer.transmission) || null,
+      sourceUrl: normalizeWhitespace(offer.sourceUrl || offer.source_url || "") || null
     };
 
     const providerKey = provider.toLowerCase();
@@ -1745,5 +2034,6 @@ function normalizeCountryCode(value) {
 }
 
 module.exports = {
-  DiscoverCarsScraper
+  DiscoverCarsScraper,
+  extractOffersFromSearchApiPayload
 };
