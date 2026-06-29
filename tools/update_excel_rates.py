@@ -1325,6 +1325,20 @@ def filter_targets_by_acceptance(
     return filtered, accepted_count, filtered_count
 
 
+def build_group_price_parity_scope(
+    targets: dict[str, dict[date, list[dict[str, Any]]]],
+) -> set[tuple[str, date, int]]:
+    scope: set[tuple[str, date, int]] = set()
+    for zone, targets_by_date in targets.items():
+        normalized_zone = normalize_code(zone)
+        for target_date, row_targets in targets_by_date.items():
+            for target in row_targets:
+                rate_col = target.get("rate_col")
+                if isinstance(target_date, date) and isinstance(rate_col, int):
+                    scope.add((normalized_zone, target_date, rate_col))
+    return scope
+
+
 def snapshot_row(ws: Any, row: int, max_col: int) -> dict[str, Any]:
     row_dimension = ws.row_dimensions[row]
     return {
@@ -1495,6 +1509,7 @@ def enforce_group_price_parity(
     config: dict[str, Any],
     duration_columns: dict[int, tuple[int, str, int, int]],
     dry_run: bool,
+    scope: set[tuple[str, date, int]] | None = None,
 ) -> int:
     parity = get_group_price_parity(config)
     if parity is None:
@@ -1522,8 +1537,10 @@ def enforce_group_price_parity(
         rows_by_key[(zone, pickup_start)][group] = row
 
     change_count = 0
-    for groups in rows_by_key.values():
+    for (zone, pickup_start), groups in rows_by_key.items():
         for col in rate_cols:
+            if scope is not None and (zone, pickup_start, col) not in scope:
+                continue
             base_rate = None
             for group in base_groups:
                 row = groups.get(group)
@@ -1602,6 +1619,7 @@ def apply_updates(
             else set()
         )
         targets, accepted_target_count, filtered_unaccepted_target_count = filter_targets_by_acceptance(targets, accepted_keys)
+    group_price_parity_scope = build_group_price_parity_scope(targets)
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     min_change = float(config.get("min_excel_change_pln_day", 0.01))
@@ -1702,7 +1720,13 @@ def apply_updates(
 
             changes.append(change)
 
-    group_price_parity_change_count = enforce_group_price_parity(ws, config, duration_columns, dry_run)
+    group_price_parity_change_count = enforce_group_price_parity(
+        ws,
+        config,
+        duration_columns,
+        dry_run,
+        scope=group_price_parity_scope,
+    )
 
     if not dry_run:
         if output_path is None:
@@ -1723,6 +1747,7 @@ def apply_updates(
         "dry_run": dry_run,
         "change_count": len(changes),
         "group_price_parity_change_count": group_price_parity_change_count,
+        "group_price_parity_scope_count": len(group_price_parity_scope),
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
