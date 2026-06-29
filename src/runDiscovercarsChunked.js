@@ -139,6 +139,8 @@ function parseArgs(argv) {
     timeout: "auto",
     directCandidateLimit: 2,
     directOffersWait: 1000,
+    apiFirst: true,
+    apiDomSanityRate: 0.05,
     resetState: false,
     continueOnError: false,
     skipPostprocess: false,
@@ -239,6 +241,21 @@ function parseArgs(argv) {
       options.directOffersWait = parseInteger(arg.slice("--direct-offers-wait=".length), options.directOffersWait, 1000, 20000);
       continue;
     }
+    if (arg === "--api-first") {
+      options.apiFirst = true;
+      continue;
+    }
+    if (arg === "--no-api-first") {
+      options.apiFirst = false;
+      continue;
+    }
+    if (arg.startsWith("--api-dom-sanity-rate=")) {
+      const rate = Number.parseFloat(arg.slice("--api-dom-sanity-rate=".length));
+      if (Number.isFinite(rate) && rate >= 0 && rate <= 1) {
+        options.apiDomSanityRate = rate;
+      }
+      continue;
+    }
     if (arg.startsWith("--workbook=")) {
       options.workbook = path.resolve(arg.slice("--workbook=".length));
       continue;
@@ -333,8 +350,11 @@ function buildScraperArgs(chunk, options) {
     `--retries=${options.retries}`,
     `--checkpoint=${chunk.checkpointPath}`,
     `--direct-candidate-limit=${options.directCandidateLimit}`,
-    `--direct-offers-wait=${options.directOffersWait}`
+    `--direct-offers-wait=${options.directOffersWait}`,
+    `--api-dom-sanity-rate=${options.apiDomSanityRate}`
   ];
+
+  args.push(options.apiFirst ? "--api-first" : "--no-api-first");
 
   if (options.resetState) {
     args.push("--reset-state");
