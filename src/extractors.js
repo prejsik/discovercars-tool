@@ -49,6 +49,28 @@ const CAR_CLASS_PATHS = [
   "category"
 ];
 
+const TRANSMISSION_PATHS = [
+  "transmission",
+  "transmissionType",
+  "transmission_type",
+  "gearbox",
+  "gearboxType",
+  "gearbox_type",
+  "vehicle.transmission",
+  "vehicle.transmissionType",
+  "vehicle.gearbox",
+  "car.transmission",
+  "car.transmissionType",
+  "car.gearbox",
+  "specs.transmission",
+  "specifications.transmission",
+  "features.transmission",
+  "details.transmission",
+  "acriss",
+  "car.acriss",
+  "vehicle.acriss"
+];
+
 const RATING_PATHS = [
   "provider_rating",
   "providerRating",
@@ -144,6 +166,111 @@ function firstStringByPaths(candidate, paths) {
   }
 
   return "";
+}
+
+function normalizeTransmission(value) {
+  const compactCode = normalizeWhitespace(value).toUpperCase().replace(/[^A-Z]/g, "");
+  if (/^[A-Z]{4}$/.test(compactCode)) {
+    if (compactCode[2] === "A") {
+      return "automatic";
+    }
+    if (compactCode[2] === "M") {
+      return "manual";
+    }
+  }
+
+  const text = normalizeWhitespace(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!text) {
+    return "";
+  }
+
+  if (/\b(automatic|automat|automatyczna|auto|a\/t|at)\b/.test(text)) {
+    return "automatic";
+  }
+  if (/\b(manual|manualna|reczna|m\/t|mt|stick shift|stick)\b/.test(text)) {
+    return "manual";
+  }
+
+  return "";
+}
+
+function normalizeTransmissionFilter(value) {
+  const normalized = normalizeTransmission(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  const text = normalizeWhitespace(value).toLowerCase();
+  if (text === "all" || text === "any" || text === "none" || text === "off") {
+    return "";
+  }
+
+  return "";
+}
+
+function findTransmissionInCandidate(candidate, maxDepth = 4) {
+  if (!candidate || typeof candidate !== "object") {
+    return "";
+  }
+
+  for (const path of TRANSMISSION_PATHS) {
+    const transmission = normalizeTransmission(getByPath(candidate, path));
+    if (transmission) {
+      return transmission;
+    }
+  }
+
+  const visited = new Set();
+  const stack = [{ value: candidate, depth: 0 }];
+  while (stack.length) {
+    const { value, depth } = stack.pop();
+    if (!value || typeof value !== "object" || visited.has(value) || depth > maxDepth) {
+      continue;
+    }
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string") {
+          const transmission = normalizeTransmission(item);
+          if (transmission) {
+            return transmission;
+          }
+        } else if (item && typeof item === "object") {
+          stack.push({ value: item, depth: depth + 1 });
+        }
+      }
+      continue;
+    }
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (/transmission|gearbox|gear|acriss/i.test(key)) {
+        const transmission = normalizeTransmission(nestedValue);
+        if (transmission) {
+          return transmission;
+        }
+      }
+      if (nestedValue && typeof nestedValue === "object") {
+        stack.push({ value: nestedValue, depth: depth + 1 });
+      }
+    }
+  }
+
+  return "";
+}
+
+function filterOffersByTransmission(offers, transmissionFilter = "") {
+  const normalizedFilter = normalizeTransmissionFilter(transmissionFilter);
+  if (!normalizedFilter) {
+    return Array.isArray(offers) ? offers : [];
+  }
+
+  return (Array.isArray(offers) ? offers : []).filter(
+    (offer) => normalizeTransmission(offer?.transmission) === normalizedFilter
+  );
 }
 
 function normalizeRatingValue(value) {
@@ -410,6 +537,7 @@ function normalizeOfferCandidate(candidate, context) {
   const fallbackCarClass = firstStringByPaths(candidate, CAR_CLASS_PATHS);
   const carName = preferredCarName || fallbackCarClass || null;
   const providerRating = firstRatingByPaths(candidate, RATING_PATHS);
+  const transmission = findTransmissionInCandidate(candidate);
 
   return {
     location: context.location,
@@ -421,6 +549,7 @@ function normalizeOfferCandidate(candidate, context) {
     dropoff_date: context.dropoff_date,
     rental_days: context.rental_days,
     car_name: carName,
+    transmission: transmission || null,
     source_url: context.source_url
   };
 }
@@ -513,8 +642,10 @@ function extractOffersFromPayload(payload, context) {
 }
 
 async function extractOffersFromDom(page, context) {
-  const rawCards = await page.evaluate(() => {
+  const rawCards = await page.evaluate((options) => {
     const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const transmissionFilter = normalize(options.transmissionFilter || "").toLowerCase();
+    const includeSupplierRows = transmissionFilter !== "automatic";
 
     const output = [];
 
@@ -532,6 +663,9 @@ async function extractOffersFromDom(page, context) {
 
     const findRatingText = (root) => {
       const ratingSelectors = [
+        ".SupplierInfo-RatingScore",
+        "[class*='RatingScore']",
+        "[class*='SupplierScore']",
         "[data-testid*='rating']",
         "[data-testid*='score']",
         "[class*='rating']",
@@ -552,11 +686,25 @@ async function extractOffersFromDom(page, context) {
       return lines.find((line) => /(rating|score|excellent|very good|good)/i.test(line) && parseRating(line) != null) || "";
     };
 
-    const addCandidate = (providerName, priceText, carName = null, ratingText = "") => {
+    const detectTransmission = (text) => {
+      const normalized = normalize(text).toLowerCase();
+      const hasAutomatic = /\b(automatic transmission|automatic|automat)\b/.test(normalized);
+      const hasManual = /\b(manual transmission|manual)\b/.test(normalized);
+      if (hasAutomatic && !hasManual) {
+        return "automatic";
+      }
+      if (hasManual && !hasAutomatic) {
+        return "manual";
+      }
+      return "";
+    };
+
+    const addCandidate = (providerName, priceText, carName = null, ratingText = "", transmissionText = "") => {
       const provider = normalize(providerName);
       const price = normalize(priceText);
       const car = normalize(carName || "");
       const rating = parseRating(ratingText);
+      const transmission = detectTransmission(transmissionText || car);
 
       if (!provider || !price || !/\d/.test(price)) {
         return;
@@ -566,16 +714,19 @@ async function extractOffersFromDom(page, context) {
         provider_name: provider,
         provider_rating: rating,
         price_text: price,
-        car_name: car || null
+        car_name: car || null,
+        transmission: transmission || null
       });
     };
 
     // Supplier filter section often contains min-price per provider and is usually stable.
-    const supplierRows = Array.from(
-      document.querySelectorAll(
-        ".SearchFiltersGroup-FilterWrapper, [class*='SearchFiltersGroup-FilterWrapper'], [class*='supplier'] [class*='filter']"
-      )
-    );
+    const supplierRows = includeSupplierRows
+      ? Array.from(
+          document.querySelectorAll(
+            ".SearchFiltersGroup-FilterWrapper, [class*='SearchFiltersGroup-FilterWrapper'], [class*='supplier'] [class*='filter']"
+          )
+        )
+      : [];
 
     for (const row of supplierRows) {
       const provider =
@@ -588,6 +739,8 @@ async function extractOffersFromDom(page, context) {
     }
 
     const selectors = [
+      ".SearchCar",
+      "[class*='SearchCar']",
       "article",
       "[data-testid*='offer']",
       "[data-testid*='result']",
@@ -609,7 +762,12 @@ async function extractOffersFromDom(page, context) {
       }
 
       const lines = text.split(/\n+/).map(normalize).filter(Boolean);
+      const totalPriceMatch = text.match(
+        /total for\s+\d+\s+days?\s+((?:PLN|EUR|USD|GBP|z[l\u0142]|\u20ac|\$|\u00a3)\s*[\d\s.,]+)/i
+      );
       const priceLine =
+        normalize(totalPriceMatch?.[1] || "") ||
+        lines.find((line) => /total for/i.test(line) && /(PLN|EUR|USD|GBP|z[l\u0142]|\u20ac|\$|\u00a3)/i.test(line)) ||
         lines.find((line) => /(PLN|EUR|USD|GBP|z[l\u0142]|\u20ac|\$|\u00a3)/i.test(line) && /\d/.test(line)) ||
         lines.find((line) => /\d/.test(line) && line.length < 36);
 
@@ -617,7 +775,29 @@ async function extractOffersFromDom(page, context) {
         continue;
       }
 
+      const carNameElement = card.querySelector(
+        ".CarTitle-Name, h1, h2, h3, [data-testid*='car'], [data-testid*='vehicle'], [class*='car-name'], [class*='vehicle-name']"
+      );
+      const carName = normalize(carNameElement?.textContent || lines[0] || "");
+      const providerImageAlt = Array.from(
+        card.querySelectorAll("[class*='SupplierInfo'] img[alt], [class*='supplier'] img[alt], img[alt]")
+      )
+        .map((image) => normalize(image.getAttribute("alt") || ""))
+        .find((alt) => {
+          if (!alt || alt.length < 2 || alt.length > 80) {
+            return false;
+          }
+          if (carName && alt.toLowerCase() === carName.toLowerCase()) {
+            return false;
+          }
+          if (/(cars?|small|medium|large|suv|van|wagon|premium|mini|economy|compact)$/i.test(alt)) {
+            return false;
+          }
+          return true;
+        }) || "";
+
       const providerSelectors = [
+        "[class*='SupplierInfo'] img[alt]",
         "[data-testid*='supplier']",
         "[data-testid*='provider']",
         "[class*='supplier']",
@@ -625,11 +805,14 @@ async function extractOffersFromDom(page, context) {
         "[class*='vendor']"
       ];
 
-      let providerName = "";
+      let providerName = providerImageAlt;
       for (const providerSelector of providerSelectors) {
+        if (providerName) {
+          break;
+        }
         const element = card.querySelector(providerSelector);
         if (element) {
-          const value = normalize(element.textContent);
+          const value = normalize(element.getAttribute?.("alt") || element.textContent);
           if (value) {
             providerName = value;
             break;
@@ -654,16 +837,11 @@ async function extractOffersFromDom(page, context) {
         continue;
       }
 
-      const carNameElement = card.querySelector(
-        "h1, h2, h3, [data-testid*='car'], [data-testid*='vehicle'], [class*='car-name'], [class*='vehicle-name']"
-      );
-      const carName = normalize(carNameElement?.textContent || "");
-
-      addCandidate(providerName, priceLine, carName, findRatingText(card));
+      addCandidate(providerName, priceLine, carName, findRatingText(card), text);
     }
 
     return output;
-  });
+  }, { transmissionFilter: context.transmission_filter || context.transmissionFilter || "" });
 
   const offers = [];
   for (const raw of rawCards) {
@@ -682,6 +860,7 @@ async function extractOffersFromDom(page, context) {
       dropoff_date: context.dropoff_date,
       rental_days: context.rental_days,
       car_name: raw.car_name ? normalizeWhitespace(raw.car_name) : null,
+      transmission: normalizeTransmission(raw.transmission) || null,
       source_url: context.source_url
     });
   }
@@ -694,6 +873,10 @@ module.exports = {
   dedupeOffers,
   extractOffersFromDom,
   extractOffersFromPayload,
+  filterOffersByTransmission,
+  findTransmissionInCandidate,
+  normalizeTransmission,
+  normalizeTransmissionFilter,
   normalizeCurrencyCode,
   normalizeWhitespace,
   parsePriceToNumber,

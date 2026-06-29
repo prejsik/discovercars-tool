@@ -6,6 +6,8 @@ const {
   dedupeOffers,
   extractOffersFromDom,
   extractOffersFromPayload,
+  filterOffersByTransmission,
+  normalizeTransmission,
   normalizeWhitespace,
   sortOffersByPrice
 } = require("./extractors");
@@ -98,6 +100,7 @@ function makeExtractionContext(location, options, sourceUrl) {
     pickup_date: options.weekend.pickupIso,
     dropoff_date: options.weekend.dropoffIso,
     rental_days: options.weekend.rentalDays,
+    transmission_filter: options.transmissionFilter || "automatic",
     source_url: sourceUrl
   };
 }
@@ -129,11 +132,12 @@ function normalizeOutputOffer(offer, fallbackCurrency) {
     dropoff_date: offer.dropoff_date,
     rental_days: offer.rental_days,
     car_name: offer.car_name || null,
+    transmission: normalizeTransmission(offer.transmission) || null,
     source_url: offer.source_url
   };
 }
 
-function normalizeOutputOffers(offers, fallbackCurrency) {
+function normalizeOutputOffers(offers, fallbackCurrency, transmissionFilter = "automatic") {
   const normalized = [];
   for (const offer of offers || []) {
     const normalizedOffer = normalizeOutputOffer(offer, fallbackCurrency);
@@ -146,7 +150,7 @@ function normalizeOutputOffers(offers, fallbackCurrency) {
     normalized.push(normalizedOffer);
   }
 
-  return sortOffersByPrice(dedupeOffers(normalized));
+  return sortOffersByPrice(dedupeOffers(filterOffersByTransmission(normalized, transmissionFilter)));
 }
 
 function isMmCarsRental(providerName) {
@@ -290,6 +294,7 @@ async function runLegacyFallbackBatch(options) {
     directCandidateLimit: options.directCandidateLimit,
     directOffersWaitMs: options.directOffersWaitMs,
     speedMode: options.speedMode || "safe",
+    transmissionFilter: options.transmissionFilter || "automatic",
     browserExecutablePath: null,
     outputCsv: path.resolve("output", `discovercars-fallback-batch-${Date.now()}.csv`),
     artifactsDir: path.resolve("artifacts", "discovercars")
@@ -320,6 +325,7 @@ async function runLegacyFallbackBatch(options) {
       dropoff_date: options.weekend.dropoffIso,
       rental_days: options.weekend.rentalDays,
       car_name: legacy.carName || null,
+      transmission: legacy.transmission || null,
       source_url: legacy.sourceUrl || "https://www.discovercars.com/"
     });
   }
@@ -334,7 +340,11 @@ async function runLegacyFallbackBatch(options) {
 
   for (const location of options.locations) {
     const key = normalizeLocationKey(location);
-    const locationOffers = normalizeOutputOffers(offersByLocation.get(key) || [], options.currency);
+    const locationOffers = normalizeOutputOffers(
+      offersByLocation.get(key) || [],
+      options.currency,
+      options.transmissionFilter || "automatic"
+    );
     if (locationOffers.length) {
       const breakdown = buildLocationBreakdown(location, locationOffers);
       locationBreakdown.push(breakdown);
@@ -387,6 +397,7 @@ async function runLegacyFallbackForLocation(location, options) {
     directCandidateLimit: options.directCandidateLimit,
     directOffersWaitMs: options.directOffersWaitMs,
     speedMode: options.speedMode || "safe",
+    transmissionFilter: options.transmissionFilter || "automatic",
     browserExecutablePath: null,
     outputCsv: path.resolve("output", `discovercars-fallback-${Date.now()}.csv`),
     artifactsDir: path.resolve("artifacts", "discovercars")
@@ -415,11 +426,12 @@ async function runLegacyFallbackForLocation(location, options) {
       dropoff_date: options.weekend.dropoffIso,
       rental_days: options.weekend.rentalDays,
       car_name: legacy.carName || null,
+      transmission: legacy.transmission || null,
       source_url: legacy.sourceUrl || "https://www.discovercars.com/"
     }))
     .filter((offer) => Number.isFinite(offer.total_price));
 
-  return normalizeOutputOffers(legacyOffers, options.currency);
+  return normalizeOutputOffers(legacyOffers, options.currency, options.transmissionFilter || "automatic");
 }
 
 function normalizeLocationKey(value) {
@@ -540,7 +552,8 @@ async function scrapeLocationOnce(browser, location, options) {
             ...offer,
             source_url: sourceUrl || offer.source_url
           })),
-          options.currency
+          options.currency,
+          options.transmissionFilter || "automatic"
         );
         if (normalizedOffers.length) {
           return normalizedOffers;

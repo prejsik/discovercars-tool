@@ -14,6 +14,7 @@
   "pickupWeekdays": ["thursday", "friday"],
   "durationsDays": [2, 3],
   "residenceCountry": "Poland",
+  "transmissionFilter": "automatic",
   "driverAge": 30,
   "headless": true,
   "timeoutMs": 45000,

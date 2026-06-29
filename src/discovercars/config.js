@@ -294,6 +294,7 @@ function loadConfig(argv) {
     dropoffTime: normalizeWhitespace(dropoffTime),
     durationDays,
     residenceCountry: normalizeWhitespace(merged.residenceCountry || merged["residence-country"] || "Poland"),
+    transmissionFilter: normalizeWhitespace(merged.transmissionFilter || merged["transmission-filter"] || "automatic"),
     driverAge: Number.parseInt(merged.driverAge || merged["driver-age"] || "30", 10),
     maxProvidersPerLocation: Number.parseInt(
       merged.maxProvidersPerLocation || merged["max-providers-per-location"] || "25",

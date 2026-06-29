@@ -12,6 +12,12 @@ const {
   toAccessibleDateLabels,
   writeTextFile
 } = require("./utils");
+const {
+  filterOffersByTransmission,
+  findTransmissionInCandidate,
+  normalizeTransmission,
+  normalizeTransmissionFilter
+} = require("../extractors");
 
 const COOKIE_BUTTON_PATTERNS = [
   /accept all/i,
@@ -149,7 +155,9 @@ class DiscoverCarsScraper {
         homepagePrepared = true;
       }
 
-      let offers = await this.tryDirectSearchFlow(page, location, responseCollector);
+      let offers = this.filterOffersByConfiguredTransmission(
+        await this.tryDirectSearchFlow(page, location, responseCollector)
+      );
 
       if (!offers.length) {
         if (!homepagePrepared) {
@@ -164,16 +172,26 @@ class DiscoverCarsScraper {
         await this.waitForResults(page);
         await this.waitForCollectorOffers(responseCollector, 20000);
 
-        offers = responseCollector.getOffers();
-        if (!offers.length) {
-          offers = await this.extractOffersFromPageScripts(page, location);
-        }
-        if (!offers.length) {
-          offers = await this.extractOffersFromDom(page, location);
+        if (normalizeTransmissionFilter(this.config.transmissionFilter)) {
+          offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromDomWithScroll(page, location));
+          if (!offers.length) {
+            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromPageScripts(page, location));
+          }
+          if (!offers.length) {
+            offers = this.filterOffersByConfiguredTransmission(responseCollector.getOffers());
+          }
+        } else {
+          offers = this.filterOffersByConfiguredTransmission(responseCollector.getOffers());
+          if (!offers.length) {
+            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromPageScripts(page, location));
+          }
+          if (!offers.length) {
+            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromDomWithScroll(page, location));
+          }
         }
       }
       if (!offers.length) {
-        throw new Error("No offers could be extracted from the results page.");
+        throw new Error("No automatic offers could be extracted from the results page.");
       }
 
       const locationOffers = selectBestOffersByProvider(
@@ -217,7 +235,7 @@ class DiscoverCarsScraper {
         .catch(() => {});
     }
 
-    if (!this.isFastMode()) {
+    if (!this.isFastMode() || normalizeTransmissionFilter(this.config.transmissionFilter)) {
       return;
     }
 
@@ -242,21 +260,32 @@ class DiscoverCarsScraper {
     const directCandidateLimit = clampPositiveInteger(this.config.directCandidateLimit, 2, 1, 8);
     const directOffersWaitMs = clampPositiveInteger(this.config.directOffersWaitMs, 6000, 1000, 20000);
     const uniqueCandidates = dedupeLocationCandidates(candidates).slice(0, directCandidateLimit);
+    const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
 
     for (const candidate of uniqueCandidates) {
+      collector.clear();
       const searchUrl = this.buildDirectSearchUrl(baseUrl.origin, candidate.placeID);
       await page.goto(searchUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
       await this.waitForResults(page);
       await this.waitForCollectorOffers(collector, directOffersWaitMs);
 
-      let offers = collector.getOffers();
-      if (!offers.length) {
-        offers = await this.extractOffersFromDom(page, location);
+      const domOffers = await this.extractOffersFromDomWithScroll(page, location);
+      const pageScriptOffers = await this.extractOffersFromPageScripts(page, location);
+      const collectorOffers = collector.getOffers();
+      const offers = dedupeOffers(
+        transmissionFilter
+          ? [...domOffers, ...pageScriptOffers, ...collectorOffers]
+          : [...collectorOffers, ...domOffers, ...pageScriptOffers]
+      );
+      const visibleFilteredOffers = this.filterOffersByConfiguredTransmission(domOffers);
+      const filteredOffers = this.filterOffersByConfiguredTransmission(offers);
+      if (filteredOffers.length) {
+        if (transmissionFilter && !visibleFilteredOffers.length) {
+          continue;
+        }
+        return filteredOffers;
       }
-      if (!offers.length) {
-        offers = await this.extractOffersFromPageScripts(page, location);
-      }
-      if (offers.length) {
+      if (offers.length && !transmissionFilter) {
         return offers;
       }
     }
@@ -318,13 +347,17 @@ class DiscoverCarsScraper {
     return {
       add: (entries) => {
         for (const entry of entries) {
-          const key = `${entry.provider}|${entry.totalPrice}|${entry.location}`;
+          const key = `${entry.provider}|${entry.totalPrice}|${entry.location}|${entry.transmission || ""}`;
           if (seenKeys.has(key)) {
             continue;
           }
           seenKeys.add(key);
           offers.push(entry);
         }
+      },
+      clear: () => {
+        offers.length = 0;
+        seenKeys.clear();
       },
       getOffers: () => [...offers]
     };
@@ -1111,6 +1144,7 @@ class DiscoverCarsScraper {
         fallbackLocation
       ])
     );
+    const transmission = findTransmissionInCandidate(candidate);
 
     return {
       provider,
@@ -1118,12 +1152,27 @@ class DiscoverCarsScraper {
       totalPrice: parsedMoney.value,
       currency: normalizeCurrency(parsedMoney.currency),
       location,
+      carName: firstDefinedString([
+        candidate.carName,
+        candidate.vehicleName,
+        candidate.modelName,
+        candidate.car?.name,
+        candidate.vehicle?.name,
+        candidate.model?.name,
+        candidate.title,
+        candidate.acriss,
+        candidate.car?.acriss,
+        candidate.vehicle?.acriss
+      ]) || null,
+      transmission: transmission || null,
       source
     };
   }
 
   async extractOffersFromDom(page, fallbackLocation) {
-    const rawCandidates = await page.evaluate((defaultLocation) => {
+    const rawCandidates = await page.evaluate((options) => {
+      const defaultLocation = options.defaultLocation;
+      const includeSupplierRows = String(options.transmissionFilter || "").toLowerCase() !== "automatic";
       const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const results = [];
       const parseRating = (value) => {
@@ -1140,6 +1189,9 @@ class DiscoverCarsScraper {
 
       const findRatingText = (root) => {
         const ratingSelectors = [
+          ".SupplierInfo-RatingScore",
+          "[class*='RatingScore']",
+          "[class*='SupplierScore']",
           "[data-testid*='rating']",
           "[data-testid*='score']",
           "[class*='rating']",
@@ -1160,7 +1212,20 @@ class DiscoverCarsScraper {
         return lines.find((line) => /(rating|score|excellent|very good|good)/i.test(line) && parseRating(line) != null) || "";
       };
 
-      const addCandidate = (providerText, priceText, ratingText = "") => {
+      const detectTransmission = (text) => {
+        const normalized = normalize(text).toLowerCase();
+        const hasAutomatic = /\b(automatic transmission|automatic|automat)\b/.test(normalized);
+        const hasManual = /\b(manual transmission|manual)\b/.test(normalized);
+        if (hasAutomatic && !hasManual) {
+          return "automatic";
+        }
+        if (hasManual && !hasAutomatic) {
+          return "manual";
+        }
+        return "";
+      };
+
+      const addCandidate = (providerText, priceText, ratingText = "", carName = "", transmissionText = "") => {
         const provider = normalize(providerText);
         const price = normalize(priceText);
         const providerRating = parseRating(ratingText);
@@ -1172,11 +1237,15 @@ class DiscoverCarsScraper {
           provider,
           providerRating,
           priceText: price,
-          location: defaultLocation
+          location: defaultLocation,
+          carName: normalize(carName || "") || null,
+          transmission: detectTransmission(transmissionText || carName) || null
         });
       };
 
-      const supplierFilterRows = Array.from(document.querySelectorAll(".SearchFiltersGroup-FilterWrapper"));
+      const supplierFilterRows = includeSupplierRows
+        ? Array.from(document.querySelectorAll(".SearchFiltersGroup-FilterWrapper"))
+        : [];
       for (const row of supplierFilterRows) {
         const provider = row.querySelector(".SearchFiltersGroup-FilterLabel")?.textContent || "";
         const price = row.querySelector(".SearchFiltersGroup-FilterMinPrice")?.textContent || "";
@@ -1185,6 +1254,8 @@ class DiscoverCarsScraper {
 
       if (results.length < 3) {
         const selectors = [
+          ".SearchCar",
+          "[class*='SearchCar']",
           "article",
           "[data-testid*='offer']",
           "[data-testid*='result']",
@@ -1202,6 +1273,35 @@ class DiscoverCarsScraper {
         }
 
         const lines = text.split(/\n+/).map(normalize).filter(Boolean);
+        const searchCarTotalMatch = text.match(/total for\s+\d+\s+days?\s+((?:EUR|USD|GBP|PLN|z[l\u0142])\s*[\d\s.,]+)/i);
+        const searchCarPriceLine =
+          normalize(searchCarTotalMatch?.[1] || "") ||
+          lines.find((line) => /total for/i.test(line) && /(EUR|USD|GBP|PLN|z[l\u0142])/i.test(line)) ||
+          "";
+        const searchCarNameElement = node.querySelector(
+          ".CarTitle-Name, h1, h2, h3, [data-testid*='car'], [data-testid*='vehicle'], [class*='car-name'], [class*='vehicle-name']"
+        );
+        const searchCarName = normalize(searchCarNameElement?.textContent || lines[0] || "");
+        const searchCarProvider = Array.from(
+          node.querySelectorAll("[class*='SupplierInfo'] img[alt], [class*='supplier'] img[alt], img[alt]")
+        )
+          .map((image) => normalize(image.getAttribute("alt") || ""))
+          .find((alt) => {
+            if (!alt || alt.length < 2 || alt.length > 80) {
+              return false;
+            }
+            if (searchCarName && alt.toLowerCase() === searchCarName.toLowerCase()) {
+              return false;
+            }
+            if (/(cars?|small|medium|large|suv|van|wagon|premium|mini|economy|compact)$/i.test(alt)) {
+              return false;
+            }
+            return true;
+          }) || "";
+        if (searchCarPriceLine && searchCarProvider) {
+          addCandidate(searchCarProvider, searchCarPriceLine, findRatingText(node), searchCarName, text);
+          continue;
+        }
         const priceLine = lines.find((line) => /(EUR|USD|GBP|PLN|€|\$|£|zł)/i.test(line) && /\d/.test(line)) || "";
         const providerLine = lines.find((line) => {
           if (line.length < 3 || line.length > 50) {
@@ -1217,12 +1317,16 @@ class DiscoverCarsScraper {
           continue;
         }
 
-          addCandidate(providerLine, priceLine, findRatingText(node));
+          const carName = lines[0] || "";
+          addCandidate(providerLine, priceLine, findRatingText(node), carName, text);
         }
       }
 
       return results;
-    }, fallbackLocation);
+    }, {
+      defaultLocation: fallbackLocation,
+      transmissionFilter: normalizeTransmissionFilter(this.config.transmissionFilter)
+    });
 
     const offers = [];
     for (const candidate of rawCandidates) {
@@ -1236,11 +1340,47 @@ class DiscoverCarsScraper {
         totalPrice: money.value,
         currency: normalizeCurrency(money.currency),
         location: normalizeWhitespace(candidate.location) || fallbackLocation,
+        carName: candidate.carName ? normalizeWhitespace(candidate.carName) : null,
+        transmission: normalizeTransmission(candidate.transmission) || null,
         source: "dom"
       });
     }
 
     return dedupeOffers(offers);
+  }
+
+  async extractOffersFromDomWithScroll(page, fallbackLocation) {
+    const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
+    const maxPasses = transmissionFilter === "automatic" ? 8 : 1;
+    const collected = [];
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      collected.push(...await this.extractOffersFromDom(page, fallbackLocation));
+      if (transmissionFilter !== "automatic") {
+        break;
+      }
+
+      const automaticProviderCount = new Set(
+        collected
+          .filter((offer) => normalizeTransmission(offer.transmission) === "automatic")
+          .map((offer) => normalizeWhitespace(offer.provider).toLowerCase())
+          .filter(Boolean)
+      ).size;
+      if (automaticProviderCount >= 6) {
+        break;
+      }
+
+      await page.evaluate(() => {
+        window.scrollBy(0, Math.max(window.innerHeight * 0.8, 700));
+      }).catch(() => {});
+      await page.waitForTimeout(700);
+    }
+
+    return dedupeOffers(collected);
+  }
+
+  filterOffersByConfiguredTransmission(offers) {
+    return filterOffersByTransmission(offers, this.config.transmissionFilter);
   }
 
   async captureFailureArtifacts(page, location) {
@@ -1429,7 +1569,9 @@ function selectBestOffersByProvider(offers, fallbackLocation, maxProviders, forc
       totalPrice: offer.totalPrice,
       currency: normalizeCurrency(offer.currency),
       location: normalizeWhitespace(fallbackLocation || offer.location),
-      source: normalizeWhitespace(offer.source)
+      source: normalizeWhitespace(offer.source),
+      carName: normalizeWhitespace(offer.carName || offer.car_name || "") || null,
+      transmission: normalizeTransmission(offer.transmission) || null
     };
 
     const providerKey = provider.toLowerCase();

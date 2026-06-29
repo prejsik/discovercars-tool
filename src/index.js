@@ -182,6 +182,7 @@ function parseCliArgs(argv) {
     timeoutExplicit: false,
     currency: "PLN",
     residenceCountry: "Poland",
+    transmissionFilter: "automatic",
     strategy: "legacy-batch",
     directCandidateLimit: DEFAULT_DIRECT_CANDIDATE_LIMIT,
     directOffersWaitMs: DEFAULT_DIRECT_OFFERS_WAIT_MS,
@@ -979,6 +980,7 @@ function buildRunSignature(cli, scenarios, resolvedProfile) {
     locations: (cli.locations || []).map((item) => normalizeLocationKey(item)),
     currency: cli.currency,
     residence_country: cli.residenceCountry,
+    transmission_filter: cli.transmissionFilter,
     strategy: cli.strategy,
     speed_mode: resolvedProfile.speedMode,
     execution_profile: {
@@ -1159,6 +1161,7 @@ async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs 
     timeoutMs: cli.timeoutMs,
     currency: cli.currency,
     residenceCountry: cli.residenceCountry,
+    transmissionFilter: cli.transmissionFilter,
     locationConcurrency: cli.locationConcurrency,
     directCandidateLimit: cli.directCandidateLimit,
     directOffersWaitMs: cli.directOffersWaitMs,

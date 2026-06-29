@@ -8,6 +8,11 @@ const { buildHtmlReport } = require("../src/reportHtml");
 const { buildSanityComparison, selectSanitySample } = require("../src/mmRateSanityCheck");
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
+const {
+  filterOffersByTransmission,
+  findTransmissionInCandidate,
+  normalizeTransmission
+} = require("../src/extractors");
 
 function runTest(name, fn) {
   try {
@@ -32,6 +37,33 @@ runTest("parseMoney handles common currency formats", () => {
     currency: "ZŁ",
     raw: "1 234,56 zł"
   });
+});
+
+runTest("transmission helpers recognize automatic, manual, and ACRISS codes", () => {
+  assert.equal(normalizeTransmission("Automatic Transmission"), "automatic");
+  assert.equal(normalizeTransmission("Manual Transmission"), "manual");
+  assert.equal(normalizeTransmission("EDAH"), "automatic");
+  assert.equal(normalizeTransmission("CDMV"), "manual");
+  assert.equal(
+    findTransmissionInCandidate({ vehicle: { specs: { gearboxType: "Automatic" } } }),
+    "automatic"
+  );
+});
+
+runTest("automatic transmission filter removes manual and unknown offers", () => {
+  const filtered = filterOffersByTransmission(
+    [
+      { provider_name: "Manual Supplier", total_price: 100, transmission: "manual" },
+      { provider_name: "Unknown Supplier", total_price: 110 },
+      { provider_name: "Automatic Supplier", total_price: 120, transmission: "automatic" }
+    ],
+    "automatic"
+  );
+
+  assert.deepEqual(
+    filtered.map((offer) => offer.provider_name),
+    ["Automatic Supplier"]
+  );
 });
 
 runTest("loadConfig merges repeated locations and validates required fields", () => {
