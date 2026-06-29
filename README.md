@@ -337,6 +337,16 @@ Ten sam zakres w szybkim profilu:
 node src/index.js --scenario-mode=rolling --rolling-days=30 --durations=1,2,3,4,5,6,7,8,9,10 --locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan,Lodz,Bydgoszcz,Torun --strategy=legacy-batch --speed-mode=fast
 ```
 
+Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowymi. Kazdy chunk ma osobny checkpoint, a na koncu wyniki sa scalane do jednego standardowego `results-latest.json`, ktory dalej zasila raport, rekomendacje i Excel:
+
+```powershell
+npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
+```
+
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 12 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=2` i po scaleniu zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+
+Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
+
 ## Co zwraca skrypt
 
 1. Tabele w konsoli (`console.table`) z wynikami sukcesow.

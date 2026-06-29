@@ -8,6 +8,8 @@ const { buildHtmlReport } = require("../src/reportHtml");
 const { buildSanityComparison, selectSanitySample } = require("../src/mmRateSanityCheck");
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
+const { mergePayloads } = require("../src/mergeDiscovercarsResults");
+const { parseArgs: parseChunkedArgs } = require("../src/runDiscovercarsChunked");
 const {
   filterOffersByTransmission,
   findTransmissionInCandidate,
@@ -44,6 +46,8 @@ runTest("transmission helpers recognize automatic, manual, and ACRISS codes", ()
   assert.equal(normalizeTransmission("Manual Transmission"), "manual");
   assert.equal(normalizeTransmission("EDAH"), "automatic");
   assert.equal(normalizeTransmission("CDMV"), "manual");
+  assert.equal(findTransmissionInCandidate({ sipp: "CDAR" }), "automatic");
+  assert.equal(findTransmissionInCandidate({ sipp: "CXMR" }), "manual");
   assert.equal(
     findTransmissionInCandidate({ vehicle: { specs: { gearboxType: "Automatic" } } }),
     "automatic"
@@ -64,6 +68,62 @@ runTest("automatic transmission filter removes manual and unknown offers", () =>
     filtered.map((offer) => offer.provider_name),
     ["Automatic Supplier"]
   );
+});
+
+runTest("mergePayloads combines chunked scenarios in date and duration order", () => {
+  const merged = mergePayloads([
+    {
+      generated_at: "2026-06-29T10:00:00.000Z",
+      locations: ["Krakow Airport (KRK)"],
+      scenarios: [
+        {
+          scenario_id: "date-20260708-3d",
+          start_date: "2026-07-08",
+          rental_days: 3,
+          results: [],
+          errors: [],
+          top_3_plus_mm_by_location: {}
+        }
+      ]
+    },
+    {
+      generated_at: "2026-06-29T11:00:00.000Z",
+      locations: ["Krakow Airport (KRK)"],
+      scenarios: [
+        {
+          scenario_id: "date-20260701-2d",
+          start_date: "2026-07-01",
+          rental_days: 2,
+          results: [],
+          errors: [],
+          top_3_plus_mm_by_location: {}
+        }
+      ]
+    }
+  ], ["chunk-2.json", "chunk-1.json"]);
+
+  assert.deepEqual(
+    merged.scenarios.map((scenario) => scenario.scenario_id),
+    ["date-20260701-2d", "date-20260708-3d"]
+  );
+  assert.deepEqual(merged.start_dates, ["2026-07-01", "2026-07-08"]);
+  assert.equal(merged.merge_meta.source_files.length, 2);
+});
+
+runTest("chunked runner expands rolling days into ISO start dates", () => {
+  const options = parseChunkedArgs([
+    "--rolling-days=3",
+    "--durations=2",
+    "--locations=Warsaw",
+    "--skip-postprocess"
+  ]);
+
+  assert.equal(options.startDates.length, 3);
+  assert.deepEqual(options.durations, [2]);
+  assert.deepEqual(options.locations, ["Warsaw"]);
+  for (const startDate of options.startDates) {
+    assert.match(startDate, /^\d{4}-\d{2}-\d{2}$/);
+  }
 });
 
 runTest("loadConfig merges repeated locations and validates required fields", () => {

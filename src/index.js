@@ -285,7 +285,7 @@ function parseCliArgs(argv) {
 
     if (arg.startsWith("--retries=")) {
       const retries = Number.parseInt(arg.split("=")[1], 10);
-      if (Number.isFinite(retries) && retries > 0) {
+      if (Number.isFinite(retries) && retries >= 0) {
         options.retries = retries;
       }
       continue;

@@ -265,23 +265,28 @@ jobs:
           scraper_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
 
           set +e
-          date_args=(--scenario-mode=rolling --rolling-days="${{ steps.options.outputs.rolling_days }}")
+          date_args=(--rolling-days="${{ steps.options.outputs.rolling_days }}")
           if [[ -n "${{ steps.options.outputs.start_dates }}" ]]; then
             date_args=(--start-dates="${{ steps.options.outputs.start_dates }}")
           fi
 
-          node src/index.js \
-            --save=output/results-latest.json \
+          node src/runDiscovercarsChunked.js \
+            --output-dir=output \
             --locations="${{ steps.options.outputs.locations }}" \
             "${date_args[@]}" \
             --durations="${{ steps.options.outputs.durations }}" \
             --strategy=legacy-batch \
             --speed-mode="${{ steps.options.outputs.speed_mode }}" \
-            --scenario-concurrency=auto \
-            --location-concurrency=auto \
+            --scenario-concurrency=2 \
+            --location-concurrency=2 \
             --timeout=auto \
-            --retries=1 \
+            --retries=0 \
+            --chunk-days=7 \
+            --chunk-concurrency=2 \
+            --direct-candidate-limit=2 \
+            --direct-offers-wait=1000 \
             --reset-state \
+            --skip-postprocess \
             | tee output/run-log.txt
           scraper_status="${PIPESTATUS[0]}"
           set -e

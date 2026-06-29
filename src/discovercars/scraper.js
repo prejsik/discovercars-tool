@@ -170,7 +170,8 @@ class DiscoverCarsScraper {
         await this.submitSearch(page);
         await this.ensureConfiguredSearchPeriod(page);
         await this.waitForResults(page);
-        await this.waitForCollectorOffers(responseCollector, 20000);
+        const fallbackCollectorWaitMs = normalizeTransmissionFilter(this.config.transmissionFilter) ? 1000 : 20000;
+        await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
 
         if (normalizeTransmissionFilter(this.config.transmissionFilter)) {
           offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromDomWithScroll(page, location));
@@ -261,13 +262,14 @@ class DiscoverCarsScraper {
     const directOffersWaitMs = clampPositiveInteger(this.config.directOffersWaitMs, 6000, 1000, 20000);
     const uniqueCandidates = dedupeLocationCandidates(candidates).slice(0, directCandidateLimit);
     const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
+    const collectorWaitMs = transmissionFilter ? Math.min(directOffersWaitMs, 1000) : directOffersWaitMs;
 
     for (const candidate of uniqueCandidates) {
       collector.clear();
       const searchUrl = this.buildDirectSearchUrl(baseUrl.origin, candidate.placeID);
       await page.goto(searchUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
       await this.waitForResults(page);
-      await this.waitForCollectorOffers(collector, directOffersWaitMs);
+      await this.waitForCollectorOffers(collector, collectorWaitMs);
 
       const domOffers = await this.extractOffersFromDomWithScroll(page, location);
       const pageScriptOffers = await this.extractOffersFromPageScripts(page, location);
@@ -1366,7 +1368,11 @@ class DiscoverCarsScraper {
           .map((offer) => normalizeWhitespace(offer.provider).toLowerCase())
           .filter(Boolean)
       ).size;
-      if (automaticProviderCount >= 6) {
+      const hasMmCarsRental = collected.some((offer) => {
+        const provider = normalizeWhitespace(offer.provider).toLowerCase();
+        return normalizeTransmission(offer.transmission) === "automatic" && provider === "mm cars rental";
+      });
+      if ((automaticProviderCount >= 3 && hasMmCarsRental) || automaticProviderCount >= 6) {
         break;
       }
 

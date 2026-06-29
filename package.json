@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "discovercars": "node src/index.js",
+    "discovercars:chunked": "node src/runDiscovercarsChunked.js",
+    "discovercars:merge": "node src/mergeDiscovercarsResults.js",
     "rentcars": "node src/rentcars/cli.js --config rentcars.config.example.json",
     "rentcars:json": "node src/rentcars/run.js --config rentcars.config.example.json --save=output/rentcars-results-latest.json",
     "rentcars:report": "node src/rentcars/reportHtml.js output/rentcars-results-latest.json output/rentcars-report.html",

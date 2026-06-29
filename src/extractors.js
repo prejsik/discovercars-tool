@@ -67,8 +67,15 @@ const TRANSMISSION_PATHS = [
   "features.transmission",
   "details.transmission",
   "acriss",
+  "sipp",
+  "sippCode",
+  "sipp_code",
   "car.acriss",
-  "vehicle.acriss"
+  "car.sipp",
+  "car.sippCode",
+  "vehicle.acriss",
+  "vehicle.sipp",
+  "vehicle.sippCode"
 ];
 
 const RATING_PATHS = [
