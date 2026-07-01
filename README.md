@@ -68,8 +68,8 @@ Jak dziala:
 Domyslny zakres w chmurze:
 
 - `locations`: `Gdansk Downtown,Gdansk Airport (GDN),Katowice Downtown,Katowice Airport (KTW),Krakow Train Station,Krakow Airport (KRK),Poznan Downtown,Poznan Airport (POZ),Warsaw Train Station,Warsaw Chopin Airport (WAW),Wroclaw Downtown,Wroclaw Airport (WRO)`
-- `rolling_days`: `30`
-- `durations`: `1,2,3,4,5,6,7,8,9,10`
+- `rolling_days`: `60`
+- `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
 
 Jak przetestowac recznie:
@@ -465,7 +465,7 @@ Minimalne stawki przy aktualizacji Excela:
 - dla duration od `21` dni (kolumna N) stawka nie spada ponizej `100 PLN brutto/dzien`,
 - od `2026-06-25` do `2026-08-31` dla kolumn od `8` dni (M oraz N) stawka nie spada ponizej `115 PLN brutto/dzien`.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `IDAH`, `SFAV` i `SWAV`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAC`/`DDAV` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMR`, `SFAV`, `IDAH` i `SWAV`. Te grupy nie moga miec zmienianych stawek przez rekomendacje; `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `IDAH` i `SWAV` ponizej `150 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAV` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 
 W trybie konsolowym:
 

@@ -54,14 +54,19 @@
     "Wroclaw Airport (WRO)": ["WRLO"]
   },
   "apply_groups": "all",
-  "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
+  "excluded_groups": ["CGAV", "FVMR", "SFAV", "IDAH", "SWAV"],
+  "excluded_group_highlights": {
+    "CGAV": 130,
+    "IDAH": 150,
+    "SWAV": 150
+  },
   "group_rate_adjustments_pln_day": {
     "EDAH": 1,
     "EDMV": 1
   },
   "group_price_parity": {
     "enabled": true,
-    "base_groups": ["CDMV", "CWAV", "CWMR", "DDAC", "DDAV", "IGMV"],
+    "base_groups": ["CDMV", "CWAV", "CWMR", "DDAV", "IGMV"],
     "premium_adjustments_pln_day": {
       "EDAH": 1,
       "EDMV": 1

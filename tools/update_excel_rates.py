@@ -38,14 +38,19 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
-    "excluded_groups": ["CGAV", "IDAH", "SFAV", "SWAV"],
+    "excluded_groups": ["CGAV", "FVMR", "SFAV", "IDAH", "SWAV"],
+    "excluded_group_highlights": {
+        "CGAV": 130,
+        "IDAH": 150,
+        "SWAV": 150,
+    },
     "group_rate_adjustments_pln_day": {
         "EDAH": 1,
         "EDMV": 1,
     },
     "group_price_parity": {
         "enabled": True,
-        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAC", "DDAV", "IGMV"],
+        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAV", "IGMV"],
         "premium_adjustments_pln_day": {
             "EDAH": 1,
             "EDMV": 1,
@@ -300,6 +305,14 @@ def group_is_allowed(group: Any, allowed_groups: set[str] | str) -> bool:
 def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
     excluded = {normalize_code(item) for item in config.get("excluded_groups", [])}
     return normalize_code(group) in excluded
+
+
+def get_excluded_group_highlight_threshold(group: Any, config: dict[str, Any]) -> float | None:
+    highlights = {
+        normalize_code(key): parse_number(value)
+        for key, value in (config.get("excluded_group_highlights") or {}).items()
+    }
+    return highlights.get(normalize_code(group))
 
 
 def get_group_rate_adjustment(group: Any, config: dict[str, Any]) -> float:
@@ -661,6 +674,46 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
     return "Floor cenowy chroni przed rekomendacja i zmiana ponizej: " + "; ".join(parts) + "."
 
 
+def format_group_list(groups: list[str]) -> str:
+    return ", ".join(groups) if groups else "brak"
+
+
+def get_group_rules_legend_text(config: dict[str, Any]) -> str:
+    parity = config.get("group_price_parity") or {}
+    base_groups = [normalize_code(item) for item in parity.get("base_groups", []) if normalize_code(item)]
+    premium_adjustments = {
+        normalize_code(group): parse_number(adjustment) or 0
+        for group, adjustment in (parity.get("premium_adjustments_pln_day") or {}).items()
+        if normalize_code(group)
+    }
+    premium_text = ", ".join(
+        f"{group}=baza+{format_rate_for_comment(adjustment)} PLN"
+        for group, adjustment in premium_adjustments.items()
+    )
+    excluded_groups = [normalize_code(item) for item in config.get("excluded_groups", []) if normalize_code(item)]
+    return (
+        f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
+        f"{premium_text or 'brak grup premium'}. "
+        f"Bez zmiany stawek: {format_group_list(excluded_groups)}."
+    )
+
+
+def get_excluded_group_highlight_legend_text(config: dict[str, Any]) -> str:
+    highlights = config.get("excluded_group_highlights") or {}
+    parts = [
+        f"{normalize_code(group)} < {format_rate_for_comment(parse_number(threshold))} PLN/dzien"
+        for group, threshold in sorted(highlights.items())
+        if parse_number(threshold) is not None
+    ]
+    if not parts:
+        return "Wykluczone klasy nie sa zmieniane; brak dodatkowych progow podswietlenia."
+    return (
+        "Wykluczone klasy nie sa zmieniane; moga byc tylko podswietlone kontrolnie: "
+        + "; ".join(parts)
+        + "."
+    )
+
+
 def build_review_notes(changes: list[dict[str, Any]]) -> str:
     notes: list[str] = []
     strongest = get_strongest_delta_change(changes)
@@ -738,7 +791,16 @@ def write_changed_positions_sheet(
         del workbook[sheet_name]
 
     header_row = int(config["header_row"])
-    legend_rows = 6
+    legend_items = [
+        ("9DC3E6", "Top1 gap", "MM Cars Rental jest top1, a jego cena jest co najmniej 5 PLN/dzien nizsza niz top2; rekomendacja podnosi cene do 1 PLN ponizej top2."),
+        ("FFC7CE", "Male obnizenie top3", "Obnizka ponizej 10 PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to 1 PLN ponizej tej oferty."),
+        ("F4B183", "Przebicie top1", "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
+        ("D9EAF7", "Grupy zmieniane", get_group_rules_legend_text(config)),
+        ("FCE4D6", "Grupy tylko kontrolne", get_excluded_group_highlight_legend_text(config)),
+        ("FCE4D6", "Floor cenowy", get_floor_legend_text(config)),
+        ("FFFFFF", "Kolory w Sheet1", "Zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien. Komentarze sa tylko w kolumnie O tego arkusza."),
+    ]
+    legend_rows = len(legend_items) + 2
     header_start_row = legend_rows + 1
     changed_groups = group_changes_for_changed_positions(changes)
     comment_col = 15
@@ -756,12 +818,6 @@ def write_changed_positions_sheet(
 
     target_ws["A1"] = "Legenda"
     target_ws["A1"].font = Font(bold=True)
-    legend_items = [
-        ("9DC3E6", "Top1 gap", "MM Cars Rental jest top1, a jego cena jest co najmniej 5 PLN/dzien nizsza niz top2; rekomendacja podnosi cene do 1 PLN ponizej top2."),
-        ("FFC7CE", "Male obnizenie top3", "Obnizka ponizej 10 PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to 1 PLN ponizej tej oferty."),
-        ("F4B183", "Przebicie top1", "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
-        ("FCE4D6", "Floor i kolory stawek", f"{get_floor_legend_text(config)} W Sheet1 zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien."),
-    ]
     for row, (color, label, description) in enumerate(legend_items, start=2):
         target_ws.cell(row, 1).value = label
         target_ws.cell(row, 1).fill = PatternFill(fill_type="solid", fgColor=color)
@@ -1583,6 +1639,30 @@ def enforce_group_price_parity(
     return change_count
 
 
+def highlight_excluded_group_rates(
+    ws: Any,
+    row: int,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    dry_run: bool,
+) -> int:
+    group = ws.cell(row, int(config["columns"]["group"])).value
+    threshold = get_excluded_group_highlight_threshold(group, config)
+    if threshold is None:
+        return 0
+
+    fill = PatternFill(fill_type="solid", fgColor=str((config.get("colors") or {}).get("limited", "FCE4D6")))
+    highlighted = 0
+    for col, _, _, _ in duration_columns.values():
+        rate = parse_number(ws.cell(row, col).value)
+        if rate is None or rate >= threshold:
+            continue
+        highlighted += 1
+        if not dry_run:
+            ws.cell(row, col).fill = copy(fill)
+    return highlighted
+
+
 def apply_updates(
     workbook_path: Path,
     recommendations_path: Path,
@@ -1627,6 +1707,7 @@ def apply_updates(
     normalized_pickup_end_count = 0
     synced_booking_end_count = 0
     group_price_parity_change_count = 0
+    excluded_group_highlight_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
@@ -1641,6 +1722,13 @@ def apply_updates(
 
         group = ws.cell(row, int(columns["group"])).value
         if group_is_excluded(group, config):
+            excluded_group_highlight_count += highlight_excluded_group_rates(
+                ws,
+                row,
+                config,
+                duration_columns,
+                dry_run,
+            )
             continue
 
         if not group_is_allowed(group, allowed_groups):
@@ -1748,6 +1836,7 @@ def apply_updates(
         "change_count": len(changes),
         "group_price_parity_change_count": group_price_parity_change_count,
         "group_price_parity_scope_count": len(group_price_parity_scope),
+        "excluded_group_highlight_count": excluded_group_highlight_count,
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
