@@ -401,6 +401,37 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per da
   assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
 });
 
+runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per day", () => {
+  const buildPayload = (runnerUpTotalPrice) => ({
+    generated_at: "2026-05-04T15:00:00.000Z",
+    time_zone: "Europe/Warsaw",
+    locations: ["Warsaw"],
+    scenarios: [{
+      start_date: "2026-05-05",
+      rental_days: 2,
+      top_3_plus_mm_by_location: {
+        Warsaw: {
+          top_3: [
+            { provider_name: "MM Cars Rental", total_price: 100, currency: "PLN", rental_days: 2 },
+            { provider_name: "Alamo", total_price: runnerUpTotalPrice, currency: "PLN", rental_days: 2 }
+          ],
+          mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 100, currency: "PLN", rental_days: 2 }
+        }
+      }
+    }]
+  });
+
+  const gap20Html = buildHtmlReport(buildPayload(140));
+  assert.match(gap20Html, /data-mm-state="top1-gap-20"/);
+  assert.match(gap20Html, /class="mm mm-top1-gap-20"/);
+  assert.match(gap20Html, /option value="top1-gap-20"/);
+
+  const gap30Html = buildHtmlReport(buildPayload(160));
+  assert.match(gap30Html, /data-mm-state="top1-gap-30"/);
+  assert.match(gap30Html, /class="mm mm-top1-gap-30"/);
+  assert.match(gap30Html, /option value="top1-gap-30"/);
+});
+
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 5 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",

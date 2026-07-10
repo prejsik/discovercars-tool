@@ -4,6 +4,8 @@ const { loadPricingRules } = require("./pricingRules");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
 const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = loadPricingRules().top1GapThresholdPlnDay;
+const MM_TOP1_GAP_20_PRICE_PER_DAY_THRESHOLD_PLN = 20;
+const MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN = 30;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -98,34 +100,52 @@ function isMmCloseToHigherRankedProvider(mmOffer, rankedOffers) {
   return false;
 }
 
-function isMmTop1WithExpensiveRunnerUp(mmOffer, rankedOffers) {
+function getMmTop1GapPerDay(mmOffer, rankedOffers) {
   if (!mmOffer || !Number.isFinite(Number(mmOffer.total_price)) || !isPlnOffer(mmOffer)) {
-    return false;
+    return null;
   }
 
   const topOffers = Array.isArray(rankedOffers) ? rankedOffers.filter(Boolean) : [];
   const firstOffer = topOffers[0] || null;
   const secondOffer = topOffers[1] || null;
   if (!isMmCarsProvider(firstOffer?.provider_name) || !secondOffer || isMmCarsProvider(secondOffer.provider_name)) {
-    return false;
+    return null;
   }
 
   if (!Number.isFinite(Number(secondOffer.total_price)) || !isSameCurrency(mmOffer, secondOffer)) {
-    return false;
+    return null;
   }
 
   const priceDifference = Number(secondOffer.total_price) - Number(mmOffer.total_price);
   if (priceDifference <= 0) {
-    return false;
+    return null;
   }
 
   const rentalDays = getRentalDaysForComparison(mmOffer, secondOffer);
-  return priceDifference / rentalDays >= MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN;
+  return priceDifference / rentalDays;
+}
+
+function getMmTop1GapState(mmOffer, rankedOffers) {
+  const gapPerDay = getMmTop1GapPerDay(mmOffer, rankedOffers);
+  if (!Number.isFinite(gapPerDay) || gapPerDay < MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN) {
+    return null;
+  }
+
+  if (gapPerDay >= MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN) {
+    return "top1-gap-30";
+  }
+
+  if (gapPerDay >= MM_TOP1_GAP_20_PRICE_PER_DAY_THRESHOLD_PLN) {
+    return "top1-gap-20";
+  }
+
+  return "top1-gap";
 }
 
 function getMmClassName(offer, rankedOffers) {
-  if (isMmTop1WithExpensiveRunnerUp(offer, rankedOffers)) {
-    return "mm mm-top1-gap";
+  const top1GapState = getMmTop1GapState(offer, rankedOffers);
+  if (top1GapState) {
+    return `mm mm-${top1GapState}`;
   }
 
   if (isMmCloseToHigherRankedProvider(offer, rankedOffers)) {
@@ -183,10 +203,11 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
       const top3 = Array.isArray(locationData.top_3) ? locationData.top_3 : [];
       const mmOffer = locationData.mm_cars_rental || null;
       const rowClass = index % 2 === 0 ? "even" : "odd";
+      const top1GapState = getMmTop1GapState(mmOffer, top3);
       const mmState = !mmOffer
         ? "missing"
-        : isMmTop1WithExpensiveRunnerUp(mmOffer, top3)
-          ? "top1-gap"
+        : top1GapState
+          ? top1GapState
           : isMmCloseToHigherRankedProvider(mmOffer, top3)
             ? "close"
             : "normal";
@@ -288,6 +309,10 @@ function buildHtmlReport(payload) {
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
       --blue-text: #ffffff;
+      --orange-bg: #d96b00;
+      --orange-text: #ffffff;
+      --magenta-bg: #a61e74;
+      --magenta-text: #ffffff;
       --red-bg: #c62828;
       --red-text: #ffffff;
     }
@@ -440,6 +465,16 @@ function buildHtmlReport(payload) {
       color: var(--blue-text);
     }
 
+    .mm-top1-gap-20 {
+      background: var(--orange-bg);
+      color: var(--orange-text);
+    }
+
+    .mm-top1-gap-30 {
+      background: var(--magenta-bg);
+      color: var(--magenta-text);
+    }
+
     .muted {
       color: var(--muted);
     }
@@ -495,13 +530,15 @@ function buildHtmlReport(payload) {
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 at least 5 PLN/day more expensive</span>
+    <span><span class="badge mm mm-top1-gap">Top1: +5 PLN/d</span> Top 2 jest droższy od MM o min. 5 PLN/dzień</span>
+    <span><span class="badge mm mm-top1-gap-20">Top1: +20 PLN/d</span> Top 2 jest droższy od MM o min. 20 PLN/dzień</span>
+    <span><span class="badge mm mm-top1-gap-30">Top1: +30 PLN/d</span> Top 2 jest droższy od MM o min. 30 PLN/dzień</span>
   </div>
   <div class="toolbar">
     <label>Data<input id="filter-date" type="date"></label>
     <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
     <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
-    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1 gap</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
+    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 5–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
   <script>
