@@ -167,6 +167,11 @@ function mergeScenarioLocations(existing, incoming, refreshedLocations) {
       incoming.top_3_plus_mm_by_location,
       refreshedLocations
     ),
+    offer_views_by_location: mergeLocationMap(
+      existing.offer_views_by_location,
+      incoming.offer_views_by_location,
+      refreshedLocations
+    ),
     source_generated_at_by_location: sourceTimes,
     source_run_id_by_location: sourceRunIds,
     generated_at: generatedAt

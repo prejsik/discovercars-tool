@@ -103,6 +103,7 @@ class DiscoverCarsScraper {
 
     const results = [];
     const failures = [];
+    const offerViewsByLocation = {};
     const locations = Array.isArray(this.config.locations) ? [...this.config.locations] : [];
     const workerCount = clampPositiveInteger(this.config.locationConcurrency, 1, 1, 6);
     const boundedWorkers = Math.max(1, Math.min(workerCount, locations.length || 1));
@@ -136,6 +137,7 @@ class DiscoverCarsScraper {
 
         if (outcome.ok) {
           results.push(...outcome.results);
+          offerViewsByLocation[location] = outcome.offerViews || null;
           console.log(
             `OK  ${location} -> ${outcome.cheapest.provider} -> ${formatMoney(outcome.cheapest.totalPrice, outcome.cheapest.currency)}`
           );
@@ -151,7 +153,7 @@ class DiscoverCarsScraper {
       }
     }
 
-    return { results, failures, telemetry: this.buildApiDomTelemetrySummary() };
+    return { results, failures, offerViewsByLocation, telemetry: this.buildApiDomTelemetrySummary() };
   }
 
   resolveLaunchOptions() {
@@ -246,9 +248,8 @@ class DiscoverCarsScraper {
         homepagePrepared = true;
       }
 
-      let offers = this.filterOffersByConfiguredTransmission(
-        await this.tryDirectSearchFlow(page, location, responseCollector)
-      );
+      let allOffers = await this.tryDirectSearchFlow(page, location, responseCollector);
+      let offers = this.filterOffersByConfiguredTransmission(allOffers);
 
       if (!offers.length) {
         if (!homepagePrepared) {
@@ -265,20 +266,26 @@ class DiscoverCarsScraper {
         await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
 
         if (normalizeTransmissionFilter(this.config.transmissionFilter)) {
-          offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromDomWithScroll(page, location));
+          allOffers = await this.extractOffersFromDomWithScroll(page, location);
+          offers = this.filterOffersByConfiguredTransmission(allOffers);
           if (!offers.length) {
-            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromPageScripts(page, location));
+            allOffers = await this.extractOffersFromPageScripts(page, location);
+            offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
           if (!offers.length) {
-            offers = this.filterOffersByConfiguredTransmission(responseCollector.getOffers());
+            allOffers = responseCollector.getOffers();
+            offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
         } else {
-          offers = this.filterOffersByConfiguredTransmission(responseCollector.getOffers());
+          allOffers = responseCollector.getOffers();
+          offers = this.filterOffersByConfiguredTransmission(allOffers);
           if (!offers.length) {
-            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromPageScripts(page, location));
+            allOffers = await this.extractOffersFromPageScripts(page, location);
+            offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
           if (!offers.length) {
-            offers = this.filterOffersByConfiguredTransmission(await this.extractOffersFromDomWithScroll(page, location));
+            allOffers = await this.extractOffersFromDomWithScroll(page, location);
+            offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
         }
       }
@@ -300,7 +307,8 @@ class DiscoverCarsScraper {
       return {
         ok: true,
         cheapest,
-        results: locationOffers
+        results: locationOffers,
+        offerViews: this.buildOfferViews(allOffers, location)
       };
     } catch (error) {
       await this.captureFailureArtifacts(page, location);
@@ -471,9 +479,8 @@ class DiscoverCarsScraper {
       throw new Error("DiscoverCars search API returned offers for an unexpected rental period.");
     }
 
-    const apiOffers = this.filterOffersByConfiguredTransmission(
-      extractOffersFromSearchApiPayload(payload, location, sourceUrl)
-    );
+    const allApiOffers = extractOffersFromSearchApiPayload(payload, location, sourceUrl);
+    const apiOffers = this.filterOffersByConfiguredTransmission(allApiOffers);
     const locationOffers = selectBestOffersByProvider(
       apiOffers,
       location,
@@ -486,7 +493,18 @@ class DiscoverCarsScraper {
     return {
       ok: true,
       cheapest: locationOffers[0],
-      results: locationOffers
+      results: locationOffers,
+      offerViews: this.buildOfferViews(allApiOffers, location)
+    };
+  }
+
+  buildOfferViews(offers, location) {
+    const allOffers = Array.isArray(offers) ? offers.filter(Boolean) : [];
+    const automaticOffers = filterOffersByTransmission(allOffers, "automatic");
+    return {
+      automatic: automaticOffers,
+      all: allOffers,
+      location
     };
   }
 

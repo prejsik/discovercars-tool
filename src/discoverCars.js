@@ -187,13 +187,42 @@ function buildLocationBreakdown(location, offers) {
   const top3Offers = providerOffers.slice(0, 3);
   const cheapestOffer = top3Offers[0] || null;
   const mmCarsOffer = providerOffers.find((offer) => isMmCarsRental(offer.provider_name)) || null;
+  const mmProviderRankIndex = providerOffers.findIndex((offer) => isMmCarsRental(offer.provider_name));
+  const cheaperOfferCount = mmCarsOffer
+    ? sortedOffers.filter((offer) => !isMmCarsRental(offer.provider_name) && offer.total_price < mmCarsOffer.total_price).length
+    : null;
 
   return {
     location,
     cheapest_offer: cheapestOffer,
     top_3_offers: top3Offers,
-    mm_cars_rental_offer: mmCarsOffer
+    mm_cars_rental_offer: mmCarsOffer,
+    mm_provider_rank: mmProviderRankIndex >= 0 ? mmProviderRankIndex + 1 : null,
+    cheaper_offer_count: cheaperOfferCount,
+    offer_count: sortedOffers.length,
+    provider_count: providerOffers.length
   };
+}
+
+function normalizeLegacyOffers(legacyOffers, options, fallbackLocation = "") {
+  return normalizeOutputOffers(
+    (legacyOffers || []).map((legacy) => ({
+      location: legacy.location || fallbackLocation,
+      provider_name: legacy.provider,
+      provider_rating: Number.isFinite(legacy.providerRating) ? Number(legacy.providerRating) : null,
+      total_price: Number(legacy.totalPrice),
+      currency: legacy.currency || options.currency || "PLN",
+      pickup_date: options.weekend.pickupIso,
+      dropoff_date: options.weekend.dropoffIso,
+      rental_days: options.weekend.rentalDays,
+      car_name: legacy.carName || null,
+      transmission: legacy.transmission || null,
+      source: legacy.source || null,
+      source_url: legacy.sourceUrl || "https://www.discovercars.com/"
+    })),
+    options.currency,
+    "all"
+  );
 }
 
 async function searchCheapestOffers(options) {
@@ -344,32 +373,40 @@ async function runLegacyFallbackBatch(options) {
 
   for (const location of options.locations) {
     const key = normalizeLocationKey(location);
-    const locationOffers = normalizeOutputOffers(
-      offersByLocation.get(key) || [],
-      options.currency,
-      options.transmissionFilter || "automatic"
-    );
-    if (locationOffers.length) {
-      const breakdown = buildLocationBreakdown(location, locationOffers);
+    const rawViews = fallbackOutput.offerViewsByLocation?.[location] || fallbackOutput.offerViewsByLocation?.[key] || null;
+    const allViewOffers = normalizeLegacyOffers(rawViews?.all || offersByLocation.get(key) || [], options, location);
+    const automaticViewOffers = normalizeOutputOffers(allViewOffers, options.currency, "automatic");
+    const locationOffers = automaticViewOffers;
+    if (allViewOffers.length) {
+      const breakdown = buildLocationBreakdown(location, automaticViewOffers);
+      breakdown.offer_views = {
+        automatic: { ...breakdown },
+        all: buildLocationBreakdown(location, allViewOffers)
+      };
       locationBreakdown.push(breakdown);
-      if (breakdown.cheapest_offer) {
+      if (locationOffers.length && breakdown.cheapest_offer) {
         results.push(breakdown.cheapest_offer);
       }
 
-      const top3String = breakdown.top_3_offers
-        .map((offer) => `${offer.provider_name} ${offer.total_price.toFixed(2)} ${offer.currency}`)
-        .join(" | ");
-      const mmCarsString = breakdown.mm_cars_rental_offer
-        ? `${breakdown.mm_cars_rental_offer.total_price.toFixed(2)} ${breakdown.mm_cars_rental_offer.currency}`
-        : "N/A";
+      if (locationOffers.length) {
+        const top3String = breakdown.top_3_offers
+          .map((offer) => `${offer.provider_name} ${offer.total_price.toFixed(2)} ${offer.currency}`)
+          .join(" | ");
+        const mmCarsString = breakdown.mm_cars_rental_offer
+          ? `${breakdown.mm_cars_rental_offer.total_price.toFixed(2)} ${breakdown.mm_cars_rental_offer.currency}`
+          : "N/A";
 
-      options.logger.info(
-        `[OK] ${location}: top3 => ${top3String}; MM Cars Rental => ${mmCarsString}`
-      );
-      continue;
+        options.logger.info(
+          `[OK] ${location}: top3 => ${top3String}; MM Cars Rental => ${mmCarsString}`
+        );
+        continue;
+      }
     }
 
-    const reason = failureByLocation.get(key) || `No offers available for location "${location}".`;
+    const reason = failureByLocation.get(key)
+      || (allViewOffers.length
+        ? `No automatic offers available for location "${location}".`
+        : `No offers available for location "${location}".`);
     errors.push({
       location,
       error: reason
@@ -753,5 +790,6 @@ async function acceptCookies(page) {
 }
 
 module.exports = {
+  buildLocationBreakdown,
   searchCheapestOffers
 };

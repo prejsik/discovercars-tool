@@ -10,6 +10,7 @@ const {
   searchApiPayloadMatchesPeriod
 } = require("../src/discovercars/scraper");
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
+const { buildLocationBreakdown } = require("../src/discoverCars");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
 const {
@@ -137,6 +138,57 @@ runTest("DiscoverCars search API parser uses data.offers and ignores filter pseu
     ]
   );
   assert.equal(filterOffersByTransmission(offers, "automatic")[0].provider, "Automatic Supplier");
+});
+
+runTest("DiscoverCars API outcome preserves automatic and all offer views", () => {
+  const scraper = new DiscoverCarsScraper({
+    pickupDate: "2026-07-20",
+    pickupTime: "11:00",
+    dropoffDate: "2026-07-22",
+    dropoffTime: "11:00",
+    transmissionFilter: "automatic",
+    maxProvidersPerLocation: 10
+  });
+  const period = {
+    pickupDatetime: "2026-07-20T11:00:00+02:00",
+    dropoffDatetime: "2026-07-22T11:00:00+02:00"
+  };
+  const outcome = scraper.buildApiOutcome({
+    data: {
+      offers: [
+        {
+          price: { raw: 100, formatted: "PLN 100.00" },
+          supplier: { name: "Manual Supplier" },
+          vehicle: { sipp: "EDMR", specifications: { isAutomaticTransmission: 0 } },
+          pickupClosingInfo: period
+        },
+        {
+          price: { raw: 120, formatted: "PLN 120.00" },
+          supplier: { name: "Automatic Supplier" },
+          vehicle: { sipp: "EDAR", specifications: { isAutomaticTransmission: 1 } },
+          pickupClosingInfo: period
+        }
+      ]
+    }
+  }, "Warsaw", "api");
+
+  assert.equal(outcome.results.length, 1);
+  assert.equal(outcome.offerViews.automatic.length, 1);
+  assert.equal(outcome.offerViews.all.length, 2);
+});
+
+runTest("location breakdown counts offers cheaper than MM before limiting providers to top3", () => {
+  const breakdown = buildLocationBreakdown("Warsaw", [
+    { provider_name: "Supplier A", total_price: 80, currency: "PLN", car_name: "A1" },
+    { provider_name: "Supplier A", total_price: 90, currency: "PLN", car_name: "A2" },
+    { provider_name: "Supplier B", total_price: 95, currency: "PLN", car_name: "B1" },
+    { provider_name: "MM Cars Rental", total_price: 100, currency: "PLN", car_name: "MM1" },
+    { provider_name: "Supplier C", total_price: 110, currency: "PLN", car_name: "C1" }
+  ]);
+
+  assert.equal(breakdown.mm_provider_rank, 3);
+  assert.equal(breakdown.cheaper_offer_count, 3);
+  assert.equal(breakdown.top_3_offers.length, 3);
 });
 
 runTest("Galeria Krakowska uses the direct geo-search payload", () => {
@@ -433,8 +485,8 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per da
     ]
   });
 
-  assert.match(html, /class="mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/td>/);
-  assert.match(html, /class="mm mm-top1-gap">50\.00 PLN\/day<\/td>/);
+  assert.match(html, /offer-view-automatic mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/span>/);
+  assert.match(html, /offer-view-automatic mm mm-top1-gap">50\.00 PLN\/day<\/span>/);
 });
 
 runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per day", () => {
@@ -458,13 +510,13 @@ runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per da
   });
 
   const gap20Html = buildHtmlReport(buildPayload(140));
-  assert.match(gap20Html, /data-mm-state="top1-gap-20"/);
-  assert.match(gap20Html, /class="mm mm-top1-gap-20"/);
+  assert.match(gap20Html, /data-mm-state-automatic="top1-gap-20"/);
+  assert.match(gap20Html, /offer-view-automatic mm mm-top1-gap-20/);
   assert.match(gap20Html, /option value="top1-gap-20"/);
 
   const gap30Html = buildHtmlReport(buildPayload(160));
-  assert.match(gap30Html, /data-mm-state="top1-gap-30"/);
-  assert.match(gap30Html, /class="mm mm-top1-gap-30"/);
+  assert.match(gap30Html, /data-mm-state-automatic="top1-gap-30"/);
+  assert.match(gap30Html, /offer-view-automatic mm mm-top1-gap-30/);
   assert.match(gap30Html, /option value="top1-gap-30"/);
 });
 
@@ -493,11 +545,59 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   const html = buildHtmlReport(payload, {
     quality: { status: "failure", alerts: ["Testowa blokada Excela."] }
   });
-  assert.match(html, /data-top1-high="true"/);
-  assert.match(html, /class="top1-high"/);
+  assert.match(html, /data-top1-high-automatic="true"/);
+  assert.match(html, /offer-view-automatic top1-high/);
   assert.match(html, /option value="high">Powyżej 150 PLN\/d/);
   assert.doesNotMatch(html, /anomalia top1/i);
   assert.match(html, /nowy Excel zostal zablokowany/);
+});
+
+runTest("buildHtmlReport switches between automatic and all offers with MM position and cheaper count", () => {
+  const automaticMm = { provider_name: "MM Cars Rental", total_price: 220, currency: "PLN", rental_days: 2 };
+  const html = buildHtmlReport({
+    locations: ["Warsaw"],
+    scenarios: [{
+      scenario_id: "2026-07-12-2",
+      start_date: "2026-07-12",
+      rental_days: 2,
+      top_3_plus_mm_by_location: {
+        Warsaw: {
+          top_3: [{ provider_name: "Auto One", total_price: 200, currency: "PLN", rental_days: 2 }, automaticMm],
+          mm_cars_rental: automaticMm
+        }
+      },
+      offer_views_by_location: {
+        Warsaw: {
+          automatic: {
+            top_3: [{ provider_name: "Auto One", total_price: 200, currency: "PLN", rental_days: 2 }, automaticMm],
+            mm_cars_rental: automaticMm,
+            mm_provider_rank: 2,
+            cheaper_offer_count: 1
+          },
+          all: {
+            top_3: [
+              { provider_name: "Manual One", total_price: 160, currency: "PLN", rental_days: 2 },
+              { provider_name: "Auto One", total_price: 200, currency: "PLN", rental_days: 2 },
+              automaticMm
+            ],
+            mm_cars_rental: automaticMm,
+            mm_provider_rank: 3,
+            cheaper_offer_count: 4
+          }
+        }
+      }
+    }]
+  });
+
+  assert.match(html, /id="filter-transmission"/);
+  assert.match(html, /value="automatic">Tylko automaty/);
+  assert.match(html, /value="all">Wszystkie auta/);
+  assert.match(html, /offer-view-automatic[^>]*>Auto One/);
+  assert.match(html, /offer-view-all[^>]*>Manual One/);
+  assert.match(html, /offer-view-automatic rank-cell">Top 2/);
+  assert.match(html, /offer-view-all rank-cell">Top 3/);
+  assert.match(html, /offer-view-automatic count-cell">1/);
+  assert.match(html, /offer-view-all count-cell">4/);
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 5 PLN per day", () => {

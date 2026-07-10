@@ -203,36 +203,99 @@ function scenarioPeriod(scenarioPayload) {
   return `${pickup} -> ${dropoff} (rental_days=${rentalDays})`;
 }
 
-function buildScenarioRows(rootPayload, scenarioPayload, top1SignalIndex) {
+function getOfferView(scenarioPayload, location, mode) {
+  const legacy = scenarioPayload?.top_3_plus_mm_by_location?.[location] || {};
+  const automatic = scenarioPayload?.offer_views_by_location?.[location]?.automatic || legacy;
+  if (mode === "all") {
+    return scenarioPayload?.offer_views_by_location?.[location]?.all || automatic;
+  }
+  return automatic;
+}
+
+function getMmState(view) {
+  const top3 = Array.isArray(view?.top_3) ? view.top_3 : [];
+  const mmOffer = view?.mm_cars_rental || null;
+  const top1GapState = getMmTop1GapState(mmOffer, top3);
+  return !mmOffer
+    ? "missing"
+    : top1GapState
+      ? top1GapState
+      : isMmCloseToHigherRankedProvider(mmOffer, top3)
+        ? "close"
+        : "normal";
+}
+
+function isTop1High(view) {
+  const offer = view?.top_3?.[0] || null;
+  const total = Number(offer?.total_price);
+  const days = Number(offer?.rental_days) || 1;
+  return Number.isFinite(total) && total / days > PRICING_RULES.top1HighRateThresholdPlnDay;
+}
+
+function viewSpan(mode, content, className = "", title = "") {
+  const classes = [`offer-view`, `offer-view-${mode}`, className].filter(Boolean).join(" ");
+  return `<span class="${classes}"${title ? ` title="${escapeHtml(title)}"` : ""}>${content}</span>`;
+}
+
+function buildDualCell(automaticContent, allContent, automaticClass = "", allClass = "", automaticTitle = "", allTitle = "") {
+  return `<td class="view-cell">${viewSpan("automatic", automaticContent, automaticClass, automaticTitle)}${viewSpan("all", allContent, allClass, allTitle)}</td>`;
+}
+
+function providerContent(offer) {
+  return escapeHtml(formatProviderName(offer));
+}
+
+function priceContent(offer) {
+  return escapeHtml(formatOfferPrice(offer));
+}
+
+function mmRankLabel(view) {
+  const rank = Number(view?.mm_provider_rank);
+  if (Number.isFinite(rank) && rank > 0) {
+    return `Top ${rank}`;
+  }
+  const top3 = Array.isArray(view?.top_3) ? view.top_3 : [];
+  const legacyRank = top3.findIndex((offer) => isMmCarsProvider(offer?.provider_name));
+  if (legacyRank >= 0) {
+    return `Top ${legacyRank + 1}`;
+  }
+  return view?.mm_cars_rental ? "Poza Top3" : "Brak MM";
+}
+
+function cheaperOffersLabel(view) {
+  const count = Number(view?.cheaper_offer_count);
+  return Number.isFinite(count) && count >= 0 ? String(count) : "Brak danych";
+}
+
+function buildScenarioRows(rootPayload, scenarioPayload) {
   const locations = scenarioLocations(rootPayload, scenarioPayload);
-  const tableData = scenarioPayload.top_3_plus_mm_by_location || {};
 
   return locations
     .map((location, index) => {
-      const locationData = tableData[location] || {};
-      const top3 = Array.isArray(locationData.top_3) ? locationData.top_3 : [];
-      const mmOffer = locationData.mm_cars_rental || null;
+      const automatic = getOfferView(scenarioPayload, location, "automatic");
+      const all = getOfferView(scenarioPayload, location, "all");
+      const automaticTop3 = Array.isArray(automatic?.top_3) ? automatic.top_3 : [];
+      const allTop3 = Array.isArray(all?.top_3) ? all.top_3 : [];
+      const automaticMm = automatic?.mm_cars_rental || null;
+      const allMm = all?.mm_cars_rental || null;
       const rowClass = index % 2 === 0 ? "even" : "odd";
-      const top1GapState = getMmTop1GapState(mmOffer, top3);
-      const top1Signal = top1SignalIndex.get(buildObservationKey(scenarioPayload, location)) || null;
-      const mmState = !mmOffer
-        ? "missing"
-        : top1GapState
-          ? top1GapState
-          : isMmCloseToHigherRankedProvider(mmOffer, top3)
-            ? "close"
-            : "normal";
+      const automaticHigh = isTop1High(automatic);
+      const allHigh = isTop1High(all);
+      const automaticTop1Title = automaticHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
+      const allTop1Title = allHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
 
-      return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state="${mmState}" data-top1-high="${Boolean(top1Signal?.is_high_rate)}">
+      return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state-automatic="${getMmState(automatic)}" data-mm-state-all="${getMmState(all)}" data-top1-high-automatic="${automaticHigh}" data-top1-high-all="${allHigh}">
         <td class="index">${index}</td>
         <td class="location">${escapeHtml(location)}</td>
-        ${buildProviderCell(top3[0], top3)}
-        ${buildTop1PriceCell(top3[0], top1Signal)}
-        ${buildProviderCell(top3[1], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[1]))}</td>
-        ${buildProviderCell(top3[2], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[2]))}</td>
-        ${buildMmPriceCell(mmOffer, top3)}
+        ${buildDualCell(providerContent(automaticTop3[0]), providerContent(allTop3[0]), isMmCarsProvider(automaticTop3[0]?.provider_name) ? getMmClassName(automaticTop3[0], automaticTop3) : "", isMmCarsProvider(allTop3[0]?.provider_name) ? getMmClassName(allTop3[0], allTop3) : "")}
+        ${buildDualCell(priceContent(automaticTop3[0]), priceContent(allTop3[0]), automaticHigh ? "top1-high" : "", allHigh ? "top1-high" : "", automaticTop1Title, allTop1Title)}
+        ${buildDualCell(providerContent(automaticTop3[1]), providerContent(allTop3[1]), isMmCarsProvider(automaticTop3[1]?.provider_name) ? getMmClassName(automaticTop3[1], automaticTop3) : "", isMmCarsProvider(allTop3[1]?.provider_name) ? getMmClassName(allTop3[1], allTop3) : "")}
+        ${buildDualCell(priceContent(automaticTop3[1]), priceContent(allTop3[1]))}
+        ${buildDualCell(providerContent(automaticTop3[2]), providerContent(allTop3[2]), isMmCarsProvider(automaticTop3[2]?.provider_name) ? getMmClassName(automaticTop3[2], automaticTop3) : "", isMmCarsProvider(allTop3[2]?.provider_name) ? getMmClassName(allTop3[2], allTop3) : "")}
+        ${buildDualCell(priceContent(automaticTop3[2]), priceContent(allTop3[2]))}
+        ${buildDualCell(priceContent(automaticMm), priceContent(allMm), automaticMm ? getMmClassName(automaticMm, automaticTop3) : "muted", allMm ? getMmClassName(allMm, allTop3) : "muted")}
+        ${buildDualCell(escapeHtml(mmRankLabel(automatic)), escapeHtml(mmRankLabel(all)), "rank-cell", "rank-cell")}
+        ${buildDualCell(escapeHtml(cheaperOffersLabel(automatic)), escapeHtml(cheaperOffersLabel(all)), "count-cell", "count-cell")}
       </tr>`;
     })
     .join("\n");
@@ -270,7 +333,7 @@ function summarizeApiDomMonitoring(payload, scenarios) {
   return summary;
 }
 
-function buildScenarioTable(rootPayload, scenarioPayload, index, total, top1SignalIndex) {
+function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
   return `<section class="scenario" data-date="${escapeHtml(scenarioPayload.start_date || "")}" data-duration="${escapeHtml(scenarioPayload.rental_days || "")}">
     <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
     <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
@@ -285,6 +348,8 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total, top1Sign
         <col class="col-company">
         <col class="col-rate">
         <col class="col-mm-rate">
+        <col class="col-rank">
+        <col class="col-count">
       </colgroup>
       <thead>
         <tr>
@@ -297,10 +362,12 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total, top1Sign
           <th>Top 3 firma</th>
           <th>Top 3 PLN/d</th>
           <th>MM PLN/d</th>
+          <th>Pozycja MM</th>
+          <th>Tańsze oferty</th>
         </tr>
       </thead>
       <tbody>
-        ${buildScenarioRows(rootPayload, scenarioPayload, top1SignalIndex)}
+        ${buildScenarioRows(rootPayload, scenarioPayload)}
       </tbody>
     </table>
     ${buildErrorsHtml(scenarioPayload.errors)}
@@ -459,11 +526,13 @@ function buildHtmlReport(payload, options = {}) {
       table-layout: fixed;
     }
 
-    col.col-index { width: 4%; }
-    col.col-location { width: 20%; }
-    col.col-company { width: 13%; }
-    col.col-rate { width: 9%; }
-    col.col-mm-rate { width: 10%; }
+    col.col-index { width: 3%; }
+    col.col-location { width: 16%; }
+    col.col-company { width: 11%; }
+    col.col-rate { width: 7%; }
+    col.col-mm-rate { width: 8%; }
+    col.col-rank { width: 8%; }
+    col.col-count { width: 11%; }
 
     th, td {
       border: 2px solid var(--line);
@@ -488,11 +557,18 @@ function buildHtmlReport(payload, options = {}) {
       font-size: 12px;
     }
 
-    th:nth-child(4), th:nth-child(6), th:nth-child(8), th:nth-child(9),
-    td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9) {
+    th:nth-child(4), th:nth-child(6), th:nth-child(8), th:nth-child(9), th:nth-child(10), th:nth-child(11),
+    td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
       text-align: right;
       white-space: nowrap;
     }
+
+    .view-cell { padding: 0; }
+    .offer-view { display: block; padding: 6px 7px; min-height: 100%; }
+    .offer-view-all { display: none; }
+    body[data-offer-view="all"] .offer-view-automatic { display: none; }
+    body[data-offer-view="all"] .offer-view-all { display: block; }
+    .rank-cell, .count-cell { color: var(--text); }
 
     td.index {
       color: var(--text);
@@ -557,7 +633,7 @@ function buildHtmlReport(payload, options = {}) {
       tbody { display: grid; gap: 10px; }
       tr { border: 1px solid var(--line); background: #0d0f12; }
       td, td.index,
-      td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9) {
+      td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
         display: grid;
         grid-template-columns: minmax(92px, 38%) 1fr;
         gap: 8px;
@@ -578,10 +654,12 @@ function buildHtmlReport(payload, options = {}) {
       td:nth-child(7)::before { content: "Top 3 firma"; }
       td:nth-child(8)::before { content: "Top 3 PLN/d"; }
       td:nth-child(9)::before { content: "MM PLN/d"; }
+      td:nth-child(10)::before { content: "Pozycja MM"; }
+      td:nth-child(11)::before { content: "Tańsze oferty"; }
     }
   </style>
 </head>
-<body>
+<body data-offer-view="automatic">
   <h1>DiscoverCars report</h1>
   <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
   ${buildQualityBanner(options.quality)}
@@ -595,16 +673,20 @@ function buildHtmlReport(payload, options = {}) {
     <span><span class="badge top1-high">Top1 &gt; 150</span> stawka Top1 przekracza 150 PLN/dzień</span>
   </div>
   <div class="toolbar">
+    <label>Skrzynia<select id="filter-transmission"><option value="automatic">Tylko automaty</option><option value="all">Wszystkie auta</option></select></label>
     <label>Data<input id="filter-date" type="date"></label>
     <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
     <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
     <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 5–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
     <label>Kontrola Top1<select id="filter-top1"><option value="">Wszystkie</option><option value="high">Powyżej 150 PLN/d</option><option value="normal">Do 150 PLN/d</option></select></label>
   </div>
-  ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length, top1SignalIndex)).join("\n")}
+  ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
   <script>
+    const transmissionControl = document.getElementById("filter-transmission");
     const controls = ["filter-date", "filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
     function applyFilters() {
+      const offerView = transmissionControl.value;
+      document.body.dataset.offerView = offerView;
       const date = controls[0].value;
       const location = controls[1].value;
       const duration = controls[2].value;
@@ -614,14 +696,17 @@ function buildHtmlReport(payload, options = {}) {
         const scenarioMatch = (!date || section.dataset.date === date) && (!duration || section.dataset.duration === duration);
         let visibleRows = 0;
         for (const row of section.querySelectorAll("tbody tr")) {
-          const top1Match = !top1State || (top1State === "high" ? row.dataset.top1High === "true" : row.dataset.top1High !== "true");
-          const visible = scenarioMatch && (!location || row.dataset.location === location) && (!state || row.dataset.mmState === state) && top1Match;
+          const mmState = offerView === "all" ? row.dataset.mmStateAll : row.dataset.mmStateAutomatic;
+          const top1High = offerView === "all" ? row.dataset.top1HighAll : row.dataset.top1HighAutomatic;
+          const top1Match = !top1State || (top1State === "high" ? top1High === "true" : top1High !== "true");
+          const visible = scenarioMatch && (!location || row.dataset.location === location) && (!state || mmState === state) && top1Match;
           row.hidden = !visible;
           if (visible) visibleRows += 1;
         }
         section.hidden = visibleRows === 0;
       }
     }
+    transmissionControl.addEventListener("input", applyFilters);
     controls.forEach((control) => control.addEventListener("input", applyFilters));
   </script>
 </body>

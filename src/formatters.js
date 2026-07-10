@@ -174,12 +174,42 @@ function buildTop3PlusMmByLocation(top3ByLocation, mmCarsRentalByLocation, locat
   return output;
 }
 
+function buildOfferViewsByLocation(locationBreakdown, locations) {
+  const breakdownLookup = buildBreakdownLookup(locationBreakdown);
+  const output = {};
+  for (const location of locations) {
+    const entry = breakdownLookup.get(String(location).toLowerCase());
+    const automatic = entry?.offer_views?.automatic || entry || null;
+    const all = entry?.offer_views?.all || automatic;
+    output[location] = {
+      automatic: automatic ? {
+        top_3: [0, 1, 2].map((index) => automatic.top_3_offers?.[index] || null),
+        mm_cars_rental: automatic.mm_cars_rental_offer || null,
+        mm_provider_rank: automatic.mm_provider_rank ?? null,
+        cheaper_offer_count: automatic.cheaper_offer_count ?? null,
+        offer_count: automatic.offer_count ?? 0,
+        provider_count: automatic.provider_count ?? 0
+      } : null,
+      all: all ? {
+        top_3: [0, 1, 2].map((index) => all.top_3_offers?.[index] || null),
+        mm_cars_rental: all.mm_cars_rental_offer || null,
+        mm_provider_rank: all.mm_provider_rank ?? null,
+        cheaper_offer_count: all.cheaper_offer_count ?? null,
+        offer_count: all.offer_count ?? 0,
+        provider_count: all.provider_count ?? 0
+      } : null
+    };
+  }
+  return output;
+}
+
 function buildOutputPayload({ results, errors, locationBreakdown, locations, weekend }) {
   const cheapestByLocation = buildCheapestByLocation(results, locations);
   const cheapestOverall = results[0] || null;
   const top3ByLocation = buildTop3ByLocation(locationBreakdown, locations);
   const mmCarsRentalByLocation = buildMmCarsRentalByLocation(locationBreakdown, locations);
   const top3PlusMmByLocation = buildTop3PlusMmByLocation(top3ByLocation, mmCarsRentalByLocation, locations);
+  const offerViewsByLocation = buildOfferViewsByLocation(locationBreakdown, locations);
 
   return {
     generated_at: new Date().toISOString(),
@@ -193,7 +223,8 @@ function buildOutputPayload({ results, errors, locationBreakdown, locations, wee
     cheapest_overall: cheapestOverall,
     top_3_by_location: top3ByLocation,
     mm_cars_rental_by_location: mmCarsRentalByLocation,
-    top_3_plus_mm_by_location: top3PlusMmByLocation
+    top_3_plus_mm_by_location: top3PlusMmByLocation,
+    offer_views_by_location: offerViewsByLocation
   };
 }
 
