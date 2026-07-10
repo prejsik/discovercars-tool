@@ -152,25 +152,6 @@ function buildMmPriceCell(mmOffer, rankedOffers) {
   return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
 }
 
-function offerSourceUrl(offer) {
-  const value = String(offer?.source_url || offer?.sourceUrl || "").trim();
-  return /^https?:\/\//i.test(value) ? value : "";
-}
-
-function buildEvidenceCell(topOffer, mmOffer) {
-  const offer = mmOffer || topOffer;
-  if (!offer) {
-    return '<td class="muted">Brak</td>';
-  }
-  const source = String(offer.source || "unknown");
-  const url = offerSourceUrl(offer);
-  const car = [offer.car_name || offer.carName, offer.transmission].filter(Boolean).join(" / ");
-  const sourceHtml = url
-    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(source)}</a>`
-    : escapeHtml(source);
-  return `<td class="evidence-cell">${sourceHtml}${car ? `<br><span>${escapeHtml(car)}</span>` : ""}</td>`;
-}
-
 function scenarioLocations(rootPayload, scenarioPayload) {
   const rootLocations = Array.isArray(rootPayload.locations) ? rootPayload.locations : [];
   if (rootLocations.length) {
@@ -220,7 +201,6 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
         ${buildProviderCell(top3[2], top3)}
         <td>${escapeHtml(formatOfferPrice(top3[2]))}</td>
         ${buildMmPriceCell(mmOffer, top3)}
-        ${buildEvidenceCell(top3[0], mmOffer)}
       </tr>`;
     })
     .join("\n");
@@ -247,18 +227,28 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
     <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
     <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
     <table>
+      <colgroup>
+        <col class="col-index">
+        <col class="col-location">
+        <col class="col-company">
+        <col class="col-rate">
+        <col class="col-company">
+        <col class="col-rate">
+        <col class="col-company">
+        <col class="col-rate">
+        <col class="col-mm-rate">
+      </colgroup>
       <thead>
         <tr>
-          <th>(index)</th>
-          <th>location</th>
-          <th>top1_company</th>
-          <th>top1_daily_rate</th>
-          <th>top2_company</th>
-          <th>top2_daily_rate</th>
-          <th>top3_company</th>
-          <th>top3_daily_rate</th>
-          <th>mm_cars_rental_daily_rate</th>
-          <th>source / car</th>
+          <th>#</th>
+          <th>Lokalizacja</th>
+          <th>Top 1 firma</th>
+          <th>Top 1 PLN/d</th>
+          <th>Top 2 firma</th>
+          <th>Top 2 PLN/d</th>
+          <th>Top 3 firma</th>
+          <th>Top 3 PLN/d</th>
+          <th>MM PLN/d</th>
         </tr>
       </thead>
       <tbody>
@@ -356,8 +346,6 @@ function buildHtmlReport(payload) {
     }
 
     .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
-    .evidence-cell { color: var(--muted); font-weight: 400; white-space: normal; min-width: 150px; }
-    .evidence-cell a { color: #79b8ff; }
 
     .badge {
       display: inline-block;
@@ -370,7 +358,7 @@ function buildHtmlReport(payload) {
       margin: 0 0 34px;
       padding-top: 8px;
       border-top: 2px solid #2d333b;
-      overflow-x: auto;
+      overflow-x: visible;
     }
 
     h2 {
@@ -390,31 +378,47 @@ function buildHtmlReport(payload) {
       border-collapse: collapse;
       background: #0d0f12;
       border: 2px solid var(--line);
-      table-layout: auto;
+      table-layout: fixed;
     }
+
+    col.col-index { width: 4%; }
+    col.col-location { width: 20%; }
+    col.col-company { width: 13%; }
+    col.col-rate { width: 9%; }
+    col.col-mm-rate { width: 10%; }
 
     th, td {
       border: 2px solid var(--line);
-      padding: 8px 11px;
+      padding: 6px 7px;
       text-align: left;
-      white-space: nowrap;
+      white-space: normal;
       vertical-align: middle;
+      overflow-wrap: anywhere;
+      line-height: 1.25;
     }
 
     th {
       color: var(--text);
       font-weight: 700;
       background: #111;
+      font-size: 11px;
     }
 
     td {
       color: var(--green);
       font-weight: 700;
+      font-size: 12px;
+    }
+
+    th:nth-child(4), th:nth-child(6), th:nth-child(8), th:nth-child(9),
+    td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9) {
+      text-align: right;
+      white-space: nowrap;
     }
 
     td.index {
       color: var(--text);
-      width: 72px;
+      text-align: center;
     }
 
     td.location {
@@ -447,7 +451,40 @@ function buildHtmlReport(payload) {
 
     @media (max-width: 1100px) {
       body { padding: 14px; }
-      table { min-width: 1120px; }
+      th, td { padding: 5px; }
+      td { font-size: 11px; }
+    }
+
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .scenario { margin-bottom: 26px; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      table { border: 0; background: transparent; }
+      colgroup, thead { display: none; }
+      tbody { display: grid; gap: 10px; }
+      tr { border: 1px solid var(--line); background: #0d0f12; }
+      td, td.index,
+      td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9) {
+        display: grid;
+        grid-template-columns: minmax(92px, 38%) 1fr;
+        gap: 8px;
+        border: 0;
+        border-bottom: 1px solid #3d434b;
+        padding: 7px 9px;
+        text-align: left;
+        white-space: normal;
+      }
+      td:last-child { border-bottom: 0; }
+      td::before { color: var(--muted); font-weight: 400; }
+      td:nth-child(1)::before { content: "#"; }
+      td:nth-child(2)::before { content: "Lokalizacja"; }
+      td:nth-child(3)::before { content: "Top 1 firma"; }
+      td:nth-child(4)::before { content: "Top 1 PLN/d"; }
+      td:nth-child(5)::before { content: "Top 2 firma"; }
+      td:nth-child(6)::before { content: "Top 2 PLN/d"; }
+      td:nth-child(7)::before { content: "Top 3 firma"; }
+      td:nth-child(8)::before { content: "Top 3 PLN/d"; }
+      td:nth-child(9)::before { content: "MM PLN/d"; }
     }
   </style>
 </head>

@@ -354,14 +354,16 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   });
 
   assert.match(html, /<table>/);
-  assert.match(html, /top1_company/);
-  assert.match(html, /top1_daily_rate/);
+  assert.match(html, /Top 1 firma/);
+  assert.match(html, /Top 1 PLN\/d/);
   assert.match(html, /MM Cars Rental \(8\.8\)/);
   assert.match(html, /mm-close/);
   assert.match(html, /50\.00 PLN\/day/);
   assert.match(html, /filter-location/);
   assert.match(html, /brak MM Cars Rental/);
-  assert.match(html, /source \/ car/);
+  assert.doesNotMatch(html, /source \/ car/i);
+  assert.doesNotMatch(html, /evidence-cell/);
+  assert.match(html, /table-layout: fixed/);
 });
 
 runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per day above MM top1", () => {
