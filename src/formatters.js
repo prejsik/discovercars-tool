@@ -1,13 +1,14 @@
 const fs = require("fs");
 const path = require("path");
 const util = require("util");
+const { loadPricingRules } = require("./pricingRules");
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_MM = "\x1b[1;30;43m";
 const ANSI_MM_CLOSE = "\x1b[1;37;41m";
 const ANSI_MM_TOP1_GAP = "\x1b[1;37;44m";
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 10;
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = loadPricingRules().top1GapThresholdPlnDay;
 
 function normalizeProviderName(value) {
   return String(value || "")

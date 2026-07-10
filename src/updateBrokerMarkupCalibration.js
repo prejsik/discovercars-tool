@@ -49,6 +49,10 @@ function getExcelObservations(excelSummary) {
   return observations;
 }
 
+function robustObservedMultiplier(summary) {
+  return asNumber(summary?.median_multiplier ?? summary?.average_multiplier);
+}
+
 function summarizeSanityCheck(sanityCheck) {
   const checks = Array.isArray(sanityCheck?.checks) ? sanityCheck.checks : [];
   const observed = checks
@@ -66,13 +70,21 @@ function summarizeSanityCheck(sanityCheck) {
   };
 }
 
-function buildCalibrationUpdate({ baseConfig = {}, previousCalibration = {}, excelSummary = {}, sanityCheck = {}, alpha = 0.35 } = {}) {
+function buildCalibrationUpdate({
+  baseConfig = {},
+  previousCalibration = {},
+  excelSummary = {},
+  sanityCheck = {},
+  alpha = 0.35,
+  minSamples = 3
+} = {}) {
   const basePricing = baseConfig.pricing || baseConfig;
   const current = mergeBrokerMarkupCalibration(basePricing.brokerMarkupCalibration, previousCalibration);
   const observations = getExcelObservations(excelSummary);
   const minMultiplier = current.minMultiplier || 1;
   const maxMultiplier = current.maxMultiplier || 1.25;
   const learningAlpha = clamp(asNumber(alpha) ?? 0.35, 0.01, 1);
+  const minimumSamples = Math.max(1, Number.parseInt(minSamples, 10) || 3);
 
   const next = {
     enabled: current.enabled,
@@ -80,13 +92,15 @@ function buildCalibrationUpdate({ baseConfig = {}, previousCalibration = {}, exc
     minMultiplier,
     maxMultiplier,
     locationMultipliers: { ...(current.locationMultipliers || {}) },
-    durationMultipliers: { ...(current.durationMultipliers || {}) }
+    durationMultipliers: { ...(current.durationMultipliers || {}) },
+    locationDurationMultipliers: JSON.parse(JSON.stringify(current.locationDurationMultipliers || {}))
   };
 
-  if (observations?.average_multiplier) {
+  const globalObserved = robustObservedMultiplier(observations);
+  if (globalObserved && Number(observations?.count || 0) >= minimumSamples) {
     next.defaultMultiplier = blendMultiplier(
       next.defaultMultiplier,
-      observations.average_multiplier,
+      globalObserved,
       learningAlpha,
       minMultiplier,
       maxMultiplier
@@ -94,12 +108,13 @@ function buildCalibrationUpdate({ baseConfig = {}, previousCalibration = {}, exc
   }
 
   for (const [location, summary] of Object.entries(observations?.by_location || {})) {
-    if (!summary?.average_multiplier) {
+    const observed = robustObservedMultiplier(summary);
+    if (!observed || Number(summary?.count || 0) < minimumSamples) {
       continue;
     }
     next.locationMultipliers[location] = blendMultiplier(
       next.locationMultipliers[location],
-      summary.average_multiplier,
+      observed,
       learningAlpha,
       minMultiplier,
       maxMultiplier
@@ -107,16 +122,36 @@ function buildCalibrationUpdate({ baseConfig = {}, previousCalibration = {}, exc
   }
 
   for (const [duration, summary] of Object.entries(observations?.by_duration || {})) {
-    if (!summary?.average_multiplier) {
+    const observed = robustObservedMultiplier(summary);
+    if (!observed || Number(summary?.count || 0) < minimumSamples) {
       continue;
     }
     next.durationMultipliers[duration] = blendMultiplier(
       next.durationMultipliers[duration],
-      summary.average_multiplier,
+      observed,
       learningAlpha,
       minMultiplier,
       maxMultiplier
     );
+  }
+
+  for (const [location, durationSummaries] of Object.entries(observations?.by_location_duration || {})) {
+    next.locationDurationMultipliers[location] = {
+      ...(next.locationDurationMultipliers[location] || {})
+    };
+    for (const [duration, summary] of Object.entries(durationSummaries || {})) {
+      const observed = robustObservedMultiplier(summary);
+      if (!observed || Number(summary?.count || 0) < minimumSamples) {
+        continue;
+      }
+      next.locationDurationMultipliers[location][duration] = blendMultiplier(
+        next.locationDurationMultipliers[location][duration],
+        observed,
+        learningAlpha,
+        minMultiplier,
+        maxMultiplier
+      );
+    }
   }
 
   return {
@@ -124,12 +159,16 @@ function buildCalibrationUpdate({ baseConfig = {}, previousCalibration = {}, exc
     brokerMarkupCalibration: next,
     learning: {
       alpha: learningAlpha,
+      minimum_samples: minimumSamples,
       source: observations ? "excel-rate-update-summary" : "previous-or-static",
       observation_count: observations?.count || 0,
+      input_workbook_sha256: excelSummary?.input_workbook_sha256 || null,
+      observed_robust_multiplier: globalObserved,
       observed_average_multiplier: observations?.average_multiplier || null,
       observed_average_markup_percent: observations?.average_markup_percent || null,
       by_location: observations?.by_location || {},
       by_duration: observations?.by_duration || {},
+      by_location_duration: observations?.by_location_duration || {},
       sanity_check: summarizeSanityCheck(sanityCheck)
     }
   };
@@ -155,7 +194,8 @@ function runCli(argv) {
     previousCalibration: readJsonIfExists(args.previous),
     excelSummary: readJsonIfExists(args["excel-summary"]),
     sanityCheck: readJsonIfExists(args["sanity-check"]),
-    alpha: asNumber(args.alpha) ?? 0.35
+    alpha: asNumber(args.alpha) ?? 0.35,
+    minSamples: asNumber(args["min-samples"]) ?? 3
   });
   const resolvedOutputPath = path.resolve(outputPath);
   fs.mkdirSync(path.dirname(resolvedOutputPath), { recursive: true });

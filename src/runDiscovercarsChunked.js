@@ -134,8 +134,9 @@ function parseArgs(argv) {
     speedMode: "fast",
     strategy: "legacy-batch",
     retries: 0,
+    chunkRetries: 1,
     scenarioConcurrency: 2,
-    locationConcurrency: 2,
+    locationConcurrency: 3,
     timeout: "auto",
     directCandidateLimit: 2,
     directOffersWait: 1000,
@@ -219,6 +220,10 @@ function parseArgs(argv) {
     }
     if (arg.startsWith("--retries=")) {
       options.retries = parseInteger(arg.slice("--retries=".length), options.retries, 0, 5);
+      continue;
+    }
+    if (arg.startsWith("--chunk-retries=")) {
+      options.chunkRetries = parseInteger(arg.slice("--chunk-retries=".length), options.chunkRetries, 0, 3);
       continue;
     }
     if (arg.startsWith("--scenario-concurrency=")) {
@@ -335,7 +340,7 @@ function buildChunk(index, dates, outputDir) {
   };
 }
 
-function buildScraperArgs(chunk, options) {
+function buildScraperArgs(chunk, options, attempt = 0) {
   const args = [
     path.join("src", "index.js"),
     `--save=${chunk.resultsPath}`,
@@ -356,7 +361,7 @@ function buildScraperArgs(chunk, options) {
 
   args.push(options.apiFirst ? "--api-first" : "--no-api-first");
 
-  if (options.resetState) {
+  if (options.resetState && attempt === 0) {
     args.push("--reset-state");
   }
 
@@ -365,11 +370,21 @@ function buildScraperArgs(chunk, options) {
 
 async function runChunk(chunk, options) {
   fs.mkdirSync(chunk.dir, { recursive: true });
-  await runCommand(process.execPath, buildScraperArgs(chunk, options), {
-    cwd: process.cwd(),
-    logPath: chunk.logPath,
-    label: chunk.label
-  });
+  for (let attempt = 0; attempt <= options.chunkRetries; attempt += 1) {
+    try {
+      await runCommand(process.execPath, buildScraperArgs(chunk, options, attempt), {
+        cwd: process.cwd(),
+        logPath: chunk.logPath,
+        label: attempt === 0 ? chunk.label : `${chunk.label}-resume-${attempt}`
+      });
+      break;
+    } catch (error) {
+      if (attempt >= options.chunkRetries) {
+        throw error;
+      }
+      console.warn(`Retrying ${chunk.label} from checkpoint after: ${error.message}`);
+    }
+  }
   return chunk.resultsPath;
 }
 
@@ -499,6 +514,10 @@ async function main() {
 
   const payloads = resultFiles.map((resultPath) => JSON.parse(fs.readFileSync(resultPath, "utf8")));
   const merged = mergePayloads(payloads, resultFiles);
+  merged.chunk_failures = failed;
+  if (failed.length) {
+    merged.run_status = "degraded";
+  }
   const mergedPath = path.join(options.outputDir, "results-latest.json");
   fs.writeFileSync(mergedPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
 

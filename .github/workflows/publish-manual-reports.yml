@@ -15,8 +15,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-manual-reports
-  cancel-in-progress: true
+  group: discovercars-pages-site
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -88,12 +88,18 @@ jobs:
             latest-full/rates-import-ready.xlsx \
             latest-full/excel-rate-update-summary.json \
             latest-full/mm-rate-sanity-check.json \
+            latest-full/broker-markup-calibration.json \
+            latest-full/quality-alerts.json \
+            latest-full/run-manifest.json \
             latest-full/run-log.txt \
             latest-excel/rates-import-ready.xlsx \
             latest-excel/rates-updated.xlsx \
             latest-excel/final-pricing-recommendations.json \
             latest-excel/excel-rate-update-summary.json \
-            latest-excel/mm-rate-sanity-check.json; do
+            latest-excel/mm-rate-sanity-check.json \
+            latest-excel/broker-markup-calibration.json \
+            latest-excel/quality-alerts.json \
+            latest-excel/run-manifest.json; do
             preserve_file "$rel_path"
           done
 
@@ -126,13 +132,18 @@ jobs:
           JULY_URL: ${{ steps.pages-site.outputs.july_url }}
           AUGUST_URL: ${{ steps.pages-site.outputs.august_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEPLOY_OUTCOME: ${{ steps.deployment.outcome }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
             exit 0
           fi
 
-          message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nLipiec 2026:\n%s\n\nSierpien 2026:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$JULY_URL" "$AUGUST_URL" "$RUN_URL")
+          if [[ "$DEPLOY_OUTCOME" == "success" ]]; then
+            message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nLipiec 2026:\n%s\n\nSierpien 2026:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$JULY_URL" "$AUGUST_URL" "$RUN_URL")
+          else
+            message=$(printf 'DiscoverCars: publikacja recznych raportow nie powiodla sie.\n\nStatus wdrozenia: %s\nGitHub Actions run:\n%s\n' "${DEPLOY_OUTCOME:-brak danych}" "$RUN_URL")
+          fi
 
           if ! curl --fail --show-error --silent \
             --request POST \
@@ -140,5 +151,5 @@ jobs:
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${message}" \
             --data-urlencode "disable_web_page_preview=true"; then
-            echo "::warning::Telegram notification failed; reports were still published."
+            echo "::warning::Telegram notification failed."
           fi

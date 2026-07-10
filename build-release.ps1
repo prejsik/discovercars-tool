@@ -29,12 +29,18 @@ $itemsToCopy = @(
   "package-lock.json",
   "README.md",
   "README-USER.txt",
+  "DISCOVERCARS_README.md",
+  "discovercars.config.example.json",
+  "pricing-rules.config.example.json",
+  "excel-rate-update.config.example.json",
   "install.ps1",
   "setup.bat",
   "start.bat",
   "run-ui.ps1",
   "run-tables.ps1",
-  "src"
+  "src",
+  "tools",
+  "input"
 )
 
 foreach ($item in $itemsToCopy) {

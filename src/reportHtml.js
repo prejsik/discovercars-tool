@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const { loadPricingRules } = require("./pricingRules");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = 5;
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = loadPricingRules().top1GapThresholdPlnDay;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -151,6 +152,25 @@ function buildMmPriceCell(mmOffer, rankedOffers) {
   return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
 }
 
+function offerSourceUrl(offer) {
+  const value = String(offer?.source_url || offer?.sourceUrl || "").trim();
+  return /^https?:\/\//i.test(value) ? value : "";
+}
+
+function buildEvidenceCell(topOffer, mmOffer) {
+  const offer = mmOffer || topOffer;
+  if (!offer) {
+    return '<td class="muted">Brak</td>';
+  }
+  const source = String(offer.source || "unknown");
+  const url = offerSourceUrl(offer);
+  const car = [offer.car_name || offer.carName, offer.transmission].filter(Boolean).join(" / ");
+  const sourceHtml = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(source)}</a>`
+    : escapeHtml(source);
+  return `<td class="evidence-cell">${sourceHtml}${car ? `<br><span>${escapeHtml(car)}</span>` : ""}</td>`;
+}
+
 function scenarioLocations(rootPayload, scenarioPayload) {
   const rootLocations = Array.isArray(rootPayload.locations) ? rootPayload.locations : [];
   if (rootLocations.length) {
@@ -182,8 +202,15 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
       const top3 = Array.isArray(locationData.top_3) ? locationData.top_3 : [];
       const mmOffer = locationData.mm_cars_rental || null;
       const rowClass = index % 2 === 0 ? "even" : "odd";
+      const mmState = !mmOffer
+        ? "missing"
+        : isMmTop1WithExpensiveRunnerUp(mmOffer, top3)
+          ? "top1-gap"
+          : isMmCloseToHigherRankedProvider(mmOffer, top3)
+            ? "close"
+            : "normal";
 
-      return `<tr class="${rowClass}">
+      return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state="${mmState}">
         <td class="index">${index}</td>
         <td class="location">${escapeHtml(location)}</td>
         ${buildProviderCell(top3[0], top3)}
@@ -193,6 +220,7 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
         ${buildProviderCell(top3[2], top3)}
         <td>${escapeHtml(formatOfferPrice(top3[2]))}</td>
         ${buildMmPriceCell(mmOffer, top3)}
+        ${buildEvidenceCell(top3[0], mmOffer)}
       </tr>`;
     })
     .join("\n");
@@ -215,7 +243,7 @@ function normalizeScenarios(payload) {
 }
 
 function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
-  return `<section class="scenario">
+  return `<section class="scenario" data-date="${escapeHtml(scenarioPayload.start_date || "")}" data-duration="${escapeHtml(scenarioPayload.rental_days || "")}">
     <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
     <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
     <table>
@@ -230,6 +258,7 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
           <th>top3_company</th>
           <th>top3_daily_rate</th>
           <th>mm_cars_rental_daily_rate</th>
+          <th>source / car</th>
         </tr>
       </thead>
       <tbody>
@@ -243,6 +272,13 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
 function buildHtmlReport(payload) {
   const scenarios = normalizeScenarios(payload);
   const generatedAt = payload.generated_at || new Date().toISOString();
+  const locations = [...new Set(scenarios.flatMap((scenario) => scenarioLocations(payload, scenario)))].sort();
+  const durations = [...new Set(scenarios.map((scenario) => Number(scenario.rental_days)).filter(Number.isFinite))].sort((a, b) => a - b);
+  const locationChecks = scenarios.reduce((sum, scenario) => sum + scenarioLocations(payload, scenario).length, 0);
+  const missingMm = scenarios.reduce((sum, scenario) => sum + scenarioLocations(payload, scenario).filter(
+    (location) => !scenario?.top_3_plus_mm_by_location?.[location]?.mm_cars_rental
+  ).length, 0);
+  const errorCount = scenarios.reduce((sum, scenario) => sum + (scenario.errors || []).length, 0);
 
   return `<!doctype html>
 <html lang="pl">
@@ -296,6 +332,33 @@ function buildHtmlReport(payload) {
       font-size: 13px;
     }
 
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: end;
+      margin: 0 0 18px;
+      padding: 12px 0;
+      border-top: 1px solid #2d333b;
+      border-bottom: 1px solid #2d333b;
+    }
+
+    .toolbar label { color: var(--muted); font-size: 12px; }
+    .toolbar select, .toolbar input {
+      display: block;
+      margin-top: 4px;
+      min-height: 34px;
+      border: 1px solid #596273;
+      border-radius: 4px;
+      background: #11151b;
+      color: var(--text);
+      padding: 5px 8px;
+    }
+
+    .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
+    .evidence-cell { color: var(--muted); font-weight: 400; white-space: normal; min-width: 150px; }
+    .evidence-cell a { color: #79b8ff; }
+
     .badge {
       display: inline-block;
       padding: 3px 8px;
@@ -307,6 +370,7 @@ function buildHtmlReport(payload) {
       margin: 0 0 34px;
       padding-top: 8px;
       border-top: 2px solid #2d333b;
+      overflow-x: auto;
     }
 
     h2 {
@@ -383,7 +447,6 @@ function buildHtmlReport(payload) {
 
     @media (max-width: 1100px) {
       body { padding: 14px; }
-      .scenario { overflow-x: auto; }
       table { min-width: 1120px; }
     }
   </style>
@@ -391,12 +454,39 @@ function buildHtmlReport(payload) {
 <body>
   <h1>DiscoverCars report</h1>
   <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
+  <div class="summary">Scenariusze: ${scenarios.length} | sprawdzenia lokalizacji: ${locationChecks} | brak MM Cars Rental: ${missingMm} | błędy: ${errorCount}</div>
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
     <span><span class="badge mm mm-top1-gap">MM top1 gap</span> MM Cars Rental in top1 and top2 at least 5 PLN/day more expensive</span>
   </div>
+  <div class="toolbar">
+    <label>Data<input id="filter-date" type="date"></label>
+    <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
+    <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
+    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1 gap</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
+  </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
+  <script>
+    const controls = ["filter-date", "filter-location", "filter-duration", "filter-state"].map((id) => document.getElementById(id));
+    function applyFilters() {
+      const date = controls[0].value;
+      const location = controls[1].value;
+      const duration = controls[2].value;
+      const state = controls[3].value;
+      for (const section of document.querySelectorAll(".scenario")) {
+        const scenarioMatch = (!date || section.dataset.date === date) && (!duration || section.dataset.duration === duration);
+        let visibleRows = 0;
+        for (const row of section.querySelectorAll("tbody tr")) {
+          const visible = scenarioMatch && (!location || row.dataset.location === location) && (!state || row.dataset.mmState === state);
+          row.hidden = !visible;
+          if (visible) visibleRows += 1;
+        }
+        section.hidden = visibleRows === 0;
+      }
+    }
+    controls.forEach((control) => control.addEventListener("input", applyFilters));
+  </script>
 </body>
 </html>`;
 }

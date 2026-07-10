@@ -108,6 +108,79 @@ function sortScenarios(scenarios) {
   });
 }
 
+function listScenarioLocations(payload, scenario) {
+  const rootLocations = Array.isArray(payload?.locations) ? payload.locations : [];
+  const scenarioLocations = [
+    ...Object.keys(scenario?.top_3_plus_mm_by_location || {}),
+    ...Object.keys(scenario?.top_3_by_location || {}),
+    ...(scenario?.results || []).map((item) => item?.location),
+    ...(scenario?.errors || []).map((item) => item?.location)
+  ];
+  return uniqueInOrder(rootLocations.length ? rootLocations : scenarioLocations);
+}
+
+function assertCompatibleScenarios(existing, incoming) {
+  for (const field of ["start_date", "rental_days", "pickup_date", "dropoff_date"]) {
+    const left = existing?.[field];
+    const right = incoming?.[field];
+    if (left != null && right != null && String(left) !== String(right)) {
+      throw new Error(`Cannot merge scenario ${incoming.scenario_id}: incompatible ${field} (${left} vs ${right}).`);
+    }
+  }
+}
+
+function replaceArrayLocations(existingItems, incomingItems, refreshedLocations) {
+  const refreshed = new Set(refreshedLocations.map((item) => String(item || "").trim()));
+  return [
+    ...(existingItems || []).filter((item) => !refreshed.has(String(item?.location || "").trim())),
+    ...(incomingItems || [])
+  ];
+}
+
+function mergeLocationMap(existingMap, incomingMap, refreshedLocations) {
+  const merged = { ...(existingMap || {}) };
+  for (const location of refreshedLocations) {
+    delete merged[location];
+  }
+  return { ...merged, ...(incomingMap || {}) };
+}
+
+function mergeScenarioLocations(existing, incoming, refreshedLocations) {
+  assertCompatibleScenarios(existing, incoming);
+  const generatedAt = incoming.generated_at || existing.generated_at || null;
+  const sourceTimes = { ...(existing.source_generated_at_by_location || {}) };
+  const sourceRunIds = { ...(existing.source_run_id_by_location || {}) };
+  for (const location of refreshedLocations) {
+    sourceTimes[location] = generatedAt;
+    sourceRunIds[location] = incoming.source_run_id || null;
+  }
+
+  return {
+    ...existing,
+    ...incoming,
+    results: replaceArrayLocations(existing.results, incoming.results, refreshedLocations),
+    errors: replaceArrayLocations(existing.errors, incoming.errors, refreshedLocations),
+    location_breakdown: replaceArrayLocations(existing.location_breakdown, incoming.location_breakdown, refreshedLocations),
+    top_3_by_location: mergeLocationMap(existing.top_3_by_location, incoming.top_3_by_location, refreshedLocations),
+    top_3_plus_mm_by_location: mergeLocationMap(
+      existing.top_3_plus_mm_by_location,
+      incoming.top_3_plus_mm_by_location,
+      refreshedLocations
+    ),
+    source_generated_at_by_location: sourceTimes,
+    source_run_id_by_location: sourceRunIds,
+    generated_at: generatedAt
+  };
+}
+
+function safeSourceLabel(filePath) {
+  const relative = path.relative(process.cwd(), filePath);
+  if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return relative.replace(/\\/g, "/");
+  }
+  return path.basename(filePath);
+}
+
 function collectInputFiles(rawInputs) {
   const files = [];
   for (const rawInput of rawInputs || []) {
@@ -138,19 +211,52 @@ function collectInputFiles(rawInputs) {
 }
 
 function mergePayloads(payloads, sourceFiles = []) {
+  const mergedAt = new Date().toISOString();
   const byScenarioId = new Map();
   let duplicateScenarioCount = 0;
+  let partialScenarioMergeCount = 0;
+  let fullScenarioReplacementCount = 0;
 
   for (const payload of payloads) {
-    for (const scenario of normalizeScenarios(payload)) {
+    for (const rawScenario of normalizeScenarios(payload)) {
+      const scenario = {
+        ...rawScenario,
+        generated_at: rawScenario?.generated_at || payload?.generated_at || null,
+        source_run_id: rawScenario?.source_run_id || payload?.run_id || null
+      };
       const scenarioId = String(scenario?.scenario_id || "").trim();
       if (!scenarioId) {
         continue;
       }
       if (byScenarioId.has(scenarioId)) {
         duplicateScenarioCount += 1;
+        const existing = byScenarioId.get(scenarioId);
+        const incomingLocations = listScenarioLocations(payload, scenario);
+        const existingLocations = uniqueInOrder([
+          ...Object.keys(existing?.source_generated_at_by_location || {}),
+          ...Object.keys(existing?.top_3_plus_mm_by_location || {}),
+          ...(existing?.results || []).map((item) => item?.location)
+        ]);
+        const sameLocationSet = incomingLocations.length === existingLocations.length
+          && incomingLocations.every((location) => existingLocations.includes(location));
+        if (sameLocationSet) {
+          fullScenarioReplacementCount += 1;
+        } else {
+          partialScenarioMergeCount += 1;
+        }
+        byScenarioId.set(scenarioId, mergeScenarioLocations(existing, scenario, incomingLocations));
+        continue;
       }
-      byScenarioId.set(scenarioId, scenario);
+      const locations = listScenarioLocations(payload, scenario);
+      byScenarioId.set(scenarioId, {
+        ...scenario,
+        source_generated_at_by_location: Object.fromEntries(
+          locations.map((location) => [location, scenario.generated_at])
+        ),
+        source_run_id_by_location: Object.fromEntries(
+          locations.map((location) => [location, scenario.source_run_id])
+        )
+      });
     }
   }
 
@@ -175,7 +281,8 @@ function mergePayloads(payloads, sourceFiles = []) {
   )].sort((left, right) => left - right);
 
   return {
-    generated_at: new Date().toISOString(),
+    generated_at: mergedAt,
+    run_id: `merge-${mergedAt.replace(/[^0-9]/g, "").slice(0, 14)}`,
     time_zone: payloads.find((payload) => payload?.time_zone)?.time_zone || WARSAW_TIME_ZONE,
     locations,
     scenario_mode: "start-dates",
@@ -186,17 +293,21 @@ function mergePayloads(payloads, sourceFiles = []) {
     execution_profile: {
       mode: "chunked-merge",
       source_file_count: sourceFiles.length,
-      duplicate_scenario_count: duplicateScenarioCount
+      duplicate_scenario_count: duplicateScenarioCount,
+      partial_scenario_merge_count: partialScenarioMergeCount,
+      full_scenario_replacement_count: fullScenarioReplacementCount
     },
     scenarios,
     errors,
     fallback_summary: buildFallbackSummary(scenarios),
     cheapest_overall: collectCheapestOverallAcrossScenarios(scenarios),
     merge_meta: {
-      merged_at: new Date().toISOString(),
-      source_files: sourceFiles,
+      merged_at: mergedAt,
+      source_files: sourceFiles.map(safeSourceLabel),
       scenario_count: scenarios.length,
-      duplicate_scenario_count: duplicateScenarioCount
+      duplicate_scenario_count: duplicateScenarioCount,
+      partial_scenario_merge_count: partialScenarioMergeCount,
+      full_scenario_replacement_count: fullScenarioReplacementCount
     }
   };
 }

@@ -555,12 +555,17 @@ if (-not (Test-Path $outputDir)) {
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $jsonPath = Join-Path $outputDir "results-$timestamp.json"
 $jsonLatestPath = Join-Path $outputDir "results-latest.json"
+$locationsConfig = Get-Content -LiteralPath (Join-Path $root "excel-rate-update.config.example.json") -Raw | ConvertFrom-Json
+$locationsCsv = (@($locationsConfig.daily_locations) -join ",")
+if ([string]::IsNullOrWhiteSpace($locationsCsv)) {
+  throw "No daily_locations found in excel-rate-update.config.example.json"
+}
 
 $nodeArgs = @(
   "src/index.js",
   "--start-dates=$startDatesCsv",
   "--durations=$durationsCsv",
-  "--locations=Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan",
+  "--locations=$locationsCsv",
   "--strategy=legacy-batch",
   "--retries=1",
   "--direct-candidate-limit=2",

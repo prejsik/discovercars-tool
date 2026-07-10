@@ -4,15 +4,10 @@ const {
   mergeBrokerMarkupCalibration,
   resolveBrokerMarkupCalibration
 } = require("./brokerMarkupCalibration");
+const { DEFAULT_PRICING_RULES } = require("./pricingRules");
 
 const DEFAULT_OPTIONS = {
-  top1GapThresholdPlnDay: 5,
-  top1RaiseBufferPlnDay: 1,
-  top1UndercutThresholdPlnDay: 10,
-  undercutBufferPlnDay: 1,
-  top3SmallDecreaseThresholdPlnDay: 10,
-  minChangePlnDay: 0.5,
-  roundingIncrementPlnDay: 1,
+  ...DEFAULT_PRICING_RULES,
   brokerMarkupCalibration: {
     enabled: false,
     defaultMultiplier: 1
@@ -75,12 +70,29 @@ function listScenarioLocations(rootPayload, scenario) {
   return Object.keys(scenario?.top_3_plus_mm_by_location || {}).sort((a, b) => a.localeCompare(b));
 }
 
-function buildNoopRecommendation(base, reason) {
+function buildNoopRecommendation(base, reason, options, siteCapRate = null, dataQualityStatus = "ok") {
+  const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
+  const fallbackSiteCap = Number(base.mm_rate_pln_day);
+  const resolvedSiteCap = Number.isFinite(Number(siteCapRate))
+    ? Number(siteCapRate)
+    : Number.isFinite(fallbackSiteCap)
+      ? fallbackSiteCap
+      : null;
+  const maximumImportRate = resolvedSiteCap == null
+    ? null
+    : roundRate(resolvedSiteCap / calibration.multiplier, options);
+
   return {
     ...base,
     action: "hold",
     reason,
     suggested_rate_pln_day: null,
+    site_cap_rate_pln_day: resolvedSiteCap == null ? null : Number(resolvedSiteCap.toFixed(2)),
+    maximum_import_rate_pln_day: maximumImportRate,
+    broker_markup_multiplier: calibration.multiplier,
+    broker_markup_percent: calibration.percent,
+    broker_markup_source: calibration.source,
+    data_quality_status: dataQualityStatus,
     change_pln_day: 0
   };
 }
@@ -101,13 +113,25 @@ function buildActiveRecommendation({ base, options, action, recommendationType, 
     benchmark_provider: formatProviderName(benchmarkOffer),
     benchmark_rate_pln_day: benchmarkRate == null ? null : Number(benchmarkRate.toFixed(2)),
     site_target_rate_pln_day: Number(siteTarget.toFixed(2)),
+    site_cap_rate_pln_day: Number(siteTarget.toFixed(2)),
     suggested_rate_pln_day: suggestedImportRate,
+    maximum_import_rate_pln_day: suggestedImportRate,
     predicted_site_rate_pln_day: predictedSiteRate,
     broker_markup_multiplier: calibration.multiplier,
     broker_markup_percent: calibration.percent,
     broker_markup_source: calibration.source,
+    data_quality_status: "ok",
     change_pln_day: Number(siteChange.toFixed(2))
   };
+}
+
+function listOfferCurrencies(offers) {
+  return [...new Set(
+    offers
+      .filter(Boolean)
+      .map((offer) => String(offer.currency || "").trim().toUpperCase())
+      .filter(Boolean)
+  )];
 }
 
 function buildRecommendationForLocation({ rootPayload, scenario, location, options }) {
@@ -141,34 +165,54 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     top2_rate_pln_day: top2Rate == null ? null : Number(top2Rate.toFixed(2)),
     top3_provider: formatProviderName(top3),
     top3_rate_pln_day: top3Rate == null ? null : Number(top3Rate.toFixed(2)),
-    source_generated_at: rootPayload.generated_at || null
+    source_generated_at: scenario.source_generated_at_by_location?.[location]
+      || scenario.generated_at
+      || rootPayload.generated_at
+      || null,
+    source_run_id: scenario.source_run_id_by_location?.[location]
+      || scenario.source_run_id
+      || rootPayload.run_id
+      || null
   };
 
   if (!mmOffer || mmRate == null) {
-    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.");
+    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.", options, null, "missing_mm");
   }
 
   if (!top1 || top1Rate == null) {
-    return buildNoopRecommendation(base, "Brak dostepnej oferty top1.");
+    return buildNoopRecommendation(base, "Brak dostepnej oferty top1.", options, null, "missing_top1");
+  }
+
+  const currencies = listOfferCurrencies([...topOffers, mmOffer]);
+  if (currencies.length !== 1 || currencies[0] !== "PLN") {
+    return buildNoopRecommendation(
+      base,
+      `Rekomendacja zablokowana: oczekiwano jednej waluty PLN, otrzymano ${currencies.join(", ") || "brak waluty"}.`,
+      options,
+      null,
+      "invalid_currency"
+    );
   }
 
   if (mmRank === 1) {
     if (!top2 || top2Rate == null) {
-      return buildNoopRecommendation(base, "MM Cars Rental jest top1, ale oferta top2 nie jest dostepna.");
+      return buildNoopRecommendation(base, "MM Cars Rental jest top1, ale oferta top2 nie jest dostepna.", options, mmRate, "missing_top2");
     }
 
     const gap = top2Rate - mmRate;
     if (gap < options.top1GapThresholdPlnDay) {
       return buildNoopRecommendation(
         base,
-        `MM Cars Rental jest top1, ale roznica do top2 jest mniejsza niz ${options.top1GapThresholdPlnDay} PLN/dzien.`
+        `MM Cars Rental jest top1, ale roznica do top2 jest mniejsza niz ${options.top1GapThresholdPlnDay} PLN/dzien.`,
+        options,
+        top2Rate - options.top1RaiseBufferPlnDay
       );
     }
 
     const target = roundRate(top2Rate - options.top1RaiseBufferPlnDay, options);
     const change = target - mmRate;
     if (change < options.minChangePlnDay) {
-      return buildNoopRecommendation(base, "Wyliczona podwyzka jest ponizej minimalnego progu zmiany.");
+      return buildNoopRecommendation(base, "Wyliczona podwyzka jest ponizej minimalnego progu zmiany.", options, target);
     }
 
     return buildActiveRecommendation({
@@ -205,7 +249,9 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
     return buildNoopRecommendation(
       base,
-      `MM Cars Rental jest top2, ale przebicie top1 wymaga obnizki co najmniej ${options.top1UndercutThresholdPlnDay} PLN/dzien.`
+      `MM Cars Rental jest top2, ale przebicie top1 wymaga obnizki co najmniej ${options.top1UndercutThresholdPlnDay} PLN/dzien.`,
+      options,
+      mmRate
     );
   }
 
@@ -245,7 +291,9 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
   return buildNoopRecommendation(
     base,
-    "MM Cars Rental nie spelnia warunkow aktywnej rekomendacji cenowej dla tego scenariusza."
+    "MM Cars Rental nie spelnia warunkow aktywnej rekomendacji cenowej dla tego scenariusza.",
+    options,
+    mmRate
   );
 }
 
@@ -253,6 +301,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
   const scenarios = normalizeScenarios(payload);
   const recommendations = [];
+  const decisions = [];
   const skipped = [];
 
   for (const scenario of scenarios) {
@@ -263,6 +312,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         location,
         options
       });
+      decisions.push(recommendation);
 
       if (recommendation.action === "hold") {
         skipped.push(recommendation);
@@ -282,6 +332,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
     options,
     recommendation_count: recommendations.filter((item) => item.action !== "hold").length,
     skipped_count: skipped.length,
+    decisions,
     recommendations
   };
 }
@@ -356,6 +407,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_OPTIONS,
   buildPricingRecommendations,
   isMmCarsProvider,
   toDailyRate

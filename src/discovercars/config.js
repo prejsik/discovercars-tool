@@ -301,6 +301,8 @@ function loadConfig(argv) {
       10
     ),
     timeoutMs: Number.parseInt(merged.timeoutMs || merged["timeout-ms"] || "45000", 10),
+    apiTimeoutMs: Number.parseInt(merged.apiTimeoutMs || merged["api-timeout-ms"] || "20000", 10),
+    geoLocationOverrides: merged.geoLocationOverrides || {},
     headless: merged.headless !== false,
     browserExecutablePath: normalizeWhitespace(
       merged.browserExecutablePath || merged["browser-executable-path"] || ""

@@ -4,7 +4,8 @@ const DEFAULT_CONFIG = {
   minMultiplier: 1,
   maxMultiplier: 1.25,
   locationMultipliers: {},
-  durationMultipliers: {}
+  durationMultipliers: {},
+  locationDurationMultipliers: {}
 };
 
 function asNumber(value) {
@@ -57,11 +58,23 @@ function normalizeConfig(rawConfig = {}) {
   }
   config.locationMultipliers = config.locationMultipliers || config.location_multipliers || {};
   config.durationMultipliers = config.durationMultipliers || config.duration_multipliers || {};
+  config.locationDurationMultipliers = config.locationDurationMultipliers || config.location_duration_multipliers || {};
   return config;
 }
 
 function extractBrokerMarkupConfig(rawConfig = {}) {
   return rawConfig?.brokerMarkupCalibration || rawConfig?.pricing?.brokerMarkupCalibration || rawConfig || {};
+}
+
+function mergeLocationDurationMultipliers(base = {}, learned = {}) {
+  const merged = {};
+  for (const location of new Set([...Object.keys(base || {}), ...Object.keys(learned || {})])) {
+    merged[location] = {
+      ...(base?.[location] || {}),
+      ...(learned?.[location] || {})
+    };
+  }
+  return merged;
 }
 
 function mergeBrokerMarkupCalibration(baseConfig = {}, learnedConfig = {}) {
@@ -77,7 +90,11 @@ function mergeBrokerMarkupCalibration(baseConfig = {}, learnedConfig = {}) {
     durationMultipliers: {
       ...(base.durationMultipliers || {}),
       ...(learned.durationMultipliers || learned.duration_multipliers || {})
-    }
+    },
+    locationDurationMultipliers: mergeLocationDurationMultipliers(
+      base.locationDurationMultipliers,
+      learned.locationDurationMultipliers || learned.location_duration_multipliers
+    )
   };
   return normalizeConfig(merged);
 }
@@ -137,6 +154,33 @@ function lookupDurationMultiplier(rentalDays, durationMultipliers) {
   return null;
 }
 
+function lookupLocationDurationMultiplier(location, rentalDays, locationDurationMultipliers) {
+  const normalizedLocation = normalizeKey(location);
+  if (!normalizedLocation) {
+    return null;
+  }
+
+  const entries = Object.entries(locationDurationMultipliers || {});
+  const exact = entries.find(([key]) => normalizeKey(key) === normalizedLocation);
+  const prefix = entries.find(([key]) => {
+    const normalizedKey = normalizeKey(key);
+    return normalizedKey && normalizedLocation.startsWith(normalizedKey);
+  });
+  const selected = exact || prefix;
+  if (!selected) {
+    return null;
+  }
+
+  const durationMatch = lookupDurationMultiplier(rentalDays, selected[1]);
+  if (!durationMatch) {
+    return null;
+  }
+  return {
+    value: durationMatch.value,
+    source: `location-duration:${selected[0]}/${durationMatch.source.replace("duration:", "")}`
+  };
+}
+
 function resolveBrokerMarkupCalibration(item, rawConfig = {}) {
   const config = normalizeConfig(rawConfig);
   if (!config.enabled) {
@@ -148,9 +192,14 @@ function resolveBrokerMarkupCalibration(item, rawConfig = {}) {
     };
   }
 
+  const locationDurationMatch = lookupLocationDurationMultiplier(
+    item?.location,
+    item?.rental_days,
+    config.locationDurationMultipliers
+  );
   const locationMatch = lookupLocationMultiplier(item?.location, config.locationMultipliers);
   const durationMatch = lookupDurationMultiplier(item?.rental_days, config.durationMultipliers);
-  const selected = locationMatch || durationMatch || {
+  const selected = locationDurationMatch || locationMatch || durationMatch || {
     value: config.defaultMultiplier,
     source: "default"
   };

@@ -36,6 +36,21 @@ function recommendationKey(item) {
   ].join("|");
 }
 
+function durationBand(value) {
+  const duration = Number(value);
+  if (duration <= 4) return "short";
+  if (duration <= 7) return "medium";
+  return "long";
+}
+
+function locationKind(value) {
+  return /airport|lotnisko|\([a-z]{3}\)/i.test(String(value || "")) ? "airport" : "city";
+}
+
+function normalizeProvider(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function selectSanitySample(recommendations, sampleSize = 6) {
   const candidates = listRecommendations(recommendations)
     .filter((item) => item && item.action !== "hold")
@@ -66,24 +81,32 @@ function selectSanitySample(recommendations, sampleSize = 6) {
   });
 
   const selected = [];
-  const usedLocations = new Set();
-  for (const item of unique) {
-    if (selected.length >= sampleSize) {
-      break;
+  while (selected.length < sampleSize && selected.length < unique.length) {
+    const usedLocations = new Set(selected.map((item) => item.location));
+    const usedKinds = new Set(selected.map((item) => locationKind(item.location)));
+    const usedBands = new Set(selected.map((item) => durationBand(item.rental_days)));
+    const usedTypes = new Set(selected.map((item) => item.recommendation_type || ""));
+    const selectedDates = selected.map((item) => Date.parse(normalizeDate(item.start_date || item.pickup_date))).filter(Number.isFinite);
+    let best = null;
+    let bestScore = -Infinity;
+    for (const item of unique) {
+      if (selected.includes(item)) continue;
+      const itemDate = Date.parse(normalizeDate(item.start_date || item.pickup_date));
+      const dateDistance = selectedDates.length && Number.isFinite(itemDate)
+        ? Math.min(...selectedDates.map((value) => Math.abs(value - itemDate))) / 86400000
+        : 30;
+      const score =
+        (usedLocations.has(item.location) ? 0 : 1000)
+        + (usedKinds.has(locationKind(item.location)) ? 0 : 100)
+        + (usedBands.has(durationBand(item.rental_days)) ? 0 : 40)
+        + (usedTypes.has(item.recommendation_type || "") ? 0 : 20)
+        + Math.min(dateDistance, 30);
+      if (score > bestScore) {
+        best = item;
+        bestScore = score;
+      }
     }
-    if (usedLocations.has(item.location) && usedLocations.size < 4) {
-      continue;
-    }
-    selected.push(item);
-    usedLocations.add(item.location);
-  }
-  for (const item of unique) {
-    if (selected.length >= sampleSize) {
-      break;
-    }
-    if (!selected.includes(item)) {
-      selected.push(item);
-    }
+    selected.push(best);
   }
   return selected;
 }
@@ -101,7 +124,7 @@ function extractLiveMmRate(payload, location) {
   const mm = payload?.mm_cars_rental_by_location?.[location];
   const top3 = payload?.top_3_by_location?.[location] || [];
   const dailyRate = getDailyRate(mm);
-  const rankIndex = top3.findIndex((item) => item?.provider_name === "MM Cars Rental");
+  const rankIndex = top3.findIndex((item) => normalizeProvider(item?.provider_name).includes("mm cars rental"));
   return {
     dailyRate,
     rank: rankIndex >= 0 ? rankIndex + 1 : "outside_top3",

@@ -971,7 +971,26 @@ function writeJsonAtomic(filePath, payload) {
   ensureParentDir(filePath);
   const tmpPath = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
-  fs.renameSync(tmpPath, filePath);
+  let lastError = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.renameSync(tmpPath, filePath);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!["EPERM", "EACCES", "EBUSY"].includes(error?.code)) {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+    }
+  }
+
+  try {
+    fs.copyFileSync(tmpPath, filePath);
+    fs.unlinkSync(tmpPath);
+  } catch {
+    throw lastError;
+  }
 }
 
 function timestampForFile() {
@@ -1075,12 +1094,14 @@ function createCheckpointController({ enabled, checkpointPath, runSignature, cli
     state.updated_at = new Date().toISOString();
     state.completed_count = Object.keys(state.completed).length;
 
-    writeQueue = writeQueue.then(() => writeJsonAtomic(checkpointPath, state));
+    writeQueue = writeQueue
+      .catch(() => undefined)
+      .then(() => writeJsonAtomic(checkpointPath, state));
     await writeQueue;
   }
 
   async function flush() {
-    await writeQueue;
+    await writeQueue.catch(() => undefined);
   }
 
   async function clear() {
@@ -1661,6 +1682,21 @@ async function main() {
 
   payload.execution_duration_ms = executionDurationMs;
   payload.execution_duration_seconds = executionDurationSeconds;
+  const failedScenarioCount = scenarioPayloads.filter(
+    (scenario) => !(scenario.results || []).length && (scenario.errors || []).length
+  ).length;
+  const locationErrorCount = scenarioPayloads.reduce(
+    (sum, scenario) => sum + (scenario.errors || []).length,
+    0
+  );
+  const hasAnyResults = scenarioPayloads.some((scenario) => (scenario.results || []).length > 0);
+  payload.run_status = !hasAnyResults
+    ? "failure"
+    : failedScenarioCount > 0 || locationErrorCount > 0
+      ? "degraded"
+      : "success";
+  payload.failed_scenario_count = failedScenarioCount;
+  payload.location_error_count = locationErrorCount;
 
   if (cli.jsonOnly) {
     process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
@@ -1682,9 +1718,10 @@ async function main() {
     console.log(`Total execution time (start -> results): ${executionDurationLabel} (${executionDurationMs} ms)`);
   }
 
-  const hasAnyResults = scenarioPayloads.some((scenario) => (scenario.results || []).length > 0);
   if (!hasAnyResults) {
     process.exitCode = 1;
+  } else if (payload.run_status === "degraded") {
+    process.exitCode = 2;
   }
 }
 

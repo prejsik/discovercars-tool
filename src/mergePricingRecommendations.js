@@ -11,6 +11,13 @@ function listRecommendations(payload) {
   return [];
 }
 
+function listDecisions(payload) {
+  if (payload && Array.isArray(payload.decisions)) {
+    return payload.decisions;
+  }
+  return listRecommendations(payload);
+}
+
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -49,8 +56,9 @@ function countActiveRecommendations(items) {
 }
 
 function mergePricingRecommendations(basePayload, updatePayload, now = new Date()) {
-  const baseRecommendations = listRecommendations(basePayload);
-  const updateRecommendations = listRecommendations(updatePayload);
+  const decisionAware = Array.isArray(basePayload?.decisions) || Array.isArray(updatePayload?.decisions);
+  const baseRecommendations = decisionAware ? listDecisions(basePayload) : listRecommendations(basePayload);
+  const updateRecommendations = decisionAware ? listDecisions(updatePayload) : listRecommendations(updatePayload);
   const updateByKey = new Map();
 
   for (const item of updateRecommendations) {
@@ -68,8 +76,12 @@ function mergePricingRecommendations(basePayload, updatePayload, now = new Date(
   }
   merged.push(...updateRecommendations);
   merged.sort(compareRecommendations);
+  const includeNoop = Boolean(updatePayload?.options?.includeNoop || basePayload?.options?.includeNoop);
+  const publishedRecommendations = decisionAware && !includeNoop
+    ? merged.filter((item) => item?.action !== "hold")
+    : merged;
 
-  return {
+  const output = {
     generated_at: now.toISOString(),
     source_generated_at: updatePayload?.source_generated_at || updatePayload?.generated_at || basePayload?.source_generated_at || null,
     options: updatePayload?.options || basePayload?.options || {},
@@ -79,12 +91,18 @@ function mergePricingRecommendations(basePayload, updatePayload, now = new Date(
       base_count: baseRecommendations.length,
       update_count: updateRecommendations.length,
       replaced_count: replacedCount,
-      final_count: merged.length
+      final_count: merged.length,
+      covered_scope_count: updateByKey.size,
+      decision_aware: decisionAware
     },
-    recommendation_count: countActiveRecommendations(merged),
+    recommendation_count: countActiveRecommendations(publishedRecommendations),
     skipped_count: Number(basePayload?.skipped_count || 0) + Number(updatePayload?.skipped_count || 0),
-    recommendations: merged
+    recommendations: publishedRecommendations
   };
+  if (decisionAware) {
+    output.decisions = merged;
+  }
+  return output;
 }
 
 function loadJson(filePath) {

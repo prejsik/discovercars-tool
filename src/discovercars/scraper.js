@@ -36,6 +36,16 @@ const IGNORED_API_PROVIDER_PATTERNS = [
   /^discovercars\s*choice$/i
 ];
 const DEFAULT_API_DOM_SANITY_RATE = 0.05;
+const DEFAULT_API_TIMEOUT_MS = 20_000;
+const DEFAULT_GEO_LOCATION_OVERRIDES = Object.freeze({
+  "galeria krakowska shopping mall": Object.freeze({
+    latitude: 50.0662682,
+    longitude: 19.9461205,
+    radiusMeters: 20_000,
+    geoLocationName: "Pawia 5, 31-154 Krakow, Poland"
+  })
+});
+const SHARED_LOCATION_CANDIDATE_CACHE = new Map();
 
 function clampPositiveInteger(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(value, 10);
@@ -57,7 +67,7 @@ function normalizeSpeedMode(value) {
 class DiscoverCarsScraper {
   constructor(config) {
     this.config = config;
-    this.locationCandidateCache = new Map();
+    this.locationCandidateCache = config.locationCandidateCache || SHARED_LOCATION_CANDIDATE_CACHE;
   }
 
   async run() {
@@ -300,10 +310,49 @@ class DiscoverCarsScraper {
       return true;
     }
 
+    const pickup = new Date(`${this.config.pickupDate}T00:00:00Z`);
+    const dropoff = new Date(`${this.config.dropoffDate}T00:00:00Z`);
+    const rentalDays = Math.max(1, Math.round((dropoff - pickup) / 86400000));
+    const apiSorted = [...apiList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
+    const browserSorted = [...browserList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
+    const pairs = [
+      [apiSorted[0], browserSorted[0]],
+      [apiSorted[1], browserSorted[1]],
+      [
+        apiList.find((offer) => isMmCarsRentalProvider(offer.provider)),
+        browserList.find((offer) => isMmCarsRentalProvider(offer.provider))
+      ]
+    ];
+    for (const [apiOffer, browserOffer] of pairs) {
+      if (!apiOffer || !browserOffer) {
+        continue;
+      }
+      if (String(apiOffer.currency || "").toUpperCase() !== String(browserOffer.currency || "").toUpperCase()) {
+        return true;
+      }
+      const apiTotal = Number(apiOffer.totalPrice);
+      const browserTotal = Number(browserOffer.totalPrice);
+      const tolerance = Math.max(2 * rentalDays, Math.abs(browserTotal) * 0.02);
+      if (Number.isFinite(apiTotal) && Number.isFinite(browserTotal) && Math.abs(apiTotal - browserTotal) > tolerance) {
+        return true;
+      }
+    }
+
     return false;
   }
 
   async runSingleLocationViaApi(location) {
+    const geoLocation = resolveGeoLocationOverride(location, this.config.geoLocationOverrides);
+    if (geoLocation) {
+      const search = await this.createGeoSearch(geoLocation);
+      const payload = await fetchJson(
+        search.apiUrl,
+        this.getApiTimeoutMs(),
+        this.config.currency
+      );
+      return this.buildApiOutcome(payload, location, search.apiUrl);
+    }
+
     const candidates = await this.resolveLocationCandidatesViaApi(location);
     if (!candidates.length) {
       throw new Error("No location candidates found in DiscoverCars autocomplete API.");
@@ -315,26 +364,75 @@ class DiscoverCarsScraper {
 
     for (const candidate of uniqueCandidates) {
       const searchUrl = this.buildDirectSearchApiUrl(baseUrl.origin, candidate.placeID);
-      const payload = await fetchJson(searchUrl, this.config.timeoutMs, this.config.currency);
-      const apiOffers = this.filterOffersByConfiguredTransmission(
-        extractOffersFromSearchApiPayload(payload, location, searchUrl)
-      );
-      const locationOffers = selectBestOffersByProvider(
-        apiOffers,
-        location,
-        this.config.maxProvidersPerLocation,
-        ["MM Cars Rental"]
-      );
-      if (locationOffers.length) {
-        return {
-          ok: true,
-          cheapest: locationOffers[0],
-          results: locationOffers
-        };
+      const payload = await fetchJson(searchUrl, this.getApiTimeoutMs(), this.config.currency);
+      try {
+        return this.buildApiOutcome(payload, location, searchUrl);
+      } catch {
+        continue;
       }
     }
 
     throw new Error("No automatic offers extracted from DiscoverCars search API.");
+  }
+
+  buildApiOutcome(payload, location, sourceUrl) {
+    if (!searchApiPayloadMatchesPeriod(payload, this.config)) {
+      throw new Error("DiscoverCars search API returned offers for an unexpected rental period.");
+    }
+
+    const apiOffers = this.filterOffersByConfiguredTransmission(
+      extractOffersFromSearchApiPayload(payload, location, sourceUrl)
+    );
+    const locationOffers = selectBestOffersByProvider(
+      apiOffers,
+      location,
+      this.config.maxProvidersPerLocation,
+      ["MM Cars Rental"]
+    );
+    if (!locationOffers.length) {
+      throw new Error("No automatic offers extracted from DiscoverCars search API.");
+    }
+    return {
+      ok: true,
+      cheapest: locationOffers[0],
+      results: locationOffers
+    };
+  }
+
+  getApiTimeoutMs() {
+    const pageTimeoutMs = clampPositiveInteger(this.config.timeoutMs, 45_000, 5_000, 180_000);
+    return clampPositiveInteger(
+      this.config.apiTimeoutMs,
+      Math.min(pageTimeoutMs, DEFAULT_API_TIMEOUT_MS),
+      5_000,
+      60_000
+    );
+  }
+
+  async createGeoSearch(geoLocation) {
+    const origin = new URL(this.config.baseUrl).origin;
+    const createUrl = `${origin}/api/v2/search/create-search?`;
+    const created = await fetchJson(
+      createUrl,
+      this.getApiTimeoutMs(),
+      this.config.currency,
+      2,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildGeoSearchPayload(this.config, geoLocation))
+      }
+    );
+    const guid = normalizeWhitespace(created?.data?.guid);
+    const sq = normalizeWhitespace(created?.data?.sq);
+    if (!created?.success || !guid || !sq) {
+      throw new Error("DiscoverCars geo search could not be created.");
+    }
+
+    return {
+      apiUrl: `${origin}/api/v2/search/${guid}?sq=${encodeURIComponent(sq)}&searchVersion=2`,
+      pageUrl: new URL(created.data.url || `/search/${guid}?sq=${encodeURIComponent(sq)}&searchVersion=2`, origin).toString()
+    };
   }
 
   isFastMode() {
@@ -354,7 +452,7 @@ class DiscoverCarsScraper {
         .catch(() => {});
     }
 
-    if (!this.isFastMode() || normalizeTransmissionFilter(this.config.transmissionFilter)) {
+    if (!this.isFastMode()) {
       return;
     }
 
@@ -370,6 +468,11 @@ class DiscoverCarsScraper {
   }
 
   async tryDirectSearchFlow(page, location, collector) {
+    const geoLocation = resolveGeoLocationOverride(location, this.config.geoLocationOverrides);
+    if (geoLocation) {
+      return await this.tryDirectGeoSearchFlow(page, location, collector, geoLocation);
+    }
+
     const candidates = await this.resolveLocationCandidates(page, location);
     if (!candidates.length) {
       return [];
@@ -413,8 +516,27 @@ class DiscoverCarsScraper {
     return [];
   }
 
+  async tryDirectGeoSearchFlow(page, location, collector, geoLocation) {
+    collector.clear();
+    const search = await this.createGeoSearch(geoLocation);
+    await page.goto(search.pageUrl, { waitUntil: "domcontentloaded" });
+    await this.waitForResults(page);
+    await this.waitForCollectorOffers(collector, 1000);
+
+    const domOffers = await this.extractOffersFromDomWithScroll(page, location);
+    const pageScriptOffers = await this.extractOffersFromPageScripts(page, location);
+    const collectorOffers = collector.getOffers();
+    const offers = dedupeOffers([...domOffers, ...pageScriptOffers, ...collectorOffers]);
+    const visibleFilteredOffers = this.filterOffersByConfiguredTransmission(domOffers);
+    const filteredOffers = this.filterOffersByConfiguredTransmission(offers);
+    if (normalizeTransmissionFilter(this.config.transmissionFilter) && !visibleFilteredOffers.length) {
+      return [];
+    }
+    return filteredOffers;
+  }
+
   async resolveLocationCandidates(page, location) {
-    const cacheKey = normalizeWhitespace(location).toLowerCase();
+    const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
       return [...this.locationCandidateCache.get(cacheKey)];
     }
@@ -445,7 +567,7 @@ class DiscoverCarsScraper {
   }
 
   async resolveLocationCandidatesViaApi(location) {
-    const cacheKey = normalizeWhitespace(location).toLowerCase();
+    const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
       return [...this.locationCandidateCache.get(cacheKey)];
     }
@@ -542,6 +664,9 @@ class DiscoverCarsScraper {
 
     try {
       const payload = await response.json();
+      if (/\/api\/v2\/search\//i.test(url) && !searchApiPayloadMatchesPeriod(payload, this.config)) {
+        return;
+      }
       const offers = this.extractOffersFromUnknownPayload(payload, fallbackLocation, url);
       if (offers.length) {
         collector.add(offers);
@@ -1607,6 +1732,73 @@ function isMmCarsRentalProvider(provider) {
   return normalized.includes("mm cars rental");
 }
 
+function resolveGeoLocationOverride(location, configuredOverrides = {}) {
+  const normalizedLocation = normalizeWhitespace(location).toLowerCase();
+  const configuredEntry = Object.entries(configuredOverrides || {}).find(
+    ([key]) => normalizeWhitespace(key).toLowerCase() === normalizedLocation
+  );
+  const raw = configuredEntry?.[1] || DEFAULT_GEO_LOCATION_OVERRIDES[normalizedLocation];
+  const latitude = Number(raw?.latitude);
+  const longitude = Number(raw?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  return {
+    latitude,
+    longitude,
+    radiusMeters: clampPositiveInteger(raw.radiusMeters ?? raw.radius_meters, 20_000, 1_000, 100_000),
+    geoLocationName: normalizeWhitespace(raw.geoLocationName || raw.geo_location_name || location)
+  };
+}
+
+function buildGeoSearchPayload(config, geoLocation) {
+  const pickupTime = normalizeWhitespace(config.pickupTime || "11:00");
+  const dropoffTime = normalizeWhitespace(config.dropoffTime || "11:00");
+  return {
+    is_drop_off: false,
+    pick_up_country_id: 0,
+    pick_up_city_id: 0,
+    pick_up_location_id: 0,
+    pickup_id: 0,
+    drop_off_country_id: 0,
+    drop_off_city_id: 0,
+    drop_off_location_id: 0,
+    dropoff_id: 0,
+    pickup_from: `${config.pickupDate} ${pickupTime}`,
+    pickup_to: `${config.dropoffDate} ${dropoffTime}`,
+    pick_time: pickupTime,
+    drop_time: dropoffTime,
+    driver_age: String(Number.isFinite(config.driverAge) ? config.driverAge : 30),
+    residence_country: normalizeCountryCode(config.residenceCountry) || "PL",
+    partnerID: 0,
+    excludeLocations: 0,
+    recent_search: 0,
+    isWhitelabel: false,
+    latitude: geoLocation.latitude,
+    longitude: geoLocation.longitude,
+    radius_meters: geoLocation.radiusMeters,
+    geo_location_name: geoLocation.geoLocationName
+  };
+}
+
+function searchApiPayloadMatchesPeriod(payload, config) {
+  const offers = Array.isArray(payload?.data?.offers) ? payload.data.offers : [];
+  const expectedPickup = `${config.pickupDate}T${normalizeWhitespace(config.pickupTime || "11:00")}:00`;
+  const expectedDropoff = `${config.dropoffDate}T${normalizeWhitespace(config.dropoffTime || "11:00")}:00`;
+
+  for (const offer of offers) {
+    const pickup = normalizeWhitespace(offer?.pickupClosingInfo?.pickupDatetime);
+    const dropoff = normalizeWhitespace(offer?.pickupClosingInfo?.dropoffDatetime);
+    if (pickup && !pickup.startsWith(expectedPickup)) {
+      return false;
+    }
+    if (dropoff && !dropoff.startsWith(expectedDropoff)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function transmissionFromSearchApiOffer(offer) {
   const automaticFlag = offer?.vehicle?.specifications?.isAutomaticTransmission;
   if (automaticFlag === 1 || automaticFlag === true || automaticFlag === "1") {
@@ -1674,29 +1866,43 @@ function extractOffersFromSearchApiPayload(payload, fallbackLocation, sourceUrl 
   return dedupeOffers(offers);
 }
 
-async function fetchJson(url, timeoutMs, currency = "PLN") {
+async function fetchJson(url, timeoutMs, currency = "PLN", retries = 2, requestOptions = {}) {
   if (typeof fetch !== "function") {
     throw new Error("Node fetch API is unavailable.");
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), clampPositiveInteger(timeoutMs, 45000, 5000, 180000));
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        accept: "application/json",
-        "user-agent": "Mozilla/5.0 DiscoverCars scraper",
-        cookie: `currency=${normalizeCurrency(currency || "PLN") || "PLN"}`
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), clampPositiveInteger(timeoutMs, 45000, 5000, 180000));
+    try {
+      const response = await fetch(url, {
+        ...requestOptions,
+        signal: controller.signal,
+        headers: {
+          accept: "application/json",
+          "user-agent": "Mozilla/5.0 DiscoverCars scraper",
+          cookie: `currency=${normalizeCurrency(currency || "PLN") || "PLN"}`,
+          ...(requestOptions.headers || {})
+        }
+      });
+      if (!response.ok) {
+        const error = new Error(`DiscoverCars API returned HTTP ${response.status}.`);
+        error.retryable = response.status === 429 || response.status >= 500;
+        throw error;
       }
-    });
-    if (!response.ok) {
-      throw new Error(`DiscoverCars API returned HTTP ${response.status}.`);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || error?.retryable === false) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
+    } finally {
+      clearTimeout(timeout);
     }
-    return await response.json();
-  } finally {
-    clearTimeout(timeout);
   }
+  throw lastError;
 }
 
 function normalizeRatingValue(value) {
@@ -2034,6 +2240,9 @@ function normalizeCountryCode(value) {
 }
 
 module.exports = {
+  buildGeoSearchPayload,
   DiscoverCarsScraper,
-  extractOffersFromSearchApiPayload
+  extractOffersFromSearchApiPayload,
+  resolveGeoLocationOverride,
+  searchApiPayloadMatchesPeriod
 };

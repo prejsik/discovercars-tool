@@ -44,10 +44,79 @@ function hasLocationData(scenario, location) {
   return Boolean(data && (Array.isArray(data.top_3) && data.top_3.length > 0));
 }
 
-function buildQualityAlerts({ results, recommendations, excelSummary, sanityCheck, expectedLocations }) {
+function hasMmData(scenario, location) {
+  return Boolean(scenario?.top_3_plus_mm_by_location?.[location]?.mm_cars_rental);
+}
+
+function listOfferCurrencies(scenario, location) {
+  const data = scenario?.top_3_plus_mm_by_location?.[location] || {};
+  return [...new Set(
+    [...(data.top_3 || []), data.mm_cars_rental]
+      .filter(Boolean)
+      .map((offer) => String(offer.currency || "").trim().toUpperCase())
+      .filter(Boolean)
+  )];
+}
+
+function buildScrapeQualityReport({ results, expectedLocations }) {
+  const scenarios = listScenarios(results);
+  const locations = splitCsv(expectedLocations || results?.locations?.join(","));
+  const coverage = [];
+  let missingTop3Count = 0;
+  let missingMmCount = 0;
+  let invalidCurrencyCount = 0;
+
+  for (const location of locations) {
+    const top3Count = scenarios.filter((scenario) => hasLocationData(scenario, location)).length;
+    const mmCount = scenarios.filter((scenario) => hasMmData(scenario, location)).length;
+    const invalidCurrencyScenarios = scenarios.filter((scenario) => {
+      const currencies = listOfferCurrencies(scenario, location);
+      return currencies.length > 1 || currencies.some((currency) => currency !== "PLN");
+    }).length;
+    missingTop3Count += Math.max(0, scenarios.length - top3Count);
+    missingMmCount += Math.max(0, scenarios.length - mmCount);
+    invalidCurrencyCount += invalidCurrencyScenarios;
+    coverage.push({
+      location,
+      scenario_count: scenarios.length,
+      top3_count: top3Count,
+      mm_count: mmCount,
+      invalid_currency_count: invalidCurrencyScenarios
+    });
+  }
+
+  const expectedChecks = scenarios.length * locations.length;
+  const top3Coverage = expectedChecks ? (expectedChecks - missingTop3Count) / expectedChecks : 0;
+  const failedScenarioCount = scenarios.filter(
+    (scenario) => !(scenario.results || []).length && (scenario.errors || []).length
+  ).length;
+  const chunkFailureCount = Array.isArray(results?.chunk_failures) ? results.chunk_failures.length : 0;
+  let status = "success";
+  if (!results || !scenarios.length || invalidCurrencyCount > 0 || top3Coverage < 0.95) {
+    status = "failure";
+  } else if (missingTop3Count > 0 || missingMmCount > 0 || failedScenarioCount > 0 || chunkFailureCount > 0) {
+    status = "degraded";
+  }
+
+  return {
+    status,
+    scenario_count: scenarios.length,
+    expected_location_check_count: expectedChecks,
+    top3_coverage_percent: Number((top3Coverage * 100).toFixed(2)),
+    missing_top3_count: missingTop3Count,
+    missing_mm_count: missingMmCount,
+    invalid_currency_count: invalidCurrencyCount,
+    failed_scenario_count: failedScenarioCount,
+    chunk_failure_count: chunkFailureCount,
+    coverage
+  };
+}
+
+function buildQualityReport({ results, recommendations, excelSummary, sanityCheck, expectedLocations, scrapeOnly = false }) {
   const alerts = [];
   const scenarios = listScenarios(results);
   const locations = splitCsv(expectedLocations);
+  const scrape = buildScrapeQualityReport({ results, expectedLocations });
 
   if (!results) {
     alerts.push("Brak pliku results-latest.json.");
@@ -61,7 +130,22 @@ function buildQualityAlerts({ results, recommendations, excelSummary, sanityChec
       if (missingCount > 0) {
         alerts.push(`Brak danych dla ${location}: ${missingCount}/${scenarios.length} scenariuszy.`);
       }
+      const missingMmCount = scenarios.filter((scenario) => !hasMmData(scenario, location)).length;
+      if (missingMmCount > 0) {
+        alerts.push(`Brak MM Cars Rental dla ${location}: ${missingMmCount}/${scenarios.length} scenariuszy.`);
+      }
     }
+  }
+
+  if (scrape.invalid_currency_count > 0) {
+    alerts.push(`Nieprawidlowa lub mieszana waluta: ${scrape.invalid_currency_count} scenariuszy/lokalizacji.`);
+  }
+  if (scrape.chunk_failure_count > 0) {
+    alerts.push(`Niepelne chunki scrapera po retry: ${scrape.chunk_failure_count}.`);
+  }
+
+  if (scrapeOnly) {
+    return { ...scrape, alert_count: alerts.length, alerts };
   }
 
   if (!recommendations) {
@@ -101,7 +185,20 @@ function buildQualityAlerts({ results, recommendations, excelSummary, sanityChec
     }
   }
 
-  return alerts;
+  let status = scrape.status;
+  const failedExcelValidation = Array.isArray(excelSummary?.validation)
+    && excelSummary.validation.some((row) => row?.status === "FAIL");
+  if (!recommendations || !excelSummary || failedExcelValidation) {
+    status = "failure";
+  } else if (status === "success" && alerts.length) {
+    status = "degraded";
+  }
+
+  return { ...scrape, status, alert_count: alerts.length, alerts };
+}
+
+function buildQualityAlerts(input) {
+  return buildQualityReport(input).alerts;
 }
 
 function parseArgs(argv) {
@@ -118,17 +215,15 @@ function parseArgs(argv) {
 
 function runCli(argv) {
   const args = parseArgs(argv);
-  const alerts = buildQualityAlerts({
+  const report = buildQualityReport({
     results: readJsonIfExists(args.results),
     recommendations: readJsonIfExists(args.recommendations),
     excelSummary: readJsonIfExists(args["excel-summary"]),
     sanityCheck: readJsonIfExists(args["sanity-check"]),
-    expectedLocations: args.locations
+    expectedLocations: args.locations,
+    scrapeOnly: Object.prototype.hasOwnProperty.call(args, "scrape-only")
   });
-  const output = {
-    alert_count: alerts.length,
-    alerts
-  };
+  const output = report;
   const outputPath = args.output ? path.resolve(args.output) : null;
   if (outputPath) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -143,5 +238,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildQualityAlerts
+  buildQualityAlerts,
+  buildQualityReport,
+  buildScrapeQualityReport
 };

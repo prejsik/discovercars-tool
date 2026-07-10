@@ -2,13 +2,19 @@ const assert = require("node:assert/strict");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
-const { extractOffersFromSearchApiPayload } = require("../src/discovercars/scraper");
+const {
+  buildGeoSearchPayload,
+  DiscoverCarsScraper,
+  extractOffersFromSearchApiPayload,
+  resolveGeoLocationOverride,
+  searchApiPayloadMatchesPeriod
+} = require("../src/discovercars/scraper");
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport } = require("../src/reportHtml");
 const { buildSanityComparison, selectSanitySample } = require("../src/mmRateSanityCheck");
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
-const { buildQualityAlerts } = require("../src/workflowQualityAlerts");
+const { buildQualityAlerts, buildScrapeQualityReport } = require("../src/workflowQualityAlerts");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
 const { parseArgs: parseChunkedArgs } = require("../src/runDiscovercarsChunked");
 const {
@@ -128,6 +134,47 @@ runTest("DiscoverCars search API parser uses data.offers and ignores filter pseu
   assert.equal(filterOffersByTransmission(offers, "automatic")[0].provider, "Automatic Supplier");
 });
 
+runTest("Galeria Krakowska uses the direct geo-search payload", () => {
+  const geoLocation = resolveGeoLocationOverride("Galeria Krakowska Shopping Mall");
+  assert.equal(geoLocation.latitude, 50.0662682);
+  assert.equal(geoLocation.longitude, 19.9461205);
+
+  const payload = buildGeoSearchPayload({
+    pickupDate: "2026-07-20",
+    pickupTime: "11:00",
+    dropoffDate: "2026-07-22",
+    dropoffTime: "11:00",
+    residenceCountry: "Poland",
+    driverAge: 30
+  }, geoLocation);
+  assert.equal(payload.pickup_from, "2026-07-20 11:00");
+  assert.equal(payload.pickup_to, "2026-07-22 11:00");
+  assert.equal(payload.radius_meters, 20000);
+  assert.equal(payload.residence_country, "PL");
+});
+
+runTest("DiscoverCars API period guard rejects stale search results", () => {
+  const config = {
+    pickupDate: "2026-07-20",
+    pickupTime: "11:00",
+    dropoffDate: "2026-07-22",
+    dropoffTime: "11:00"
+  };
+  const payload = {
+    data: {
+      offers: [{
+        pickupClosingInfo: {
+          pickupDatetime: "2026-07-20T11:00:00+02:00",
+          dropoffDatetime: "2026-07-22T11:00:00+02:00"
+        }
+      }]
+    }
+  };
+  assert.equal(searchApiPayloadMatchesPeriod(payload, config), true);
+  payload.data.offers[0].pickupClosingInfo.pickupDatetime = "2026-07-12T11:00:00+02:00";
+  assert.equal(searchApiPayloadMatchesPeriod(payload, config), false);
+});
+
 runTest("mergePayloads combines chunked scenarios in date and duration order", () => {
   const merged = mergePayloads([
     {
@@ -168,6 +215,58 @@ runTest("mergePayloads combines chunked scenarios in date and duration order", (
   assert.equal(merged.merge_meta.source_files.length, 2);
 });
 
+runTest("mergePayloads refreshes only locations present in a partial update", () => {
+  const base = {
+    generated_at: "2026-07-09T01:00:00.000Z",
+    locations: ["Airport", "City"],
+    scenarios: [{
+      scenario_id: "date-20260710-2d",
+      start_date: "2026-07-10",
+      rental_days: 2,
+      generated_at: "2026-07-09T01:00:00.000Z",
+      results: [{ location: "Airport", total_price: 100 }, { location: "City", total_price: 110 }],
+      errors: [],
+      top_3_plus_mm_by_location: {
+        Airport: { top_3: [{ total_price: 100 }] },
+        City: { top_3: [{ total_price: 110 }] }
+      }
+    }]
+  };
+  const update = {
+    generated_at: "2026-07-09T05:00:00.000Z",
+    locations: ["Airport"],
+    scenarios: [{
+      scenario_id: "date-20260710-2d",
+      start_date: "2026-07-10",
+      rental_days: 2,
+      results: [{ location: "Airport", total_price: 90 }],
+      errors: [],
+      top_3_plus_mm_by_location: { Airport: { top_3: [{ total_price: 90 }] } }
+    }]
+  };
+
+  const merged = mergePayloads([base, update], ["base/results.json", "update/results.json"]);
+  const scenario = merged.scenarios[0];
+  assert.equal(scenario.top_3_plus_mm_by_location.Airport.top_3[0].total_price, 90);
+  assert.equal(scenario.top_3_plus_mm_by_location.City.top_3[0].total_price, 110);
+  assert.equal(scenario.source_generated_at_by_location.Airport, "2026-07-09T05:00:00.000Z");
+  assert.equal(scenario.source_generated_at_by_location.City, "2026-07-09T01:00:00.000Z");
+  assert.equal(merged.merge_meta.partial_scenario_merge_count, 1);
+});
+
+runTest("API DOM sanity prefers browser when comparable prices differ materially", () => {
+  const scraper = new DiscoverCarsScraper({ pickupDate: "2026-07-10", dropoffDate: "2026-07-12" });
+  const api = [
+    { provider: "MM Cars Rental", totalPrice: 100, currency: "PLN" },
+    { provider: "Other", totalPrice: 110, currency: "PLN" },
+    { provider: "Third", totalPrice: 120, currency: "PLN" }
+  ];
+  const browser = api.map((item) => ({ ...item }));
+  assert.equal(scraper.shouldPreferBrowserOutcome(api, browser), false);
+  browser[0].totalPrice = 120;
+  assert.equal(scraper.shouldPreferBrowserOutcome(api, browser), true);
+});
+
 runTest("chunked runner expands rolling days into ISO start dates", () => {
   const options = parseChunkedArgs([
     "--rolling-days=3",
@@ -179,6 +278,7 @@ runTest("chunked runner expands rolling days into ISO start dates", () => {
   assert.equal(options.startDates.length, 3);
   assert.deepEqual(options.durations, [2]);
   assert.deepEqual(options.locations, ["Warsaw"]);
+  assert.equal(options.locationConcurrency, 3);
   for (const startDate of options.startDates) {
     assert.match(startDate, /^\d{4}-\d{2}-\d{2}$/);
   }
@@ -203,6 +303,7 @@ runTest("loadConfig merges repeated locations and validates required fields", ()
   assert.deepEqual(config.locations, ["Warsaw", "Krakow"]);
   assert.equal(config.pickupDate, "2026-05-15");
   assert.equal(config.dropoffTime, "10:00");
+  assert.equal(config.apiTimeoutMs, 20000);
 });
 
 runTest("toCsv writes stable header and row data", () => {
@@ -258,6 +359,9 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /MM Cars Rental \(8\.8\)/);
   assert.match(html, /mm-close/);
   assert.match(html, /50\.00 PLN\/day/);
+  assert.match(html, /filter-location/);
+  assert.match(html, /brak MM Cars Rental/);
+  assert.match(html, /source \/ car/);
 });
 
 runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per day above MM top1", () => {
@@ -357,6 +461,32 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 P
   assert.equal(output.recommendations[0].target_rank, 1);
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 74);
   assert.match(output.recommendations[0].reason, /co najmniej 5 PLN/);
+});
+
+runTest("buildPricingRecommendations blocks mixed currencies and keeps a decision constraint", () => {
+  const output = buildPricingRecommendations({
+    generated_at: "2026-07-09T07:00:00.000Z",
+    locations: ["Warsaw"],
+    scenarios: [{
+      scenario_id: "date-20260710-2d",
+      start_date: "2026-07-10",
+      rental_days: 2,
+      top_3_plus_mm_by_location: {
+        Warsaw: {
+          top_3: [
+            { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 },
+            { provider_name: "Other", total_price: 80, currency: "EUR", rental_days: 2 }
+          ],
+          mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 }
+        }
+      }
+    }]
+  });
+
+  assert.equal(output.recommendation_count, 0);
+  assert.equal(output.decisions.length, 1);
+  assert.equal(output.decisions[0].action, "hold");
+  assert.equal(output.decisions[0].data_quality_status, "invalid_currency");
 });
 
 runTest("buildPricingRecommendations uses top1 undercut when MM is top2 and less than 10 PLN per day from top1", () => {
@@ -623,6 +753,24 @@ runTest("mergePricingRecommendations lets short run replace matching full-run re
   assert.equal(output.recommendations[2].location, "Krakow");
 });
 
+runTest("mergePricingRecommendations removes a stale active recommendation when fresh decision is hold", () => {
+  const output = mergePricingRecommendations(
+    {
+      decisions: [{ action: "increase", location: "Warsaw", start_date: "2026-07-10", rental_days: 2 }],
+      recommendations: [{ action: "increase", location: "Warsaw", start_date: "2026-07-10", rental_days: 2 }]
+    },
+    {
+      decisions: [{ action: "hold", location: "Warsaw", start_date: "2026-07-10", rental_days: 2 }],
+      recommendations: []
+    }
+  );
+
+  assert.equal(output.decisions.length, 1);
+  assert.equal(output.decisions[0].action, "hold");
+  assert.equal(output.recommendations.length, 0);
+  assert.equal(output.recommendation_count, 0);
+});
+
 runTest("buildQualityAlerts reports missing city data and workbook warnings", () => {
   const alerts = buildQualityAlerts({
     expectedLocations: "Warsaw,Krakow",
@@ -658,6 +806,39 @@ runTest("buildQualityAlerts reports missing city data and workbook warnings", ()
   assert(alerts.some((item) => item.includes("Validation WARNING")));
 });
 
+runTest("buildScrapeQualityReport distinguishes missing MM from missing top3 and rejects non-PLN", () => {
+  const degraded = buildScrapeQualityReport({
+    expectedLocations: "Warsaw",
+    results: {
+      scenarios: [{
+        results: [{ location: "Warsaw" }],
+        errors: [],
+        top_3_plus_mm_by_location: {
+          Warsaw: { top_3: [{ provider_name: "Other", currency: "PLN" }], mm_cars_rental: null }
+        }
+      }]
+    }
+  });
+  assert.equal(degraded.status, "degraded");
+  assert.equal(degraded.missing_top3_count, 0);
+  assert.equal(degraded.missing_mm_count, 1);
+
+  const failed = buildScrapeQualityReport({
+    expectedLocations: "Warsaw",
+    results: {
+      scenarios: [{
+        results: [{ location: "Warsaw" }],
+        errors: [],
+        top_3_plus_mm_by_location: {
+          Warsaw: { top_3: [{ provider_name: "Other", currency: "EUR" }], mm_cars_rental: null }
+        }
+      }]
+    }
+  });
+  assert.equal(failed.status, "failure");
+  assert.equal(failed.invalid_currency_count, 1);
+});
+
 runTest("selectSanitySample picks active unique recommendation scenarios", () => {
   const sample = selectSanitySample({
     recommendations: [
@@ -674,6 +855,23 @@ runTest("selectSanitySample picks active unique recommendation scenarios", () =>
     "Gdansk-2026-06-21-3",
     "Warsaw-2026-06-20-2"
   ]);
+});
+
+runTest("selectSanitySample spreads a six-item sample across locations", () => {
+  const recommendations = {
+    recommendations: ["Gdansk Airport", "Katowice Downtown", "Krakow Airport", "Poznan Downtown", "Warsaw Airport", "Wroclaw Downtown"]
+      .flatMap((location, locationIndex) => [2, 5, 10].map((rentalDays) => ({
+        action: "increase",
+        recommendation_type: locationIndex % 2 ? "top1_gap" : "top1_undercut",
+        location,
+        start_date: `2026-07-${String(10 + locationIndex).padStart(2, "0")}`,
+        rental_days: rentalDays,
+        mm_rate_pln_day: 100
+      })))
+  };
+  const sample = selectSanitySample(recommendations, 6);
+  assert.equal(sample.length, 6);
+  assert.equal(new Set(sample.map((item) => item.location)).size, 6);
 });
 
 runTest("buildSanityComparison warns when live MM rate differs from recommendation source", () => {
@@ -742,21 +940,33 @@ runTest("buildCalibrationUpdate learns broker markup from Excel observations wit
     excelSummary: {
       broker_markup_observations: {
         enabled: true,
-        count: 2,
+        count: 3,
         average_multiplier: 1.1,
+        median_multiplier: 1.1,
         average_markup_percent: 10,
         by_location: {
           Poznan: {
-            count: 2,
+            count: 3,
             average_multiplier: 1.12,
+            median_multiplier: 1.12,
             average_markup_percent: 12
           }
         },
         by_duration: {
           3: {
-            count: 2,
+            count: 3,
             average_multiplier: 1.08,
+            median_multiplier: 1.08,
             average_markup_percent: 8
+          }
+        },
+        by_location_duration: {
+          Poznan: {
+            3: {
+              count: 3,
+              average_multiplier: 1.11,
+              median_multiplier: 1.11
+            }
           }
         }
       }
@@ -764,10 +974,28 @@ runTest("buildCalibrationUpdate learns broker markup from Excel observations wit
     alpha: 0.5
   });
 
-  assert.equal(output.learning.observation_count, 2);
+  assert.equal(output.learning.observation_count, 3);
   assert.equal(output.brokerMarkupCalibration.defaultMultiplier, 1.0875);
   assert.equal(output.brokerMarkupCalibration.locationMultipliers.Poznan, 1.105);
   assert.equal(output.brokerMarkupCalibration.durationMultipliers["3"], 1.08);
+  assert.equal(output.brokerMarkupCalibration.locationDurationMultipliers.Poznan["3"], 1.11);
+});
+
+runTest("buildCalibrationUpdate ignores segments below the minimum sample count", () => {
+  const output = buildCalibrationUpdate({
+    baseConfig: { pricing: { brokerMarkupCalibration: { enabled: true, defaultMultiplier: 1.075 } } },
+    excelSummary: {
+      broker_markup_observations: {
+        enabled: true,
+        count: 1,
+        median_multiplier: 1.2,
+        by_location: { Warsaw: { count: 1, median_multiplier: 1.2 } }
+      }
+    },
+    minSamples: 3
+  });
+  assert.equal(output.brokerMarkupCalibration.defaultMultiplier, 1.075);
+  assert.equal(output.brokerMarkupCalibration.locationMultipliers.Warsaw, undefined);
 });
 
 runTest("buildQualityAlerts includes MM sanity check warnings", () => {

@@ -11,7 +11,14 @@ from openpyxl.styles import PatternFill
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.update_excel_rates import apply_updates, merge_config, parse_date_value, parse_number  # noqa: E402
+from tools.update_excel_rates import (  # noqa: E402
+    apply_updates,
+    build_validation_rows,
+    get_duration_columns,
+    merge_config,
+    parse_date_value,
+    parse_number,
+)
 
 
 def assert_equal(actual, expected, message):
@@ -100,16 +107,16 @@ def build_workbook(path):
         "Per day",
     ])
     rows = [
-        ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["CGAV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["EDAH", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["EDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["IDAH", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["SWAV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "11-06-26", 160, 70, 80, 90, 100, 120],
-        ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "11-06-26", "12-06-26", 160, 90, 80, 90, 100, 120],
-        ["EDAH", None, None, "WA1", "09-06-26", "10-06-26", "11-06-26", "12-06-26", 160, 90, 80, 90, 100, 120],
-        ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "25-06-26", "26-06-26", 160, 90, 80, 90, 130, 120],
-        ["EDAH", None, None, "WA1", "09-06-26", "10-06-26", "25-06-26", "26-06-26", 160, 90, 80, 90, 130, 120],
+        ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["CGAV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["EDMV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["IDAH", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["SWAV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "11-07-26", "12-07-26", 160, 90, 80, 90, 100, 120],
+        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "11-07-26", "12-07-26", 160, 90, 80, 90, 100, 120],
+        ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "25-07-26", "26-07-26", 160, 90, 80, 90, 130, 120],
+        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "25-07-26", "26-07-26", 160, 90, 80, 90, 130, 120],
     ]
     for row in rows:
         ws.append(row)
@@ -157,7 +164,7 @@ def main():
         "Gdansk Airport (GDN)": {"GDLO"},
         "Katowice Downtown": {"KA1"},
         "Katowice Airport (KTW)": {"KALO"},
-        "Krakow Train Station": {"KRDW", "KRGA"},
+        "Krakow Train Station": {"KRDW"},
         "Galeria Krakowska Shopping Mall": {"KRGA"},
         "Krakow Airport (KRK)": {"KRLO", "KRTI"},
         "Lodz Downtown": {"LO1"},
@@ -198,52 +205,52 @@ def main():
                             "recommendation_type": "top1_gap",
                             "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
-                            "start_date": "2026-06-10",
+                            "start_date": "2026-07-10",
                             "rental_days": 2,
                             "suggested_rate_pln_day": 81,
                             "mm_rate_pln_day": 70,
                             "benchmark_provider": "Flex To Go",
                             "benchmark_rate_pln_day": 82,
-                            "scenario_id": "2026-06-10-2",
+                            "scenario_id": "2026-07-10-2",
                         },
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
                             "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Warsaw",
-                            "start_date": "2026-06-10",
+                            "start_date": "2026-07-10",
                             "rental_days": 21,
                             "suggested_rate_pln_day": 80,
                             "mm_rate_pln_day": 120,
                             "benchmark_provider": "Flex To Go",
                             "benchmark_rate_pln_day": 101,
-                            "scenario_id": "2026-06-10-21",
+                            "scenario_id": "2026-07-10-21",
                         },
                         {
                             "action": "decrease",
                             "recommendation_type": "top1_undercut",
                             "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
                             "location": "Warsaw",
-                            "start_date": "2026-06-11",
+                            "start_date": "2026-07-11",
                             "rental_days": 2,
                             "suggested_rate_pln_day": 60,
                             "mm_rate_pln_day": 90,
                             "benchmark_provider": "Car24",
                             "benchmark_rate_pln_day": 61,
-                            "scenario_id": "2026-06-11-2",
+                            "scenario_id": "2026-07-11-2",
                         },
                         {
                             "action": "decrease",
                             "recommendation_type": "top3_small_decrease",
                             "reason": "Cel top3 wymaga roznicy mniejszej niz 10 PLN/dzien; cel to 1 PLN ponizej top3.",
                             "location": "Warsaw",
-                            "start_date": "2026-06-25",
+                            "start_date": "2026-07-25",
                             "rental_days": 8,
                             "suggested_rate_pln_day": 90,
                             "mm_rate_pln_day": 120,
                             "benchmark_provider": "Kaizen Rent",
                             "benchmark_rate_pln_day": 91,
-                            "scenario_id": "2026-06-25-8",
+                            "scenario_id": "2026-07-25-8",
                         }
                     ]
                 }
@@ -319,13 +326,13 @@ def main():
         assert ws["J5"].comment is not None
         assert_equal(
             ws["J5"].comment.text,
-            "Poprzednia stawka: 70 PLN\nNowa stawka: 81 PLN\nZmiana: +11 PLN",
+            "Poprzednia stawka: 70 PLN\nNowa stawka: 81 PLN\nZmiana: +11 PLN\nCel na stronie: 81 PLN\nPrognoza na stronie: 81 PLN",
             "short Sheet1 comment",
         )
         assert ws["J7"].comment is not None
         assert_equal(
             ws["J7"].comment.text,
-            "Poprzednia stawka: 70 PLN\nNowa stawka: 82 PLN\nZmiana: +12 PLN",
+            "Poprzednia stawka: 70 PLN\nNowa stawka: 82 PLN\nZmiana: +12 PLN\nCel na stronie: 81 PLN\nPrognoza na stronie: 82 PLN\nCel rankingowy: wymaga kontroli",
             "short adjusted Sheet1 comment",
         )
         assert "brutto/dzien" not in ws["N5"].comment.text
@@ -338,49 +345,51 @@ def main():
         assert_equal(rgb(changed_ws["A3"]), "FFC7CE", "top3 legend color")
         assert_equal(changed_ws["A4"].value, "Przebicie top1", "top1 undercut legend label")
         assert_equal(rgb(changed_ws["A4"]), "F4B183", "top1 undercut legend color")
-        assert_equal(changed_ws["A5"].value, "Floor i kolory stawek", "floor legend label")
-        assert "Floor cenowy" in changed_ws["B5"].value
-        assert_equal(changed_ws["O10"].value, "Komentarz zmiany", "changed sheet comment header")
-        assert_equal(changed_ws.max_row, 14, "changed sheet row count")
-        assert_equal(changed_ws["A11"].value, "CDMV, EDAH, EDMV", "first changed group set")
-        assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O11"].value
-        assert "co najmniej 5 PLN" in changed_ws["O11"].value
-        assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O11"].value
-        assert "Poprzednia stawka: 70 PLN" in changed_ws["O11"].value
-        assert "Nowa stawka: 81 PLN" in changed_ws["O11"].value
-        assert "Zmiana: +11 PLN" in changed_ws["O11"].value
-        assert "EDAH: 82 PLN" not in changed_ws["O11"].value
-        assert "EDMV: 82 PLN" not in changed_ws["O11"].value
-        assert "brutto/dzien" not in changed_ws["O11"].value
-        assert "Lokalizacja" not in changed_ws["O11"].value
-        assert "Data odbioru" not in changed_ws["O11"].value
-        assert "Duration" not in changed_ws["O11"].value
-        assert "Korekta grupy" not in changed_ws["O11"].value
-        assert "Komorka" not in changed_ws["O11"].value
-        assert "Scenario" not in changed_ws["O11"].value
-        assert "Zastosowane minimum" not in changed_ws["O11"].value
-        assert_equal(changed_ws["J11"].value, 81, "grouped base rate cell")
-        assert "Co pozwoli osiagnac: top3" in changed_ws["O14"].value
-        assert "Zastosowane minimum" not in changed_ws["O14"].value
-        assert "Minimum sezonowe" not in changed_ws["O14"].value
-        assert_equal(rgb(changed_ws["O11"]), "9DC3E6", "top1 gap row is blue")
-        assert_equal(rgb(changed_ws["O12"]), "F4B183", "top1 undercut row is orange")
-        assert_equal(rgb(changed_ws["O14"]), "FFC7CE", "top3 small decrease row is red")
-        assert changed_ws["O11"].comment is not None
+        assert_equal(changed_ws["A5"].value, "Scalanie duration", "duration aggregation legend label")
+        assert_equal(changed_ws["A6"].value, "Kontrola celu", "target verification legend label")
+        assert_equal(changed_ws["A9"].value, "Floor cenowy", "floor legend label")
+        assert "Floor cenowy" in changed_ws["B9"].value
+        assert_equal(changed_ws["O15"].value, "Komentarz zmiany", "changed sheet comment header")
+        assert_equal(changed_ws.max_row, 20, "changed sheet row count")
+        assert_equal(changed_ws["A16"].value, "CDMV", "first changed group set")
+        assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O16"].value
+        assert "co najmniej 5 PLN" in changed_ws["O16"].value
+        assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O16"].value
+        assert "Poprzednia stawka: 70 PLN" in changed_ws["O16"].value
+        assert "Nowa stawka: 81 PLN" in changed_ws["O16"].value
+        assert "Zmiana: +11 PLN" in changed_ws["O16"].value
+        assert "EDAH: 82 PLN" not in changed_ws["O16"].value
+        assert "EDMV: 82 PLN" not in changed_ws["O16"].value
+        assert "brutto/dzien" not in changed_ws["O16"].value
+        assert "Lokalizacja" not in changed_ws["O16"].value
+        assert "Data odbioru" not in changed_ws["O16"].value
+        assert "Duration" not in changed_ws["O16"].value
+        assert "Korekta grupy" not in changed_ws["O16"].value
+        assert "Komorka" not in changed_ws["O16"].value
+        assert "Scenario" not in changed_ws["O16"].value
+        assert "Zastosowane minimum" not in changed_ws["O16"].value
+        assert_equal(changed_ws["J16"].value, 81, "grouped base rate cell")
+        assert "Co pozwoli osiagnac: cel rankingowy nie jest gwarantowany" in changed_ws["O20"].value
+        assert "Zastosowane minimum" not in changed_ws["O20"].value
+        assert "Minimum sezonowe" not in changed_ws["O20"].value
+        assert_equal(rgb(changed_ws["O16"]), "9DC3E6", "top1 gap row is blue")
+        assert_equal(rgb(changed_ws["O17"]), "F4B183", "top1 undercut row is orange")
+        assert_equal(rgb(changed_ws["O20"]), "FFC7CE", "top3 small decrease row is red")
+        assert changed_ws["O16"].comment is not None
         for row in range(1, changed_ws.max_row + 1):
             for col in range(1, 15):
                 assert changed_ws.cell(row, col).comment is None
-        changed_groups = {changed_ws.cell(row, 1).value for row in range(11, changed_ws.max_row + 1)}
+        changed_groups = {changed_ws.cell(row, 1).value for row in range(16, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
         assert "IDAH" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
         assert_equal(review_ws["A1"].value, "Akceptacja?", "review header")
         assert_equal(review_ws["B1"].value, "Status", "review status header")
-        assert_equal(review_ws.max_row, 5, "review row count")
+        assert_equal(review_ws.max_row, 6, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
-        assert_equal(review_ws["F2"].value, "CDMV, EDAH, EDMV", "review grouped groups")
+        assert_equal(review_ws["F2"].value, "CDMV", "review grouped groups")
         assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
-        assert "korekta grupy" in review_ws["C2"].value or review_ws["C2"].value == "OK"
+        assert review_ws["C2"].value == "OK"
         validation_rows = {
             validation_ws.cell(row, 1).value: validation_ws.cell(row, 2).value
             for row in range(2, validation_ws.max_row + 1)
@@ -389,6 +398,20 @@ def main():
         assert_equal(validation_rows["Pickup end date = Pickup start date"], "OK", "pickup date validation")
         assert_equal(validation_rows["Puste stawki w kolumnach duration"], "OK", "blank rate validation")
         assert_equal(validation_rows["Zmienione stawki ponizej floor cenowego"], "OK", "floor validation")
+        parity_validation = build_validation_rows(
+            ws,
+            config,
+            get_duration_columns(ws, config),
+            [{"recommendation_type": "group_parity", "cell": "J5"}],
+            [],
+            {},
+        )
+        parity_validation_by_name = {row[0]: row for row in parity_validation}
+        assert_equal(
+            parity_validation_by_name["Zmienione rekomendacje bez ceny benchmarku"][2],
+            0,
+            "group parity does not require a competitor benchmark",
+        )
 
         exact_location_workbook_path = tmpdir / "exact-location-rates.xlsx"
         exact_location_recommendations_path = tmpdir / "exact-location-recommendations.json"
@@ -483,12 +506,12 @@ def main():
         assert_equal(dedup_summary["change_count"], 2, "deduplicated change count")
         dedup_updated = openpyxl.load_workbook(dedup_output_path)
         dedup_changed_ws = dedup_updated["Changed Positions"]
-        assert_equal(dedup_changed_ws.max_row, 11, "deduplicated changed sheet row count")
-        assert_equal(dedup_changed_ws["A11"].value, "CDMV, MDMR", "deduplicated group list")
-        assert_equal(dedup_changed_ws["J11"].value, 81, "deduplicated changed rate cell")
-        assert "70 PLN; 70 PLN" not in dedup_changed_ws["O11"].value
-        assert "81 PLN; 81 PLN" not in dedup_changed_ws["O11"].value
-        assert "+11 PLN; +11 PLN" not in dedup_changed_ws["O11"].value
+        assert_equal(dedup_changed_ws.max_row, 16, "deduplicated changed sheet row count")
+        assert_equal(dedup_changed_ws["A16"].value, "CDMV, MDMR", "deduplicated group list")
+        assert_equal(dedup_changed_ws["J16"].value, 81, "deduplicated changed rate cell")
+        assert "70 PLN; 70 PLN" not in dedup_changed_ws["O16"].value
+        assert "81 PLN; 81 PLN" not in dedup_changed_ws["O16"].value
+        assert "+11 PLN; +11 PLN" not in dedup_changed_ws["O16"].value
 
         accepted_only_workbook_path = tmpdir / "accepted-only-rates.xlsx"
         accepted_only_recommendations_path = tmpdir / "accepted-only-recommendations.json"
@@ -681,6 +704,123 @@ def main():
         assert_equal(expansion_ws["J5"].value, 81, "duration 2 rate update on the same pickup date row")
         assert_equal(expansion_ws["I6"].value, 160, "duration 1 rate does not update a different pickup date")
         assert_equal(expansion_ws["J6"].value, 70, "duration 2 rate does not update a different pickup date")
+
+        aggregate_workbook_path = tmpdir / "aggregate-duration-rates.xlsx"
+        aggregate_recommendations_path = tmpdir / "aggregate-duration-recommendations.json"
+        aggregate_output_path = tmpdir / "aggregate-duration-updated.xlsx"
+        build_minimal_workbook(
+            aggregate_workbook_path,
+            [["CDMV", None, None, "WA1", "14-07-26", "15-07-26", "15-07-26", "15-07-26", 160, 100, 100, 100, 100, 120]],
+        )
+        aggregate_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "decisions": [
+                        {
+                            "action": "increase",
+                            "recommendation_type": "top1_gap",
+                            "location": "Warsaw",
+                            "start_date": "2026-07-15",
+                            "rental_days": 3,
+                            "suggested_rate_pln_day": 120,
+                            "maximum_import_rate_pln_day": 120,
+                            "site_cap_rate_pln_day": 120,
+                            "broker_markup_multiplier": 1,
+                            "data_quality_status": "ok",
+                        },
+                        {
+                            "action": "decrease",
+                            "recommendation_type": "top1_undercut",
+                            "location": "Warsaw",
+                            "start_date": "2026-07-15",
+                            "rental_days": 4,
+                            "suggested_rate_pln_day": 80,
+                            "maximum_import_rate_pln_day": 80,
+                            "site_cap_rate_pln_day": 80,
+                            "broker_markup_multiplier": 1,
+                            "data_quality_status": "ok",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        aggregate_summary = apply_updates(
+            workbook_path=aggregate_workbook_path,
+            recommendations_path=aggregate_recommendations_path,
+            output_path=aggregate_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+        )
+        aggregate_ws = openpyxl.load_workbook(aggregate_output_path)["Sheet1"]
+        assert_equal(aggregate_ws["K5"].value, 80, "duration band uses the most restrictive recommendation")
+        assert_equal(aggregate_summary["change_count"], 1, "duration band writes one cell once")
+        assert_equal(aggregate_summary["changes"][0]["source_decision_count"], 2, "duration band source count")
+        assert_equal(aggregate_summary["changes"][0]["aggregation_conflict"], True, "duration band conflict flag")
+
+        partial_workbook_path = tmpdir / "partial-duration-rates.xlsx"
+        partial_recommendations_path = tmpdir / "partial-duration-recommendations.json"
+        partial_output_path = tmpdir / "partial-duration-updated.xlsx"
+        build_minimal_workbook(
+            partial_workbook_path,
+            [["CDMV", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 100, 100, 100, 100, 120]],
+        )
+        partial_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "decisions": [{
+                        "action": "increase",
+                        "recommendation_type": "top1_gap",
+                        "location": "Warsaw",
+                        "start_date": "2026-09-15",
+                        "rental_days": 8,
+                        "suggested_rate_pln_day": 150,
+                        "maximum_import_rate_pln_day": 150,
+                        "site_cap_rate_pln_day": 150,
+                        "broker_markup_multiplier": 1,
+                        "data_quality_status": "ok",
+                    }]
+                }
+            ),
+            encoding="utf-8",
+        )
+        partial_summary = apply_updates(
+            workbook_path=partial_workbook_path,
+            recommendations_path=partial_recommendations_path,
+            output_path=partial_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+        )
+        partial_ws = openpyxl.load_workbook(partial_output_path)["Sheet1"]
+        assert_equal(partial_ws["M5"].value, 100, "incomplete duration band does not raise the current rate")
+        assert_equal(partial_summary["change_count"], 0, "incomplete duration band increase is skipped")
+        assert_equal(partial_summary["skipped_target_count"], 1, "incomplete duration band is reported")
+
+        expired_config = merge_config(
+            {
+                "location_zones": {"Warsaw": ["WA1"]},
+                "pickup_date_expansion": {
+                    "enabled": True,
+                    "start_date": "2027-02-01",
+                    "end_date": "2027-01-31",
+                    "time_zone": "Europe/Warsaw",
+                },
+            }
+        )
+        try:
+            apply_updates(
+                workbook_path=aggregate_workbook_path,
+                recommendations_path=aggregate_recommendations_path,
+                output_path=tmpdir / "expired-output.xlsx",
+                config=expired_config,
+                cli_groups=None,
+                dry_run=False,
+            )
+            raise AssertionError("expired pickup range should fail before modifying Sheet1")
+        except ValueError as error:
+            assert "Sheet1 was not modified" in str(error)
 
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
         real_recommendations_path = tmpdir / "real-recommendations.json"

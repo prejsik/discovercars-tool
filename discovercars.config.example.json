@@ -1,11 +1,6 @@
 {
   "locations": [
-    "Warsaw",
-    "Krakow",
-    "Gdansk",
-    "Poznan",
-    "Wroclaw",
-    "Katowice"
+    "Warsaw Train Station"
   ],
   "pickupDate": "2026-04-24",
   "pickupTime": "11:00",
@@ -18,6 +13,15 @@
   "driverAge": 30,
   "headless": true,
   "timeoutMs": 45000,
+  "apiTimeoutMs": 20000,
+  "geoLocationOverrides": {
+    "Galeria Krakowska Shopping Mall": {
+      "latitude": 50.0662682,
+      "longitude": 19.9461205,
+      "radiusMeters": 20000,
+      "geoLocationName": "Pawia 5, 31-154 Krakow, Poland"
+    }
+  },
   "browserExecutablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "outputCsv": "output/discovercars-results.csv",
   "artifactsDir": "artifacts/discovercars"

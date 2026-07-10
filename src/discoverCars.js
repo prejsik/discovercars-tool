@@ -133,6 +133,7 @@ function normalizeOutputOffer(offer, fallbackCurrency) {
     rental_days: offer.rental_days,
     car_name: offer.car_name || null,
     transmission: normalizeTransmission(offer.transmission) || null,
+    source: offer.source || null,
     source_url: offer.source_url
   };
 }
@@ -328,6 +329,7 @@ async function runLegacyFallbackBatch(options) {
       rental_days: options.weekend.rentalDays,
       car_name: legacy.carName || null,
       transmission: legacy.transmission || null,
+      source: legacy.source || null,
       source_url: legacy.sourceUrl || "https://www.discovercars.com/"
     });
   }

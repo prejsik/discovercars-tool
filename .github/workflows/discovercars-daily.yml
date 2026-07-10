@@ -26,7 +26,7 @@ on:
       locations:
         description: "Comma-separated locations for the test run"
         required: true
-        default: "Warsaw"
+        default: "Warsaw Train Station"
       rolling_days:
         description: "How many pickup start dates from tomorrow"
         required: true
@@ -45,22 +45,22 @@ on:
         default: "fast"
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
 
 concurrency:
-  group: discovercars-daily-run
+  group: discovercars-pages-site
   cancel-in-progress: false
 
 env:
-  # Scheduled run defaults: city + airport points for core locations, next 60 pickup dates, rental durations 2..14.
-  SCHEDULE_LOCATIONS: "Gdansk Downtown,Gdansk Airport (GDN),Katowice Downtown,Katowice Airport (KTW),Krakow Train Station,Krakow Airport (KRK),Poznan Downtown,Poznan Airport (POZ),Warsaw Train Station,Warsaw Chopin Airport (WAW),Wroclaw Downtown,Wroclaw Airport (WRO)"
-  SCHEDULE_ROLLING_DAYS: "60"
+  # Scheduled run defaults: city + airport points for core locations, next 45 pickup dates, rental durations 2..14.
+  SCHEDULE_ROLLING_DAYS: "45"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14"
   SCHEDULE_SPEED_MODE: "fast"
   # Push-triggered smoke test defaults: keep validation quick after code/workflow changes.
-  PUSH_TEST_LOCATIONS: "Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan"
+  PUSH_TEST_LOCATIONS: "Warsaw Train Station"
   PUSH_TEST_ROLLING_DAYS: "2"
   PUSH_TEST_DURATIONS: "1"
   PUSH_TEST_SPEED_MODE: "fast"
@@ -69,7 +69,7 @@ jobs:
   discovercars:
     name: Run DiscoverCars scraper
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     environment:
       name: github-pages
       url: ${{ steps.pages-deployment.outputs.page_url }}
@@ -78,6 +78,8 @@ jobs:
       - name: Check Warsaw schedule gate
         id: gate
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           run_started_epoch="$(date +%s)"
           run_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -119,15 +121,17 @@ jobs:
           fi
           duplicate_window_start_utc="$(date -u -d '36 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
           workflow_runs_url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/workflows/discovercars-daily.yml/runs"
-          existing_runs_json="$(
-            curl --fail --silent --show-error --get \
+          if ! existing_runs_json=$(curl --fail --silent --show-error --get \
               --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
               --header "X-GitHub-Api-Version: 2022-11-28" \
               --data-urlencode "event=schedule" \
               --data-urlencode "created=>${duplicate_window_start_utc}" \
               --data-urlencode "per_page=30" \
-              "$workflow_runs_url"
-          )"
+              "$workflow_runs_url"); then
+            echo "::warning::Unable to query previous workflow runs; continuing with this scheduled run."
+            existing_runs_json='{"workflow_runs":[]}'
+          fi
           duplicate_summary="$(
             printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" TARGET_REPORT_DATE="$target_report_date" python3 -c 'import json, os, sys; from datetime import datetime, timedelta; from zoneinfo import ZoneInfo; current=str(os.environ.get("CURRENT_RUN_ID","")); target=os.environ.get("TARGET_REPORT_DATE",""); warsaw=ZoneInfo("Europe/Warsaw"); report_date=lambda r: (lambda dt: (dt.date() + (timedelta(days=1) if dt.hour >= 18 else timedelta())).isoformat())(datetime.fromisoformat(str(r.get("created_at","")).replace("Z","+00:00")).astimezone(warsaw)); runs=json.load(sys.stdin).get("workflow_runs", []); match=next((r for r in runs if str(r.get("id")) != current and report_date(r) == target and (r.get("status") in ("queued","in_progress","waiting","requested","pending") or (r.get("status") == "completed" and r.get("conclusion") == "success"))), None); label="" if match is None else ("completed/success" if match.get("status") == "completed" else str(match.get("status"))); sys.stdout.write("" if match is None else str(match.get("id")) + " " + label + " target=" + target + " " + str(match.get("html_url")))'
           )"
@@ -172,6 +176,12 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         run: python -m pip install "openpyxl>=3.1,<4"
 
+      - name: Run regression tests
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          npm test
+          python tests/run-excel-rate-updater-tests.py
+
       - name: Resolve run options
         if: steps.gate.outputs.should_run == 'true'
         id: options
@@ -190,7 +200,7 @@ jobs:
             default_durations="$PUSH_TEST_DURATIONS"
             default_speed_mode="$PUSH_TEST_SPEED_MODE"
           else
-            default_locations="$SCHEDULE_LOCATIONS"
+            default_locations=$(node -e "const c=require('./excel-rate-update.config.example.json'); process.stdout.write((c.daily_locations||[]).join(','));")
             default_rolling_days="$SCHEDULE_ROLLING_DAYS"
             default_durations="$SCHEDULE_DURATIONS"
             default_speed_mode="$SCHEDULE_SPEED_MODE"
@@ -278,14 +288,16 @@ jobs:
             --strategy=legacy-batch \
             --speed-mode="${{ steps.options.outputs.speed_mode }}" \
             --scenario-concurrency=2 \
-            --location-concurrency=2 \
+            --location-concurrency=3 \
             --timeout=auto \
-            --retries=0 \
+            --retries=1 \
+            --chunk-retries=1 \
             --chunk-days=7 \
             --chunk-concurrency=2 \
             --direct-candidate-limit=2 \
             --direct-offers-wait=1000 \
             --reset-state \
+            --continue-on-error \
             --skip-postprocess \
             | tee output/run-log.txt
           scraper_status="${PIPESTATUS[0]}"
@@ -300,7 +312,21 @@ jobs:
           echo "duration_seconds=$scraper_duration_seconds" >> "$GITHUB_OUTPUT"
           echo "exit_code=$scraper_status" >> "$GITHUB_OUTPUT"
 
-          exit "$scraper_status"
+          exit 0
+
+      - name: Validate scraper coverage
+        id: scrape-quality
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          node src/workflowQualityAlerts.js \
+            --scrape-only \
+            --results=output/results-latest.json \
+            --locations="${{ steps.options.outputs.locations }}" \
+            --output=output/scrape-quality.json
+          status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/scrape-quality.json','utf8')); process.stdout.write(d.status || 'failure');")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Scrape quality status: $status"
 
       - name: Generate HTML report
         if: steps.gate.outputs.should_run == 'true' && always()
@@ -341,7 +367,7 @@ jobs:
           fi
 
       - name: Generate pricing recommendations
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         run: |
           if [[ -f output/results-latest.json ]]; then
@@ -401,7 +427,7 @@ jobs:
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
       - name: Generate Excel import workbook
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         run: |
           if [[ -f output/final-pricing-recommendations.json ]]; then
@@ -451,6 +477,7 @@ jobs:
             --output=output/broker-markup-calibration.json
 
       - name: Generate quality alerts
+        id: quality
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
         run: |
@@ -461,14 +488,30 @@ jobs:
             --sanity-check=output/mm-rate-sanity-check.json \
             --locations="${{ steps.options.outputs.locations }}" \
             --output=output/quality-alerts.json
+          status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); process.stdout.write(d.status || 'failure');")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Generate run manifest
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        env:
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          LOCATIONS: ${{ steps.options.outputs.locations }}
+          ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
+          START_DATES: ${{ steps.options.outputs.start_dates }}
+          DURATIONS: ${{ steps.options.outputs.durations }}
+        run: |
+          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const quality=fs.existsSync('output/quality-alerts.json')?JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')):{}; const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
 
       - name: Prepare GitHub Pages site
         id: pages-site
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
         shell: bash
         env:
           RUN_TYPE: ${{ steps.options.outputs.run_type }}
           PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status }}
         run: |
           mkdir -p pages
 
@@ -500,13 +543,17 @@ jobs:
             latest-full/excel-rate-update-summary.json \
             latest-full/mm-rate-sanity-check.json \
             latest-full/broker-markup-calibration.json \
+            latest-full/quality-alerts.json \
+            latest-full/run-manifest.json \
             latest-full/run-log.txt \
             latest-excel/rates-import-ready.xlsx \
             latest-excel/rates-updated.xlsx \
             latest-excel/final-pricing-recommendations.json \
             latest-excel/excel-rate-update-summary.json \
             latest-excel/mm-rate-sanity-check.json \
-            latest-excel/broker-markup-calibration.json; do
+            latest-excel/broker-markup-calibration.json \
+            latest-excel/quality-alerts.json \
+            latest-excel/run-manifest.json; do
             preserve_file "$rel_path"
           done
 
@@ -546,6 +593,12 @@ jobs:
           if [[ -f output/broker-markup-calibration.json ]]; then
             cp output/broker-markup-calibration.json "pages/$run_dir/broker-markup-calibration.json"
           fi
+          if [[ -f output/quality-alerts.json ]]; then
+            cp output/quality-alerts.json "pages/$run_dir/quality-alerts.json"
+          fi
+          if [[ -f output/run-manifest.json ]]; then
+            cp output/run-manifest.json "pages/$run_dir/run-manifest.json"
+          fi
 
           if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
             mkdir -p pages/latest-excel
@@ -567,6 +620,12 @@ jobs:
             if [[ -f output/broker-markup-calibration.json ]]; then
               cp output/broker-markup-calibration.json pages/latest-excel/broker-markup-calibration.json
             fi
+            if [[ -f output/quality-alerts.json ]]; then
+              cp output/quality-alerts.json pages/latest-excel/quality-alerts.json
+            fi
+            if [[ -f output/run-manifest.json ]]; then
+              cp output/run-manifest.json pages/latest-excel/run-manifest.json
+            fi
           fi
 
           if [[ "$RUN_TYPE" == "full" || ! -f pages/latest-full/report.html ]]; then
@@ -580,17 +639,21 @@ jobs:
           if [[ -n "$page_base" ]]; then
             echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
             echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
-            echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
-            echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
+            if [[ -f output/rates-import-ready.xlsx ]]; then
+              echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
+            fi
+            if [[ -f output/rates-updated.xlsx ]]; then
+              echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Configure GitHub Pages
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
         uses: actions/configure-pages@v5
         continue-on-error: true
 
       - name: Upload GitHub Pages artifact
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
         uses: actions/upload-pages-artifact@v3
         continue-on-error: true
         with:
@@ -598,7 +661,7 @@ jobs:
 
       - name: Deploy GitHub Pages
         id: pages-deployment
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
         uses: actions/deploy-pages@v4
         continue-on-error: true
 
@@ -618,6 +681,8 @@ jobs:
             output/mm-rate-sanity-check.json
             output/broker-markup-calibration.json
             output/quality-alerts.json
+            output/scrape-quality.json
+            output/run-manifest.json
             output/report.html
             output/run-log.txt
             output/state.json
@@ -638,16 +703,18 @@ jobs:
             output/broker-markup-calibration.json
             output/final-pricing-recommendations.json
             output/quality-alerts.json
+            output/scrape-quality.json
+            output/run-manifest.json
           if-no-files-found: warn
           retention-days: 14
 
       - name: Notify Telegram
-        if: steps.gate.outputs.should_run == 'true' && steps.upload.outputs['artifact-url'] != ''
+        if: always() && steps.gate.outputs.should_run == 'true' && steps.upload.outputs['artifact-url'] != ''
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url || steps.pages-status.outputs.page_url }}
+          PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url }}
           FULL_REPORT_URL: ${{ steps.pages-site.outputs.full_report_url }}
           PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
           PAGES_EXCEL_REPORT_URL: ${{ steps.pages-site.outputs.excel_report_url }}
@@ -669,6 +736,8 @@ jobs:
           SPEED_MODE: ${{ steps.options.outputs.speed_mode }}
           SCENARIO_COUNT: ${{ steps.options.outputs.scenario_count }}
           LOCATION_CHECK_COUNT: ${{ steps.options.outputs.location_check_count }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
+          SCRAPER_EXIT_CODE: ${{ steps.scraper.outputs.exit_code }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
@@ -731,6 +800,16 @@ jobs:
             run_type_label="reczny"
           fi
 
+          status_label="sukces"
+          title="DiscoverCars: wyniki sa gotowe."
+          if [[ "$QUALITY_STATUS" == "degraded" ]]; then
+            status_label="niepelny - wymaga kontroli"
+            title="DiscoverCars: run zakonczony z ostrzezeniami."
+          elif [[ "$QUALITY_STATUS" == "failure" ]]; then
+            status_label="blad - nowy Excel nie zostal opublikowany"
+            title="DiscoverCars: run zakonczyl sie bledem."
+          fi
+
           scraper_time="$(format_duration "$SCRAPER_DURATION_SECONDS")"
           run_time="$(format_duration "$run_duration_seconds")"
           range_label="${ROLLING_DAYS} dni rolling, durations ${DURATIONS}"
@@ -739,11 +818,11 @@ jobs:
           fi
 
           excel_section=""
-          if [[ -n "$EXCEL_ARTIFACT_URL" ]]; then
+          if [[ -f output/rates-import-ready.xlsx && -n "$EXCEL_ARTIFACT_URL" ]]; then
             excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
           fi
 
-          summary_section=$(printf 'Typ runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
+          summary_section=$(printf 'Status: %s\nKod scrapera: %s\nTyp runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$status_label" "${SCRAPER_EXIT_CODE:-brak danych}" "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
 
           pages_section=""
           if [[ -n "$FULL_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
@@ -751,9 +830,9 @@ jobs:
           fi
 
           if [[ -n "$PAGE_URL" ]]; then
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\nRaport tego runa:\n%s\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$PAGE_URL" "$pages_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf '%s\n\n%s\nRaport tego runa:\n%s\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$title" "$summary_section" "$PAGE_URL" "$pages_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           else
-            message=$(printf 'DiscoverCars: wyniki sa gotowe.\n\n%s\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$summary_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+            message=$(printf '%s\n\n%s\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$title" "$summary_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
           fi
 
           if ! curl --fail --show-error --silent \
@@ -764,3 +843,15 @@ jobs:
             --data-urlencode "disable_web_page_preview=true"; then
             echo "::warning::Telegram notification failed; scraper results were still uploaded."
           fi
+
+      - name: Enforce final quality gate
+        if: always() && steps.gate.outputs.should_run == 'true'
+        shell: bash
+        env:
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
+        run: |
+          if [[ "$QUALITY_STATUS" == "failure" ]]; then
+            echo "::error::DiscoverCars run failed the final quality gate."
+            exit 1
+          fi
+          echo "Final quality status: $QUALITY_STATUS"

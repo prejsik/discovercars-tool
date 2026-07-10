@@ -8,6 +8,8 @@ This tool automates DiscoverCars with Playwright and finds the cheapest rental o
 - accepts multiple locations in one run
 - handles dynamic loading and common cookie popups
 - tries to extract offers first from network JSON responses, then from embedded page data, and finally from the rendered DOM
+- uses DiscoverCars geo-search API directly for the Galeria Krakowska address
+- rejects search API payloads whose pickup or drop-off period differs from the requested period
 - continues processing even if one location fails
 - prints a sorted summary table
 - saves the results to CSV
@@ -50,9 +52,9 @@ node .\src\discovercars\cli.js `
   --location "Warsaw" `
   --location "Krakow" `
   --pickup-date 2026-05-15 `
-  --pickup-time 10:00 `
+  --pickup-time 11:00 `
   --dropoff-date 2026-05-18 `
-  --dropoff-time 10:00 `
+  --dropoff-time 11:00 `
   --output-csv .\output\discovercars-results.csv
 ```
 

@@ -13,6 +13,8 @@
     "rentcars:report": "node src/rentcars/reportHtml.js output/rentcars-results-latest.json output/rentcars-report.html",
     "report": "node src/reportHtml.js output/results-latest.json output/report.html",
     "test": "node tests/run-discovercars-tests.js && node tests/run-rentcars-tests.js",
+    "test:excel": "python tests/run-excel-rate-updater-tests.py",
+    "test:all": "npm test && npm run test:excel",
     "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File build-release.ps1"
   },
   "dependencies": {

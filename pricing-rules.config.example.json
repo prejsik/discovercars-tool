@@ -6,7 +6,7 @@
     "undercutBufferPlnDay": 1,
     "top3SmallDecreaseThresholdPlnDay": 10,
     "minChangePlnDay": 0.5,
-    "roundingIncrementPlnDay": 1,
+    "roundingIncrementPlnDay": 0.01,
     "brokerMarkupCalibration": {
       "enabled": true,
       "defaultMultiplier": 1.075,

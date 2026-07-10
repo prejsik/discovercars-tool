@@ -62,13 +62,13 @@ Jak dziala:
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
 - uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
-- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `mm-rate-sanity-check.json`, `quality-alerts.json`, `run-log.txt`, opcjonalnie `state.json`,
+- wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `mm-rate-sanity-check.json`, `scrape-quality.json`, `quality-alerts.json`, `run-manifest.json`, `run-log.txt`, opcjonalnie `state.json`,
 - publikuje GitHub Pages z linkami dla pelnego raportu i najnowszego Excela; test po pushu nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
 
-- `locations`: `Gdansk Downtown,Gdansk Airport (GDN),Katowice Downtown,Katowice Airport (KTW),Krakow Train Station,Krakow Airport (KRK),Poznan Downtown,Poznan Airport (POZ),Warsaw Train Station,Warsaw Chopin Airport (WAW),Wroclaw Downtown,Wroclaw Airport (WRO)`
-- `rolling_days`: `60`
+- `locations`: lista `daily_locations` z `excel-rate-update.config.example.json`; zawiera osobno Krakow Train Station, Galeria Krakowska Shopping Mall i Krakow Airport (KRK), a pozostale miasta maja punkt miejski i lotnisko,
+- `rolling_days`: `45`
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
 
@@ -93,6 +93,7 @@ Pliki w artifact:
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
 - `mm-rate-sanity-check.json` - live sanity check kilku rekomendacji; porownuje aktualna cene MM Cars Rental ze strony z cena MM zapisana w rekomendacji,
 - `quality-alerts.json` - alerty jakosciowe uzywane w Telegramie,
+- `run-manifest.json` - status `success/degraded/failure`, zakres, lokalizacje, duration i SHA kodu dla konkretnego runa,
 - `run-log.txt` - surowy log z uruchomienia,
 - `state.json` - checkpoint, jesli zostal utworzony.
 
@@ -117,6 +118,8 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 Powiadomienie Telegram po zakonczeniu:
 
 Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalym linkiem `latest-full`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Alerty jakosciowe obejmuja tez sanity check MM: kilka probek jest ponownie sprawdzanych live na DiscoverCars i roznica powyzej `10 PLN/dzien` trafia do Telegrama. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+
+Status `failure` blokuje publikacje nowego Excela i GitHub Pages, ale artifact diagnostyczny oraz Telegram nadal sa wysylane. Na koncu workflow bramka jakosci oznacza taki run jako nieudany, dzieki czemu kolejne zapasowe okno crona moze wykonac ponowna probe.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -333,6 +336,9 @@ Dlaczego teraz jest szybciej:
 - jeden przebieg przegladarki na scenariusz (zamiast wielu uruchomien per miasto),
 - w trybie `fast`/`turbo` brak wejscia na homepage przed direct search,
 - w trybie `fast`/`turbo` blokada obrazkow, fontow i mediow,
+- adres Galerii Krakowskiej korzysta bezposrednio z geo-search API strony zamiast powtarzac pelny formularz w przegladarce,
+- odpowiedzi API z okresem innym niz zadany sa odrzucane zamiast trafiac do raportu,
+- zapytania API maja osobny limit `20 s`, po ktorym nadal dzialaja retry i fallback przegladarkowy,
 - w trybie `fast`/`turbo` krotsze, nadal kontrolowane czekanie na wyniki,
 - brak logow debugowych w standardowym uruchomieniu.
 
@@ -364,7 +370,7 @@ Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowy
 npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
 ```
 
-Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 12 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=2` i po scaleniu zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 13 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i po scaleniu zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
 
 Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
 
@@ -443,9 +449,11 @@ Realny zapis kopii pliku i czystego pliku importowego:
 python tools/update_excel_rates.py --workbook "C:\path\to\rates.xlsx" --recommendations output/pricing-recommendations.json --config excel-rate-update.config.example.json --output output/rates-updated.xlsx --import-output output/rates-import-ready.xlsx
 ```
 
-Standardowy plik importowy zawiera wszystkie rekomendowane zmiany, ktore przeszly reguly, floor cenowy i wykluczenia grup. Tryb `--accepted-only` pozostaje tylko reczna opcja awaryjna, ale daily workflow go nie uzywa i nie tworzy osobnego pliku accepted-only.
+Standardowy plik importowy zawiera wszystkie rekomendowane zmiany, ktore przeszly reguly, floor cenowy i wykluczenia grup. Wszystkie duration nalezace do jednej kolumny Sheet1 sa najpierw scalane do jednej decyzji; wybierany jest najbardziej restrykcyjny limit pozwalajacy utrzymac cel w calym przedziale. Gdy scraper nie objal calego przedzialu kolumny, automat nie podnosi tej stawki ponad wartosc z pliku bazowego i pokazuje brakujace duration w Validation. Tryb `--accepted-only` pozostaje tylko reczna opcja awaryjna, ale daily workflow go nie uzywa i nie tworzy osobnego pliku accepted-only.
 
-Rekomendacje uwzgledniaja kalibracje narzutu brokera DiscoverCars. `site_target_rate_pln_day` oznacza cene, w ktora narzedzie celuje na stronie DiscoverCars, a `suggested_rate_pln_day` oznacza stawke wpisywana do pliku importowego po odwroceniu szacowanego narzutu. Workflow publikuje `broker-markup-calibration.json`, uczy sie z obserwacji `stawka w pliku -> live cena MM` i uzywa najnowszej kalibracji w kolejnym runie.
+Rekomendacje uwzgledniaja kalibracje narzutu brokera DiscoverCars. `site_target_rate_pln_day` oznacza cene, w ktora narzedzie celuje na stronie DiscoverCars, a `suggested_rate_pln_day` oznacza stawke wpisywana do pliku importowego po odwroceniu szacowanego narzutu. Workflow publikuje `broker-markup-calibration.json`, deduplikuje obserwacje, uzywa mediany oraz minimalnej liczby probek i stosuje hierarchie lokalizacja+duration -> lokalizacja -> duration -> globalny fallback.
+
+Konfiguracja zawiera SHA256 zatwierdzonego pliku bazowego. Podmiana `input/mm-cars-rental-rates-inclusive-fp.xlsx` bez jednoczesnej aktualizacji `baseline_workbook_sha256` zatrzymuje automat przed modyfikacja Sheet1.
 
 Kolory w Excelu:
 
@@ -461,9 +469,10 @@ Kolory w Excelu:
 
 Minimalne stawki przy aktualizacji Excela:
 
-- globalnie stawka nie spada ponizej `70 PLN brutto/dzien`,
-- dla duration od `21` dni (kolumna N) stawka nie spada ponizej `100 PLN brutto/dzien`,
-- od `2026-06-25` do `2026-08-31` dla kolumn od `8` dni (M oraz N) stawka nie spada ponizej `115 PLN brutto/dzien`.
+- od `2026-07-01` do `2026-08-30` dla duration `1-7` stawka nie spada ponizej `70 PLN brutto/dzien`,
+- w tym samym okresie dla duration `8-20` stawka nie spada ponizej `115 PLN brutto/dzien`,
+- w tym samym okresie dla duration `21-35` stawka nie spada ponizej `100 PLN brutto/dzien`,
+- poza tym okresem nie jest stosowany globalny floor, chyba ze konfiguracja zostanie jawnie zmieniona.
 
 Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMR`, `SFAV`, `IDAH` i `SWAV`. Te grupy nie moga miec zmienianych stawek przez rekomendacje; `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `IDAH` i `SWAV` ponizej `150 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAV` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 

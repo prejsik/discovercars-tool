@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from collections import defaultdict
 from copy import copy
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from statistics import median
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
@@ -67,14 +69,14 @@ DEFAULT_CONFIG = {
     "recommendations_review_sheet": "Recommendations Review",
     "competitor_evidence_sheet": "",
     "validation_sheet": "Validation",
+    "pricing_rules_file": "pricing-rules.config.example.json",
     "minimum_rates": {
-        "global_min_pln_day": 70,
-        "long_duration_min_days": 21,
-        "long_duration_min_pln_day": 100,
-        "season_start": "2026-06-25",
-        "season_end": "2026-08-31",
-        "season_duration_column_min_days": 8,
-        "season_min_pln_day": 115,
+        "global_min_pln_day": 0,
+        "bands": [
+            {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 1, "max_days": 7, "min_pln_day": 70},
+            {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 8, "max_days": 20, "min_pln_day": 115},
+            {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 21, "max_days": 35, "min_pln_day": 100},
+        ],
     },
     "delta_color_scale": {
         "max_delta_pln_day": 30,
@@ -106,6 +108,19 @@ DEFAULT_CONFIG = {
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def get_pricing_rules(config: dict[str, Any]) -> dict[str, Any]:
+    path = Path(str(config.get("pricing_rules_file") or "pricing-rules.config.example.json"))
+    if not path.exists():
+        return {
+            "top1GapThresholdPlnDay": 5,
+            "top1UndercutThresholdPlnDay": 10,
+            "top3SmallDecreaseThresholdPlnDay": 10,
+            "undercutBufferPlnDay": 1,
+        }
+    payload = load_json(path)
+    return payload.get("pricing") or payload
 
 
 def merge_config(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -215,9 +230,11 @@ def load_recommendation_items(path: Path) -> list[dict[str, Any]]:
     payload = load_json(path)
     if isinstance(payload, list):
         return payload
+    if isinstance(payload, dict) and isinstance(payload.get("decisions"), list):
+        return payload["decisions"]
     if isinstance(payload, dict) and isinstance(payload.get("recommendations"), list):
         return payload["recommendations"]
-    raise ValueError("Recommendations file must be a list or an object with a 'recommendations' list.")
+    raise ValueError("Recommendations file must be a list or an object with a 'decisions' or 'recommendations' list.")
 
 
 def is_accepted_value(value: Any) -> bool:
@@ -349,6 +366,35 @@ def classify_actual_action(old_rate: float | None, new_rate: float, fallback_act
     return "hold"
 
 
+def evaluate_target_constraints(target: dict[str, Any], new_rate: float) -> dict[str, Any]:
+    constraints = target.get("constraint_items") or [target]
+    evaluated: list[dict[str, Any]] = []
+    for item in constraints:
+        multiplier = parse_number(item.get("broker_markup_multiplier")) or 1
+        site_cap = parse_number(item.get("site_cap_rate_pln_day"))
+        if site_cap is None:
+            site_cap = parse_number(item.get("site_target_rate_pln_day"))
+        predicted = round(new_rate * multiplier, 2)
+        satisfied = site_cap is not None and predicted <= site_cap + 0.01
+        evaluated.append({
+            "duration_days": item.get("rental_days"),
+            "action": item.get("action"),
+            "site_cap_rate": site_cap,
+            "predicted_site_rate": predicted,
+            "satisfied": satisfied,
+        })
+
+    unmet = [item for item in evaluated if not item["satisfied"]]
+    predicted_values = [float(item["predicted_site_rate"]) for item in evaluated]
+    return {
+        "target_achievable": not unmet,
+        "unmet_constraint_count": len(unmet),
+        "unmet_constraints": unmet,
+        "predicted_site_rate_min": min(predicted_values) if predicted_values else None,
+        "predicted_site_rate_max": max(predicted_values) if predicted_values else None,
+    }
+
+
 def format_rate_for_comment(value: float | None) -> str:
     if value is None:
         return "puste"
@@ -454,7 +500,11 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
 
 
 def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
+    if change.get("target_achievable") is False:
+        return "cel rankingowy nie jest gwarantowany przy finalnej stawce; pozycja wymaga kontroli."
     recommendation_type = change.get("recommendation_type")
+    if recommendation_type == "group_parity":
+        return "spojnosc stawek grup bazowych oraz EDAH/EDMV."
     if recommendation_type == "top1_gap":
         return "utrzymanie top1 przy cenie 1 PLN ponizej top2."
     if recommendation_type == "top3_small_decrease":
@@ -469,6 +519,34 @@ def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[fl
     rules = config.get("minimum_rates") or {}
     minimum = parse_number(rules.get("global_min_pln_day")) or 0
     reason = f"Minimum globalne: {format_rate_for_comment(minimum)} PLN brutto/dzien." if minimum else ""
+
+    target_date = target.get("target_date")
+    duration_min = int(parse_number(target.get("duration_min_days")) or parse_number(target.get("rental_days")) or 0)
+    duration_max = int(parse_number(target.get("duration_max_days")) or duration_min)
+    matching_bands: list[tuple[float, str]] = []
+    for band in rules.get("bands") or []:
+        band_start = parse_date_value(band.get("start_date"))
+        band_end = parse_date_value(band.get("end_date"))
+        band_min_days = int(parse_number(band.get("min_days")) or 0)
+        band_max_days = int(parse_number(band.get("max_days")) or band_min_days)
+        band_rate = parse_number(band.get("min_pln_day"))
+        if (
+            isinstance(target_date, date)
+            and band_start is not None
+            and band_end is not None
+            and band_start <= target_date <= band_end
+            and duration_min <= band_max_days
+            and duration_max >= band_min_days
+            and band_rate is not None
+        ):
+            matching_bands.append((band_rate, f"{band_start.isoformat()} - {band_end.isoformat()}, duration {band_min_days}-{band_max_days} dni"))
+
+    if matching_bands:
+        band_rate, band_label = max(matching_bands, key=lambda item: item[0])
+        if band_rate > minimum:
+            minimum = band_rate
+            reason = f"Minimum dla {band_label}: {format_rate_for_comment(minimum)} PLN brutto/dzien."
+        return minimum, reason
 
     duration = int(parse_number(target.get("rental_days")) or 0)
     duration_min = int(parse_number(target.get("duration_min_days")) or duration)
@@ -525,6 +603,8 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
         lines.append(f"Prognoza na stronie: {format_rate_for_comment(predicted_site_rate)} PLN")
     if broker_markup_percent is not None:
         lines.append(f"Szac. narzut brokera: {format_percent_for_comment(broker_markup_percent)}")
+    if change.get("target_achievable") is False:
+        lines.append("Cel rankingowy: wymaga kontroli")
     return Comment("\n".join(lines), "Codex")
 
 
@@ -613,6 +693,7 @@ def get_changed_positions_group_key(change: dict[str, Any]) -> tuple[Any, ...]:
         change.get("benchmark_provider"),
         change.get("benchmark_rate"),
         change.get("minimum_reason"),
+        change.get("target_achievable"),
     )
 
 
@@ -653,7 +734,23 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
     parts: list[str] = []
     global_min = parse_number(rules.get("global_min_pln_day"))
     if global_min is not None:
-        parts.append(f"globalnie {format_rate_for_comment(global_min)} PLN")
+        if global_min > 0:
+            parts.append(f"globalnie {format_rate_for_comment(global_min)} PLN")
+
+    bands = rules.get("bands") or []
+    for band in bands:
+        start_date = band.get("start_date")
+        end_date = band.get("end_date")
+        min_days = int(parse_number(band.get("min_days")) or 0)
+        max_days = int(parse_number(band.get("max_days")) or min_days)
+        min_rate = parse_number(band.get("min_pln_day"))
+        if start_date and end_date and min_days and max_days and min_rate is not None:
+            parts.append(
+                f"{start_date}-{end_date}, duration {min_days}-{max_days}: {format_rate_for_comment(min_rate)} PLN"
+            )
+
+    if bands:
+        return "Floor cenowy chroni przed rekomendacja i zmiana ponizej: " + "; ".join(parts) + "."
 
     long_days = int(parse_number(rules.get("long_duration_min_days")) or 0)
     long_rate = parse_number(rules.get("long_duration_min_pln_day"))
@@ -733,6 +830,20 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
         notes.append("brak ceny benchmarku")
     if any(parse_number(change.get("mm_rate")) is None for change in changes):
         notes.append("brak ceny MM")
+    if any(change.get("target_achievable") is False for change in changes):
+        notes.append("finalna stawka nie gwarantuje celu rankingowego")
+    if any(change.get("aggregation_conflict") for change in changes):
+        notes.append("sprzeczne kierunki w jednym przedziale duration")
+    max_decisions = max((int(change.get("source_decision_count") or 0) for change in changes), default=0)
+    if max_decisions > 1:
+        notes.append(f"scalono {max_decisions} scenariuszy duration")
+    if any(change.get("duration_band_coverage_complete") is False for change in changes):
+        missing = sorted({
+            int(duration)
+            for change in changes
+            for duration in change.get("missing_duration_days", [])
+        })
+        notes.append("brak danych dla duration: " + ",".join(str(item) for item in missing))
 
     return "; ".join(notes) if notes else "OK"
 
@@ -745,9 +856,13 @@ def get_review_status(changes: list[dict[str, Any]]) -> str:
         or any(change.get("action") != change.get("recommendation_action") for change in changes)
         or any(parse_number(change.get("benchmark_rate")) is None for change in changes)
         or any(parse_number(change.get("mm_rate")) is None for change in changes)
+        or any(change.get("target_achievable") is False for change in changes)
+        or any(change.get("aggregation_conflict") for change in changes)
     )
     if critical:
         return "Sprawdz"
+    if any(change.get("duration_band_coverage_complete") is False for change in changes):
+        return "Gotowe z uwaga"
     if any(change.get("minimum_reason") for change in changes) or any(
         parse_number(change.get("group_adjustment_pln_day")) for change in changes
     ):
@@ -757,6 +872,8 @@ def get_review_status(changes: list[dict[str, Any]]) -> str:
 
 def get_recommendation_label_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
+    if recommendation_type == "group_parity":
+        return "Ujednolicenie grup"
     if recommendation_type == "top1_gap":
         return "Top1 gap"
     if recommendation_type == "top3_small_decrease":
@@ -782,7 +899,7 @@ def write_changed_positions_sheet(
     changes: list[dict[str, Any]],
 ) -> None:
     sheet_name = str(config.get("changed_positions_sheet") or "").strip()
-    if not sheet_name or not changes:
+    if not sheet_name:
         return
     if sheet_name == source_ws.title:
         raise ValueError("changed_positions_sheet must be different from the import worksheet name.")
@@ -791,10 +908,17 @@ def write_changed_positions_sheet(
         del workbook[sheet_name]
 
     header_row = int(config["header_row"])
+    pricing_rules = get_pricing_rules(config)
+    top1_gap = format_rate_for_comment(parse_number(pricing_rules.get("top1GapThresholdPlnDay")) or 5)
+    undercut_limit = format_rate_for_comment(parse_number(pricing_rules.get("top1UndercutThresholdPlnDay")) or 10)
+    top3_limit = format_rate_for_comment(parse_number(pricing_rules.get("top3SmallDecreaseThresholdPlnDay")) or 10)
+    undercut_buffer = format_rate_for_comment(parse_number(pricing_rules.get("undercutBufferPlnDay")) or 1)
     legend_items = [
-        ("9DC3E6", "Top1 gap", "MM Cars Rental jest top1, a jego cena jest co najmniej 5 PLN/dzien nizsza niz top2; rekomendacja podnosi cene do 1 PLN ponizej top2."),
-        ("FFC7CE", "Male obnizenie top3", "Obnizka ponizej 10 PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to 1 PLN ponizej tej oferty."),
-        ("F4B183", "Przebicie top1", "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; rekomendacja ustawia cene 1 PLN ponizej obecnego top1."),
+        ("9DC3E6", "Top1 gap", f"MM Cars Rental jest top1, a jego cena jest co najmniej {top1_gap} PLN/dzien nizsza niz top2; rekomendacja podnosi cene do {undercut_buffer} PLN ponizej top2."),
+        ("FFC7CE", "Male obnizenie top3", f"Obnizka ponizej {top3_limit} PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to {undercut_buffer} PLN ponizej tej oferty."),
+        ("F4B183", "Przebicie top1", f"MM Cars Rental jest top2 i brakuje mniej niz {undercut_limit} PLN/dzien, zeby zostac top1; rekomendacja ustawia cene {undercut_buffer} PLN ponizej obecnego top1."),
+        ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
+        ("FFF2CC", "Kontrola celu", "Po zastosowaniu finalnej stawki narzedzie ponownie przelicza prognoze na stronie. Cel nieosiagalny jest oznaczany jako wymagajacy kontroli i nie jest opisywany jako gwarantowane top1/top2/top3."),
         ("D9EAF7", "Grupy zmieniane", get_group_rules_legend_text(config)),
         ("FCE4D6", "Grupy tylko kontrolne", get_excluded_group_highlight_legend_text(config)),
         ("FCE4D6", "Floor cenowy", get_floor_legend_text(config)),
@@ -1111,6 +1235,7 @@ def build_validation_rows(
     duration_columns: dict[int, tuple[int, str, int, int]],
     changes: list[dict[str, Any]],
     skipped_targets: list[dict[str, Any]],
+    expansion_summary: dict[str, Any] | None = None,
 ) -> list[list[Any]]:
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
@@ -1164,11 +1289,12 @@ def build_validation_rows(
         for change in changes
         if normalize_code(change.get("group")) in excluded_groups
     ]
-    missing_benchmark = [
+    missing_benchmark = sorted({
         str(change.get("scenario_id") or change.get("cell"))
         for change in changes
-        if parse_number(change.get("benchmark_rate")) is None
-    ]
+        if change.get("recommendation_type") != "group_parity"
+        and parse_number(change.get("benchmark_rate")) is None
+    })
     below_floor_changes: list[str] = []
     for change in changes:
         minimum_rate = parse_number(change.get("minimum_rate_pln_day"))
@@ -1181,15 +1307,55 @@ def build_validation_rows(
             f"{format_rate_for_comment(minimum_rate)}"
         )
 
+    unachievable_targets = sorted({
+        f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}"
+        for change in changes
+        if change.get("target_achievable") is False
+    })
+    aggregation_conflicts = sorted({
+        f"{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}"
+        for change in changes
+        if change.get("aggregation_conflict")
+    })
+    incomplete_duration_coverage = sorted({
+        f"{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}: "
+        + ",".join(str(item) for item in change.get("missing_duration_days", []))
+        for change in changes
+        if change.get("duration_band_coverage_complete") is False
+    })
+
+    expansion_summary = expansion_summary or {}
+    missing_groups_after_expansion = [
+        str(item)
+        for item in expansion_summary.get("missing_source_groups_after_expansion", [])
+        if str(item).strip()
+    ]
+    restored_group_zones = [
+        str(item)
+        for item in expansion_summary.get("restored_group_zones", [])
+        if str(item).strip()
+    ]
+    missing_group_zones_after_expansion = [
+        str(item)
+        for item in expansion_summary.get("missing_source_group_zones_after_expansion", [])
+        if str(item).strip()
+    ]
+
     return [
         ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
         ["Zmienione komorki stawek", "INFO", len(changes), ""],
+        ["Brakujace grupy po ekspansji dat", get_validation_status(len(missing_groups_after_expansion)), len(missing_groups_after_expansion), first_items(missing_groups_after_expansion)],
+        ["Brakujace Group + Zone po ekspansji dat", get_validation_status(len(missing_group_zones_after_expansion)), len(missing_group_zones_after_expansion), first_items(missing_group_zones_after_expansion)],
+        ["Odtworzone Group + Zone po ekspansji dat", "INFO", len(restored_group_zones), first_items(restored_group_zones)],
         ["Pominiete rekomendacje", get_validation_status(len(skipped_targets), warning=True), len(skipped_targets), first_items([str(item.get("skip_reason", "")) for item in skipped_targets])],
         ["Booking end date = Pickup end date", get_validation_status(len(booking_mismatch)), len(booking_mismatch), first_items(booking_mismatch)],
         ["Pickup end date = Pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
+        ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
+        ["Sprzeczne rekomendacje w przedziale duration", get_validation_status(len(aggregation_conflicts), warning=True), len(aggregation_conflicts), first_items(aggregation_conflicts)],
+        ["Niepelne pokrycie przedzialu duration", get_validation_status(len(incomplete_duration_coverage), warning=True), len(incomplete_duration_coverage), first_items(incomplete_duration_coverage)],
         ["Zmienione grupy wykluczone", get_validation_status(len(excluded_changed)), len(excluded_changed), first_items(excluded_changed)],
         ["Zmienione rekomendacje bez ceny benchmarku", get_validation_status(len(missing_benchmark), warning=True), len(missing_benchmark), first_items(missing_benchmark)],
     ]
@@ -1202,12 +1368,13 @@ def write_validation_sheet(
     duration_columns: dict[int, tuple[int, str, int, int]],
     changes: list[dict[str, Any]],
     skipped_targets: list[dict[str, Any]],
+    expansion_summary: dict[str, Any] | None = None,
 ) -> None:
     sheet_name = str(config.get("validation_sheet") or "").strip()
     if not sheet_name:
         return
     headers = ["Kontrola", "Status", "Liczba problemow", "Szczegoly"]
-    rows = build_validation_rows(source_ws, config, duration_columns, changes, skipped_targets)
+    rows = build_validation_rows(source_ws, config, duration_columns, changes, skipped_targets, expansion_summary)
     widths = {"Kontrola": 48, "Status": 14, "Liczba problemow": 18, "Szczegoly": 90}
     ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 4, headers, rows, widths)
     for row in range(2, ws.max_row + 1):
@@ -1237,7 +1404,8 @@ def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict
 
     min_multiplier = parse_number(settings.get("min_multiplier")) or 1
     max_multiplier = parse_number(settings.get("max_multiplier")) or 1.25
-    observations: list[dict[str, Any]] = []
+    observations_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    ambiguous_observation_keys: set[tuple[Any, ...]] = set()
 
     for change in changes:
         old_rate = parse_number(change.get("old_rate"))
@@ -1251,7 +1419,7 @@ def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict
         if multiplier < min_multiplier or multiplier > max_multiplier:
             continue
 
-        observations.append({
+        observation = {
             "location": change.get("location", ""),
             "zone": change.get("zone", ""),
             "group": change.get("group", ""),
@@ -1262,10 +1430,26 @@ def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict
             "live_mm_rate_pln_day": mm_rate,
             "observed_multiplier": round(multiplier, 6),
             "observed_markup_percent": round((multiplier - 1) * 100, 2),
-        })
+        }
+        dedupe_key = (
+            normalize_key(observation["location"]),
+            observation["pickup_date"],
+            observation["duration_days"],
+        )
+        if dedupe_key in ambiguous_observation_keys:
+            continue
+        existing = observations_by_key.get(dedupe_key)
+        if existing and abs(float(existing["observed_multiplier"]) - multiplier) > 0.02:
+            observations_by_key.pop(dedupe_key, None)
+            ambiguous_observation_keys.add(dedupe_key)
+            continue
+        observations_by_key.setdefault(dedupe_key, observation)
+
+    observations = list(observations_by_key.values())
 
     by_location: dict[str, list[float]] = defaultdict(list)
     by_duration: dict[str, list[float]] = defaultdict(list)
+    by_location_duration: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for observation in observations:
         multiplier = float(observation["observed_multiplier"])
         location = str(observation.get("location") or "").strip()
@@ -1274,19 +1458,25 @@ def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict
             by_location[location].append(multiplier)
         if duration:
             by_duration[duration].append(multiplier)
+        if location and duration:
+            by_location_duration[location][duration].append(multiplier)
 
     def summarize(values: list[float]) -> dict[str, Any]:
         result = average(values)
+        robust_result = median(values) if values else None
         return {
             "count": len(values),
             "average_multiplier": round(result, 6) if result is not None else None,
             "average_markup_percent": round((result - 1) * 100, 2) if result is not None else None,
+            "median_multiplier": round(robust_result, 6) if robust_result is not None else None,
+            "median_markup_percent": round((robust_result - 1) * 100, 2) if robust_result is not None else None,
         }
 
     all_values = [float(item["observed_multiplier"]) for item in observations]
     return {
         "enabled": True,
         "count": len(observations),
+        "ambiguous_observation_count": len(ambiguous_observation_keys),
         **summarize(all_values),
         "by_location": {
             location: summarize(values)
@@ -1296,8 +1486,23 @@ def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict
             duration: summarize(values)
             for duration, values in sorted(by_duration.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 0)
         },
+        "by_location_duration": {
+            location: {
+                duration: summarize(values)
+                for duration, values in sorted(durations.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 0)
+            }
+            for location, durations in sorted(by_location_duration.items())
+        },
         "observations": observations[:100],
     }
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_targets(
@@ -1310,20 +1515,26 @@ def build_targets(
         for location, zones in (config.get("location_zones") or {}).items()
     }
     targets: dict[str, dict[date, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    candidates_by_cell: dict[tuple[str, date, int], list[dict[str, Any]]] = defaultdict(list)
     skipped: list[dict[str, Any]] = []
 
     for item in recommendations:
-        if item.get("action") not in {"increase", "decrease"}:
+        action = item.get("action")
+        if action not in {"increase", "decrease", "hold"}:
             continue
 
         suggested_rate = parse_number(item.get("suggested_rate_pln_day"))
+        maximum_rate = parse_number(item.get("maximum_import_rate_pln_day"))
+        if maximum_rate is None and action in {"increase", "decrease"}:
+            maximum_rate = suggested_rate
         rental_days = parse_number(item.get("rental_days"))
         target_date = parse_date_value(item.get("start_date") or item.get("pickup_date"))
         location = normalize_key(item.get("location"))
         zones = location_zones.get(location, [])
 
-        if suggested_rate is None or rental_days is None or target_date is None or not zones:
-            skipped.append({**item, "skip_reason": "Missing suggested rate, rental days, start date, or location zone mapping."})
+        if rental_days is None or target_date is None or not zones or (action in {"increase", "decrease"} and suggested_rate is None):
+            if action in {"increase", "decrease"}:
+                skipped.append({**item, "skip_reason": "Missing suggested rate, rental days, start date, or location zone mapping."})
             continue
 
         duration = int(rental_days)
@@ -1334,7 +1545,11 @@ def build_targets(
 
         col, duration_band, duration_min_days, duration_max_days = duration_column
         for zone in zones:
-            targets[zone][target_date].append({
+            broker_multiplier = parse_number(item.get("broker_markup_multiplier")) or 1
+            site_cap_rate = parse_number(item.get("site_cap_rate_pln_day"))
+            if site_cap_rate is None and maximum_rate is not None:
+                site_cap_rate = round(maximum_rate * broker_multiplier, 2)
+            candidates_by_cell[(zone, target_date, col)].append({
                 **item,
                 "zone": zone,
                 "target_date": target_date,
@@ -1343,7 +1558,76 @@ def build_targets(
                 "duration_min_days": duration_min_days,
                 "duration_max_days": duration_max_days,
                 "suggested_rate_pln_day": suggested_rate,
+                "constraint_import_rate_pln_day": maximum_rate,
+                "site_cap_rate_pln_day": site_cap_rate,
             })
+
+    for (zone, target_date, _col), candidates in candidates_by_cell.items():
+        active = [item for item in candidates if item.get("action") in {"increase", "decrease"}]
+        if not active:
+            continue
+
+        invalid_constraints = [
+            item for item in candidates
+            if item.get("data_quality_status") not in {None, "", "ok"}
+            or parse_number(item.get("constraint_import_rate_pln_day")) is None
+        ]
+        if invalid_constraints:
+            skipped.append({
+                **active[0],
+                "skip_reason": (
+                    "Duration-band update blocked because at least one covered scenario has missing or invalid constraint data: "
+                    + ", ".join(
+                        f"{item.get('rental_days')}d/{item.get('data_quality_status') or 'missing cap'}"
+                        for item in invalid_constraints[:8]
+                    )
+                ),
+            })
+            continue
+
+        controlling = min(candidates, key=lambda item: float(item["constraint_import_rate_pln_day"]))
+        representative = min(active, key=lambda item: float(item["suggested_rate_pln_day"]))
+        aggregate_rate = float(controlling["constraint_import_rate_pln_day"])
+        source_actions = sorted({str(item.get("action")) for item in active})
+        source_types = sorted({str(item.get("recommendation_type") or "") for item in active if item.get("recommendation_type")})
+        source_locations = sorted({str(item.get("location") or "") for item in candidates if item.get("location")})
+        covered_duration_days = sorted({int(parse_number(item.get("rental_days")) or 0) for item in candidates})
+        expected_duration_days = list(range(int(representative["duration_min_days"]), int(representative["duration_max_days"]) + 1))
+        missing_duration_days = [duration for duration in expected_duration_days if duration not in covered_duration_days]
+        if missing_duration_days:
+            skipped.append({
+                **representative,
+                "skip_reason": (
+                    f"Duration band {representative['duration_band']} lacks scenarios for "
+                    + ",".join(str(item) for item in missing_duration_days)
+                    + "; increases are capped at the current workbook rate."
+                ),
+            })
+        targets[zone][target_date].append({
+            **representative,
+            "zone": zone,
+            "target_date": target_date,
+            "rate_col": representative["rate_col"],
+            "duration_band": representative["duration_band"],
+            "duration_min_days": representative["duration_min_days"],
+            "duration_max_days": representative["duration_max_days"],
+            "suggested_rate_pln_day": aggregate_rate,
+            "site_cap_rate_pln_day": controlling.get("site_cap_rate_pln_day"),
+            "broker_markup_multiplier": controlling.get("broker_markup_multiplier"),
+            "broker_markup_percent": controlling.get("broker_markup_percent"),
+            "broker_markup_source": controlling.get("broker_markup_source", ""),
+            "constraint_items": candidates,
+            "source_decision_count": len(candidates),
+            "source_active_count": len(active),
+            "source_actions": source_actions,
+            "source_recommendation_types": source_types,
+            "source_locations": source_locations,
+            "controlling_duration_days": controlling.get("rental_days"),
+            "aggregation_conflict": len(source_actions) > 1,
+            "covered_duration_days": covered_duration_days,
+            "missing_duration_days": missing_duration_days,
+            "duration_band_coverage_complete": not missing_duration_days,
+        })
 
     return targets, skipped
 
@@ -1433,6 +1717,10 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
     end_date = resolve_config_date(settings.get("end_date", "2027-01-31"), time_zone)
+    if start_date > end_date:
+        raise ValueError(
+            f"Pickup date expansion start {start_date.isoformat()} is after end {end_date.isoformat()}; Sheet1 was not modified."
+        )
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     group_col = int(columns["group"])
@@ -1440,11 +1728,16 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     pickup_start_col = int(columns["pickup_start_date"])
     pickup_end_col = int(columns["pickup_end_date"])
     max_col = ws.max_column
-    source_rows: list[tuple[dict[str, Any], date, date]] = []
+    source_rows: list[tuple[dict[str, Any], date, date, str, str]] = []
+    template_rows_by_group_zone: dict[tuple[str, str], dict[str, Any]] = {}
+    template_dates_by_group_zone: dict[tuple[str, str], date] = {}
+    included_group_zones: set[tuple[str, str]] = set()
 
     for row in range(data_start_row, ws.max_row + 1):
         group = ws.cell(row, group_col).value
         zone = ws.cell(row, zone_col).value
+        normalized_group = normalize_code(group)
+        normalized_zone = normalize_code(zone)
         pickup_start = parse_date_value(ws.cell(row, pickup_start_col).value)
         pickup_end = parse_date_value(ws.cell(row, pickup_end_col).value) or pickup_start
         if not group and not zone and pickup_start is None:
@@ -1454,21 +1747,45 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         if pickup_end is None or pickup_end < pickup_start:
             pickup_end = pickup_start
 
+        row_snapshot = snapshot_row(ws, row, max_col)
+        group_zone_key = (normalized_group, normalized_zone)
+        if pickup_start >= template_dates_by_group_zone.get(group_zone_key, date.min):
+            template_rows_by_group_zone[group_zone_key] = row_snapshot
+            template_dates_by_group_zone[group_zone_key] = pickup_start
+
         clipped_start = max(pickup_start, start_date)
         clipped_end = min(pickup_end, end_date)
         if clipped_start > clipped_end:
             continue
-        source_rows.append((snapshot_row(ws, row, max_col), clipped_start, clipped_end))
+        source_rows.append((row_snapshot, clipped_start, clipped_end, normalized_group, normalized_zone))
+        included_group_zones.add(group_zone_key)
 
-    expanded_rows: list[tuple[dict[str, Any], date]] = []
-    for row_snapshot, clipped_start, clipped_end in source_rows:
+    restored_group_zones: list[str] = []
+    for (group, zone), row_snapshot in sorted(template_rows_by_group_zone.items()):
+        if (group, zone) in included_group_zones:
+            continue
+        source_rows.append((row_snapshot, start_date, end_date, group, zone))
+        included_group_zones.add((group, zone))
+        restored_group_zones.append(f"{group}/{zone}")
+
+    expanded_rows: list[tuple[dict[str, Any], date, str, str]] = []
+    expanded_groups: set[str] = set()
+    expanded_group_zones: set[tuple[str, str]] = set()
+    for row_snapshot, clipped_start, clipped_end, group, zone in source_rows:
+        expanded_groups.add(group)
+        expanded_group_zones.add((group, zone))
         for pickup_date in iter_dates_inclusive(clipped_start, clipped_end):
-            expanded_rows.append((row_snapshot, pickup_date))
+            expanded_rows.append((row_snapshot, pickup_date, group, zone))
+
+    if not template_rows_by_group_zone:
+        raise ValueError("Pickup date expansion found no valid Group + Zone source rows; Sheet1 was not modified.")
+    if not expanded_rows:
+        raise ValueError("Pickup date expansion produced no rows; Sheet1 was not modified.")
 
     if ws.max_row >= data_start_row:
         ws.delete_rows(data_start_row, ws.max_row - data_start_row + 1)
 
-    for row_index, (row_snapshot, pickup_date) in enumerate(expanded_rows, start=data_start_row):
+    for row_index, (row_snapshot, pickup_date, _group, _zone) in enumerate(expanded_rows, start=data_start_row):
         write_row_snapshot(ws, row_index, row_snapshot)
         start_template = row_snapshot["cells"][pickup_start_col - 1]["value"]
         end_template = row_snapshot["cells"][pickup_end_col - 1]["value"]
@@ -1481,6 +1798,18 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         "end_date": end_date.isoformat(),
         "source_row_count": len(source_rows),
         "expanded_row_count": len(expanded_rows),
+        "source_groups": sorted({group for group, _zone in template_rows_by_group_zone}),
+        "expanded_groups": sorted(expanded_groups),
+        "missing_source_groups_after_expansion": sorted(
+            {group for group, _zone in template_rows_by_group_zone} - expanded_groups
+        ),
+        "source_group_zones": sorted(f"{group}/{zone}" for group, zone in template_rows_by_group_zone),
+        "missing_source_group_zones_after_expansion": sorted(
+            f"{group}/{zone}"
+            for group, zone in set(template_rows_by_group_zone) - expanded_group_zones
+        ),
+        "restored_group_zone_count": len(restored_group_zones),
+        "restored_group_zones": restored_group_zones[:50],
     }
 
 
@@ -1566,10 +1895,10 @@ def enforce_group_price_parity(
     duration_columns: dict[int, tuple[int, str, int, int]],
     dry_run: bool,
     scope: set[tuple[str, date, int]] | None = None,
-) -> int:
+) -> list[dict[str, Any]]:
     parity = get_group_price_parity(config)
     if parity is None:
-        return 0
+        return []
 
     base_groups, premium_adjustments = parity
     tracked_groups = set(base_groups) | set(premium_adjustments)
@@ -1579,6 +1908,10 @@ def enforce_group_price_parity(
     zone_col = int(columns["zone"])
     pickup_col = int(columns["pickup_start_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
+    duration_band_by_col = {
+        value[0]: (value[1], value[2], value[3])
+        for value in duration_columns.values()
+    }
     min_change = float(config.get("min_excel_change_pln_day", 0.01))
     rows_by_key: dict[tuple[str, date], dict[str, int]] = defaultdict(dict)
 
@@ -1592,7 +1925,7 @@ def enforce_group_price_parity(
             continue
         rows_by_key[(zone, pickup_start)][group] = row
 
-    change_count = 0
+    changes: list[dict[str, Any]] = []
     for (zone, pickup_start), groups in rows_by_key.items():
         for col in rate_cols:
             if scope is not None and (zone, pickup_start, col) not in scope:
@@ -1623,20 +1956,43 @@ def enforce_group_price_parity(
                 if old_rate is not None and abs(target_rate - old_rate) < min_change:
                     continue
 
-                change_count += 1
+                duration_band, duration_min_days, duration_max_days = duration_band_by_col[col]
+                change = {
+                    "action": classify_actual_action(old_rate, target_rate, "increase"),
+                    "recommendation_action": "parity",
+                    "recommendation_type": "group_parity",
+                    "target_rank": "",
+                    "reason": "Ujednolicenie stawek grup bazowych oraz korekty EDAH/EDMV.",
+                    "location": "",
+                    "zone": zone,
+                    "group": group,
+                    "pickup_date": pickup_start.isoformat(),
+                    "duration_days": None,
+                    "duration_band": duration_band,
+                    "duration_min_days": duration_min_days,
+                    "duration_max_days": duration_max_days,
+                    "cell": cell.coordinate,
+                    "old_rate": old_rate,
+                    "new_rate": target_rate,
+                    "delta": None if old_rate is None else round(target_rate - old_rate, 2),
+                    "minimum_rate_pln_day": 0,
+                    "minimum_reason": "",
+                    "group_adjustment_pln_day": premium_adjustments.get(group, 0),
+                    "target_achievable": True,
+                    "source_decision_count": 0,
+                }
+                changes.append(change)
                 if dry_run:
                     continue
 
                 cell.value = int(target_rate) if float(target_rate).is_integer() else round(target_rate, 2)
                 cell.fill = get_delta_fill(
-                    {
-                        "action": classify_actual_action(old_rate, target_rate, "increase"),
-                        "delta": None if old_rate is None else round(target_rate - old_rate, 2),
-                    },
+                    change,
                     config,
                 )
+                cell.comment = build_rate_comment(change)
 
-    return change_count
+    return changes
 
 
 def highlight_excluded_group_rates(
@@ -1645,6 +2001,7 @@ def highlight_excluded_group_rates(
     config: dict[str, Any],
     duration_columns: dict[int, tuple[int, str, int, int]],
     dry_run: bool,
+    scoped_rate_cols: set[int] | None = None,
 ) -> int:
     group = ws.cell(row, int(config["columns"]["group"])).value
     threshold = get_excluded_group_highlight_threshold(group, config)
@@ -1654,6 +2011,8 @@ def highlight_excluded_group_rates(
     fill = PatternFill(fill_type="solid", fgColor=str((config.get("colors") or {}).get("limited", "FCE4D6")))
     highlighted = 0
     for col, _, _, _ in duration_columns.values():
+        if scoped_rate_cols is not None and col not in scoped_rate_cols:
+            continue
         rate = parse_number(ws.cell(row, col).value)
         if rate is None or rate >= threshold:
             continue
@@ -1674,6 +2033,13 @@ def apply_updates(
     acceptance_workbook_path: Path | None = None,
     import_output_path: Path | None = None,
 ) -> dict[str, Any]:
+    input_workbook_sha256 = sha256_file(workbook_path)
+    expected_workbook_sha256 = str(config.get("baseline_workbook_sha256") or "").strip().lower()
+    if expected_workbook_sha256 and input_workbook_sha256.lower() != expected_workbook_sha256:
+        raise ValueError(
+            "Input workbook does not match the confirmed baseline hash; no workbook changes were made. "
+            f"Expected {expected_workbook_sha256}, got {input_workbook_sha256}."
+        )
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
 
@@ -1706,7 +2072,7 @@ def apply_updates(
     changes: list[dict[str, Any]] = []
     normalized_pickup_end_count = 0
     synced_booking_end_count = 0
-    group_price_parity_change_count = 0
+    group_price_parity_changes: list[dict[str, Any]] = []
     excluded_group_highlight_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
@@ -1721,19 +2087,6 @@ def apply_updates(
             continue
 
         group = ws.cell(row, int(columns["group"])).value
-        if group_is_excluded(group, config):
-            excluded_group_highlight_count += highlight_excluded_group_rates(
-                ws,
-                row,
-                config,
-                duration_columns,
-                dry_run,
-            )
-            continue
-
-        if not group_is_allowed(group, allowed_groups):
-            continue
-
         pickup_start = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         pickup_end = parse_date_value(ws.cell(row, int(columns["pickup_end_date"])).value)
         row_targets = find_targets_for_row(
@@ -1745,6 +2098,20 @@ def apply_updates(
         if not row_targets:
             continue
 
+        if group_is_excluded(group, config):
+            excluded_group_highlight_count += highlight_excluded_group_rates(
+                ws,
+                row,
+                config,
+                duration_columns,
+                dry_run,
+                scoped_rate_cols={int(target["rate_col"]) for target in row_targets},
+            )
+            continue
+
+        if not group_is_allowed(group, allowed_groups):
+            continue
+
         for target in row_targets:
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
@@ -1752,11 +2119,22 @@ def apply_updates(
             minimum_rate, minimum_reason = get_minimum_rate(target, config)
             suggested_rate = float(target["suggested_rate_pln_day"])
             base_rate = max(suggested_rate, minimum_rate)
+            current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
+            if (
+                target.get("duration_band_coverage_complete") is False
+                and current_base_equivalent is not None
+                and base_rate > current_base_equivalent
+                and minimum_rate <= current_base_equivalent
+            ):
+                base_rate = current_base_equivalent
             new_rate = base_rate + group_adjustment
             if old_rate is not None and abs(new_rate - old_rate) < min_change:
                 continue
 
             actual_action = classify_actual_action(old_rate, new_rate, str(target["action"]))
+            constraint_evaluation = evaluate_target_constraints(target, new_rate)
+            broker_markup_multiplier = parse_number(target.get("broker_markup_multiplier")) or 1
+            predicted_site_rate = round(new_rate * broker_markup_multiplier, 2)
             change = {
                 "action": actual_action,
                 "recommendation_action": target["action"],
@@ -1776,9 +2154,9 @@ def apply_updates(
                 "new_rate": new_rate,
                 "delta": None if old_rate is None else round(new_rate - old_rate, 2),
                 "suggested_rate_before_minimum": suggested_rate,
-                "site_target_rate": target.get("site_target_rate_pln_day"),
-                "predicted_site_rate": target.get("predicted_site_rate_pln_day"),
-                "broker_markup_multiplier": target.get("broker_markup_multiplier"),
+                "site_target_rate": target.get("site_cap_rate_pln_day") or target.get("site_target_rate_pln_day"),
+                "predicted_site_rate": predicted_site_rate,
+                "broker_markup_multiplier": broker_markup_multiplier,
                 "broker_markup_percent": target.get("broker_markup_percent"),
                 "broker_markup_source": target.get("broker_markup_source", ""),
                 "minimum_rate_pln_day": minimum_rate,
@@ -1799,6 +2177,17 @@ def apply_updates(
                 "dropoff_date": target.get("dropoff_date", ""),
                 "source_generated_at": target.get("source_generated_at", ""),
                 "scenario_id": target.get("scenario_id", ""),
+                "source_decision_count": target.get("source_decision_count", 1),
+                "source_active_count": target.get("source_active_count", 1),
+                "source_actions": target.get("source_actions", []),
+                "source_recommendation_types": target.get("source_recommendation_types", []),
+                "source_locations": target.get("source_locations", []),
+                "controlling_duration_days": target.get("controlling_duration_days"),
+                "aggregation_conflict": bool(target.get("aggregation_conflict")),
+                "covered_duration_days": target.get("covered_duration_days", []),
+                "missing_duration_days": target.get("missing_duration_days", []),
+                "duration_band_coverage_complete": target.get("duration_band_coverage_complete", True),
+                **constraint_evaluation,
             }
 
             if not dry_run:
@@ -1808,13 +2197,14 @@ def apply_updates(
 
             changes.append(change)
 
-    group_price_parity_change_count = enforce_group_price_parity(
+    group_price_parity_changes = enforce_group_price_parity(
         ws,
         config,
         duration_columns,
         dry_run,
         scope=group_price_parity_scope,
     )
+    changes.extend(group_price_parity_changes)
 
     if not dry_run:
         if output_path is None:
@@ -1822,7 +2212,7 @@ def apply_updates(
         write_changed_positions_sheet(workbook, ws, config, changes)
         write_recommendations_review_sheet(workbook, ws, config, changes)
         write_competitor_evidence_sheet(workbook, ws, config, changes)
-        write_validation_sheet(workbook, ws, config, duration_columns, changes, skipped_targets)
+        write_validation_sheet(workbook, ws, config, duration_columns, changes, skipped_targets, expansion_summary)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
         if import_output_path is not None:
@@ -1830,11 +2220,12 @@ def apply_updates(
 
     return {
         "workbook": str(workbook_path),
+        "input_workbook_sha256": input_workbook_sha256,
         "output": str(output_path) if output_path else None,
         "import_output": str(import_output_path) if import_output_path else None,
         "dry_run": dry_run,
         "change_count": len(changes),
-        "group_price_parity_change_count": group_price_parity_change_count,
+        "group_price_parity_change_count": len(group_price_parity_changes),
         "group_price_parity_scope_count": len(group_price_parity_scope),
         "excluded_group_highlight_count": excluded_group_highlight_count,
         "normalized_pickup_end_count": normalized_pickup_end_count,
@@ -1851,7 +2242,7 @@ def apply_updates(
                 "issue_count": row[2],
                 "details": row[3],
             }
-            for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets)
+            for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets, expansion_summary)
         ],
         "broker_markup_observations": build_broker_markup_observations(changes, config),
         "changes": changes[:100],
