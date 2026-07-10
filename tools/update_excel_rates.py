@@ -104,6 +104,8 @@ DEFAULT_CONFIG = {
     },
 }
 
+CONFIRMED_BASELINE_STATUSES = {"confirmed_imported", "verified_live"}
+
 
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
@@ -132,6 +134,103 @@ def merge_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    resolved_config_path = config_path.resolve()
+    config = merge_config(load_json(resolved_config_path))
+    config["_config_dir"] = str(resolved_config_path.parent)
+
+    registry_file = str(config.get("location_registry_file") or "").strip()
+    if not registry_file:
+        return config
+
+    registry_path = (resolved_config_path.parent / registry_file).resolve()
+    registry = load_json(registry_path)
+    if registry.get("schema_version") != 1 or not isinstance(registry.get("locations"), list):
+        raise ValueError("Location registry must use schema_version 1 and contain a locations array.")
+
+    location_zones: dict[str, list[str]] = {}
+    locations_by_id: dict[str, str] = {}
+    for location in registry["locations"]:
+        location_id = str(location.get("id") or "").strip()
+        label = str(location.get("scraper_label") or "").strip()
+        zones = sorted({normalize_code(zone) for zone in location.get("zones", []) if normalize_code(zone)})
+        if not location_id or not label or not zones:
+            raise ValueError("Every registry location requires id, scraper_label, and at least one zone.")
+        if location_id in locations_by_id or label in location_zones:
+            raise ValueError(f"Duplicate location registry entry: {location_id or label}.")
+        locations_by_id[location_id] = label
+        location_zones[label] = zones
+
+    for alias, zones in (registry.get("aliases") or {}).items():
+        normalized_zones = sorted({normalize_code(zone) for zone in zones if normalize_code(zone)})
+        if not str(alias).strip() or not normalized_zones:
+            raise ValueError("Every location alias requires a name and at least one zone.")
+        location_zones[str(alias)] = normalized_zones
+
+    daily_locations = []
+    for location_id in (registry.get("profiles") or {}).get("daily", []):
+        if location_id not in locations_by_id:
+            raise ValueError(f"Daily location profile references unknown location id: {location_id}.")
+        daily_locations.append(locations_by_id[location_id])
+
+    config["location_zones"] = location_zones
+    config["daily_locations"] = daily_locations
+    config["zone_mirrors"] = registry.get("zone_mirrors") or {}
+    config["location_registry_path"] = str(registry_path)
+    return config
+
+
+def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: str) -> dict[str, Any]:
+    manifest_file = str(config.get("baseline_manifest_file") or "").strip()
+    legacy_expected_hash = str(config.get("baseline_workbook_sha256") or "").strip().lower()
+
+    if manifest_file:
+        config_dir = Path(str(config.get("_config_dir") or "."))
+        manifest_path = (config_dir / manifest_file).resolve()
+        if not manifest_path.exists():
+            raise ValueError(f"Baseline manifest not found: {manifest_path}")
+        manifest = load_json(manifest_path)
+        status = str(manifest.get("status") or "").strip().lower()
+        expected_hash = str(manifest.get("workbook_sha256") or "").strip().lower()
+        if not expected_hash:
+            raise ValueError("Baseline manifest does not contain workbook_sha256.")
+        if input_workbook_sha256.lower() != expected_hash:
+            raise ValueError(
+                "Input workbook does not match the baseline manifest; no workbook changes were made. "
+                f"Expected {expected_hash}, got {input_workbook_sha256}."
+            )
+        if status not in CONFIRMED_BASELINE_STATUSES:
+            raise ValueError(
+                "Baseline workbook is not confirmed as imported. "
+                f"Current status: {status or 'missing'}."
+            )
+        return {
+            "status": status,
+            "confirmed": True,
+            "calibration_eligible": True,
+            "workbook_sha256": expected_hash,
+            "confirmed_at": manifest.get("confirmed_at"),
+            "confirmed_by": manifest.get("confirmed_by"),
+            "manifest_path": str(manifest_path),
+        }
+
+    if legacy_expected_hash and input_workbook_sha256.lower() != legacy_expected_hash:
+        raise ValueError(
+            "Input workbook does not match the confirmed baseline hash; no workbook changes were made. "
+            f"Expected {legacy_expected_hash}, got {input_workbook_sha256}."
+        )
+
+    return {
+        "status": "legacy_confirmed" if legacy_expected_hash else "legacy_unmanaged",
+        "confirmed": bool(legacy_expected_hash),
+        "calibration_eligible": True,
+        "workbook_sha256": legacy_expected_hash or input_workbook_sha256,
+        "confirmed_at": None,
+        "confirmed_by": None,
+        "manifest_path": None,
+    }
 
 
 def parse_date_value(value: Any) -> date | None:
@@ -1393,8 +1492,19 @@ def average(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
-def build_broker_markup_observations(changes: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+def build_broker_markup_observations(
+    changes: list[dict[str, Any]],
+    config: dict[str, Any],
+    baseline_confirmation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     settings = config.get("broker_markup_learning") or {}
+    if baseline_confirmation and not baseline_confirmation.get("calibration_eligible"):
+        return {
+            "enabled": False,
+            "count": 0,
+            "reason": "baseline_not_confirmed",
+            "observations": [],
+        }
     if settings.get("enabled") is False:
         return {
             "enabled": False,
@@ -2034,12 +2144,7 @@ def apply_updates(
     import_output_path: Path | None = None,
 ) -> dict[str, Any]:
     input_workbook_sha256 = sha256_file(workbook_path)
-    expected_workbook_sha256 = str(config.get("baseline_workbook_sha256") or "").strip().lower()
-    if expected_workbook_sha256 and input_workbook_sha256.lower() != expected_workbook_sha256:
-        raise ValueError(
-            "Input workbook does not match the confirmed baseline hash; no workbook changes were made. "
-            f"Expected {expected_workbook_sha256}, got {input_workbook_sha256}."
-        )
+    baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
 
@@ -2221,6 +2326,7 @@ def apply_updates(
     return {
         "workbook": str(workbook_path),
         "input_workbook_sha256": input_workbook_sha256,
+        "baseline_confirmation": baseline_confirmation,
         "output": str(output_path) if output_path else None,
         "import_output": str(import_output_path) if import_output_path else None,
         "dry_run": dry_run,
@@ -2244,7 +2350,11 @@ def apply_updates(
             }
             for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets, expansion_summary)
         ],
-        "broker_markup_observations": build_broker_markup_observations(changes, config),
+        "broker_markup_observations": build_broker_markup_observations(
+            changes,
+            config,
+            baseline_confirmation,
+        ),
         "changes": changes[:100],
     }
 
@@ -2265,7 +2375,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    config = merge_config(load_json(Path(args.config)))
+    config = load_config(Path(args.config))
     summary = apply_updates(
         workbook_path=Path(args.workbook),
         recommendations_path=Path(args.recommendations),

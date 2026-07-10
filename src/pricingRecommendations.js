@@ -5,6 +5,7 @@ const {
   resolveBrokerMarkupCalibration
 } = require("./brokerMarkupCalibration");
 const { DEFAULT_PRICING_RULES } = require("./pricingRules");
+const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
 
 const DEFAULT_OPTIONS = {
   ...DEFAULT_PRICING_RULES,
@@ -134,7 +135,7 @@ function listOfferCurrencies(offers) {
   )];
 }
 
-function buildRecommendationForLocation({ rootPayload, scenario, location, options }) {
+function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex }) {
   const locationData = getScenarioLocationData(scenario, location);
   const topOffers = Array.isArray(locationData?.top_3) ? locationData.top_3.filter(Boolean) : [];
   const mmOffer = locationData?.mm_cars_rental || topOffers.find((offer) => isMmCarsProvider(offer?.provider_name)) || null;
@@ -147,6 +148,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const top1Rate = toDailyRate(top1);
   const top2Rate = toDailyRate(top2);
   const top3Rate = toDailyRate(top3);
+  const top1Signal = top1SignalIndex?.get(buildObservationKey(scenario, location)) || null;
 
   const base = {
     scenario_id: scenario.scenario_id || null,
@@ -165,6 +167,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     top2_rate_pln_day: top2Rate == null ? null : Number(top2Rate.toFixed(2)),
     top3_provider: formatProviderName(top3),
     top3_rate_pln_day: top3Rate == null ? null : Number(top3Rate.toFixed(2)),
+    top1_high_rate: Boolean(top1Signal?.is_high_rate),
     source_generated_at: scenario.source_generated_at_by_location?.[location]
       || scenario.generated_at
       || rootPayload.generated_at
@@ -299,6 +302,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  const top1SignalIndex = buildTop1RateSignalIndex(payload, options);
   const scenarios = normalizeScenarios(payload);
   const recommendations = [];
   const decisions = [];
@@ -310,7 +314,8 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         rootPayload: payload,
         scenario,
         location,
-        options
+        options,
+        top1SignalIndex
       });
       decisions.push(recommendation);
 

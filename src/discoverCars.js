@@ -380,7 +380,8 @@ async function runLegacyFallbackBatch(options) {
   return {
     results: sortOffersByPrice(results),
     errors,
-    locationBreakdown
+    locationBreakdown,
+    telemetry: fallbackOutput.telemetry || null
   };
 }
 

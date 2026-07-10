@@ -1,9 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 const { loadPricingRules } = require("./pricingRules");
+const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
-const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = loadPricingRules().top1GapThresholdPlnDay;
+const PRICING_RULES = loadPricingRules();
+const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = PRICING_RULES.top1GapThresholdPlnDay;
 const MM_TOP1_GAP_20_PRICE_PER_DAY_THRESHOLD_PLN = 20;
 const MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN = 30;
 
@@ -172,6 +174,14 @@ function buildMmPriceCell(mmOffer, rankedOffers) {
   return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
 }
 
+function buildTop1PriceCell(offer, signal) {
+  const classes = signal?.is_high_rate ? "top1-high" : "";
+  const title = signal?.is_high_rate
+    ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.`
+    : "";
+  return `<td${classes ? ` class="${classes}"` : ""}${title ? ` title="${escapeHtml(title)}"` : ""}>${escapeHtml(formatOfferPrice(offer))}</td>`;
+}
+
 function scenarioLocations(rootPayload, scenarioPayload) {
   const rootLocations = Array.isArray(rootPayload.locations) ? rootPayload.locations : [];
   if (rootLocations.length) {
@@ -193,7 +203,7 @@ function scenarioPeriod(scenarioPayload) {
   return `${pickup} -> ${dropoff} (rental_days=${rentalDays})`;
 }
 
-function buildScenarioRows(rootPayload, scenarioPayload) {
+function buildScenarioRows(rootPayload, scenarioPayload, top1SignalIndex) {
   const locations = scenarioLocations(rootPayload, scenarioPayload);
   const tableData = scenarioPayload.top_3_plus_mm_by_location || {};
 
@@ -204,6 +214,7 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
       const mmOffer = locationData.mm_cars_rental || null;
       const rowClass = index % 2 === 0 ? "even" : "odd";
       const top1GapState = getMmTop1GapState(mmOffer, top3);
+      const top1Signal = top1SignalIndex.get(buildObservationKey(scenarioPayload, location)) || null;
       const mmState = !mmOffer
         ? "missing"
         : top1GapState
@@ -212,11 +223,11 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
             ? "close"
             : "normal";
 
-      return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state="${mmState}">
+      return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state="${mmState}" data-top1-high="${Boolean(top1Signal?.is_high_rate)}">
         <td class="index">${index}</td>
         <td class="location">${escapeHtml(location)}</td>
         ${buildProviderCell(top3[0], top3)}
-        <td>${escapeHtml(formatOfferPrice(top3[0]))}</td>
+        ${buildTop1PriceCell(top3[0], top1Signal)}
         ${buildProviderCell(top3[1], top3)}
         <td>${escapeHtml(formatOfferPrice(top3[1]))}</td>
         ${buildProviderCell(top3[2], top3)}
@@ -243,7 +254,23 @@ function normalizeScenarios(payload) {
   return Array.isArray(payload.scenarios) && payload.scenarios.length ? payload.scenarios : [payload];
 }
 
-function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
+function summarizeApiDomMonitoring(payload, scenarios) {
+  if (payload?.api_dom_monitoring) {
+    return payload.api_dom_monitoring;
+  }
+  const summary = { comparison_count: 0, drift_count: 0, fallback_count: 0, adaptive_validation_triggered: false };
+  for (const scenario of scenarios) {
+    const item = scenario?.api_dom_monitoring;
+    if (!item) continue;
+    summary.comparison_count += Number(item.comparison_count || 0);
+    summary.drift_count += Number(item.drift_count || 0);
+    summary.fallback_count += Number(item.fallback_count || 0);
+    summary.adaptive_validation_triggered ||= Boolean(item.adaptive_validation_triggered);
+  }
+  return summary;
+}
+
+function buildScenarioTable(rootPayload, scenarioPayload, index, total, top1SignalIndex) {
   return `<section class="scenario" data-date="${escapeHtml(scenarioPayload.start_date || "")}" data-duration="${escapeHtml(scenarioPayload.rental_days || "")}">
     <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
     <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
@@ -273,15 +300,27 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
         </tr>
       </thead>
       <tbody>
-        ${buildScenarioRows(rootPayload, scenarioPayload)}
+        ${buildScenarioRows(rootPayload, scenarioPayload, top1SignalIndex)}
       </tbody>
     </table>
     ${buildErrorsHtml(scenarioPayload.errors)}
   </section>`;
 }
 
-function buildHtmlReport(payload) {
+function buildQualityBanner(quality) {
+  if (!quality || quality.status === "success") {
+    return "";
+  }
+  const alerts = Array.isArray(quality.alerts) ? quality.alerts.slice(0, 3).join(" ") : "";
+  const message = quality.status === "failure"
+    ? "Raport danych zostal opublikowany, ale nowy Excel zostal zablokowany przez kontrole jakosci."
+    : "Raport zawiera ostrzezenia kontroli jakosci.";
+  return `<div class="quality-banner quality-${escapeHtml(quality.status)}"><strong>${escapeHtml(message)}</strong>${alerts ? ` ${escapeHtml(alerts)}` : ""}</div>`;
+}
+
+function buildHtmlReport(payload, options = {}) {
   const scenarios = normalizeScenarios(payload);
+  const top1SignalIndex = buildTop1RateSignalIndex(payload, PRICING_RULES);
   const generatedAt = payload.generated_at || new Date().toISOString();
   const locations = [...new Set(scenarios.flatMap((scenario) => scenarioLocations(payload, scenario)))].sort();
   const durations = [...new Set(scenarios.map((scenario) => Number(scenario.rental_days)).filter(Number.isFinite))].sort((a, b) => a - b);
@@ -290,6 +329,9 @@ function buildHtmlReport(payload) {
     (location) => !scenario?.top_3_plus_mm_by_location?.[location]?.mm_cars_rental
   ).length, 0);
   const errorCount = scenarios.reduce((sum, scenario) => sum + (scenario.errors || []).length, 0);
+  const top1Signals = [...top1SignalIndex.values()];
+  const highTop1Count = top1Signals.filter((signal) => signal.is_high_rate).length;
+  const apiDom = summarizeApiDomMonitoring(payload, scenarios);
 
   return `<!doctype html>
 <html lang="pl">
@@ -371,6 +413,17 @@ function buildHtmlReport(payload) {
     }
 
     .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
+
+    .quality-banner {
+      margin: 0 0 16px;
+      padding: 10px 12px;
+      border: 2px solid #f0a020;
+      background: #3a2807;
+      color: #fff1c7;
+      font-size: 13px;
+    }
+
+    .quality-failure { border-color: #ff5c5c; background: #3b1010; color: #ffd6d6; }
 
     .badge {
       display: inline-block;
@@ -475,6 +528,11 @@ function buildHtmlReport(payload) {
       color: var(--magenta-text);
     }
 
+    .top1-high {
+      background: #7a1d1d;
+      color: #ffffff;
+    }
+
     .muted {
       color: var(--muted);
     }
@@ -526,33 +584,38 @@ function buildHtmlReport(payload) {
 <body>
   <h1>DiscoverCars report</h1>
   <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
-  <div class="summary">Scenariusze: ${scenarios.length} | sprawdzenia lokalizacji: ${locationChecks} | brak MM Cars Rental: ${missingMm} | błędy: ${errorCount}</div>
+  ${buildQualityBanner(options.quality)}
+  <div class="summary">Scenariusze: ${scenarios.length} | sprawdzenia lokalizacji: ${locationChecks} | brak MM Cars Rental: ${missingMm} | błędy: ${errorCount} | Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d: ${highTop1Count} | API-DOM: ${apiDom.drift_count || 0}/${apiDom.comparison_count || 0} rozjazdów${apiDom.adaptive_validation_triggered ? " (próba DOM zwiększona)" : ""}</div>
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
     <span><span class="badge mm mm-top1-gap">Top1: +5 PLN/d</span> Top 2 jest droższy od MM o min. 5 PLN/dzień</span>
     <span><span class="badge mm mm-top1-gap-20">Top1: +20 PLN/d</span> Top 2 jest droższy od MM o min. 20 PLN/dzień</span>
     <span><span class="badge mm mm-top1-gap-30">Top1: +30 PLN/d</span> Top 2 jest droższy od MM o min. 30 PLN/dzień</span>
+    <span><span class="badge top1-high">Top1 &gt; 150</span> stawka Top1 przekracza 150 PLN/dzień</span>
   </div>
   <div class="toolbar">
     <label>Data<input id="filter-date" type="date"></label>
     <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
     <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
     <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 5–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
+    <label>Kontrola Top1<select id="filter-top1"><option value="">Wszystkie</option><option value="high">Powyżej 150 PLN/d</option><option value="normal">Do 150 PLN/d</option></select></label>
   </div>
-  ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
+  ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length, top1SignalIndex)).join("\n")}
   <script>
-    const controls = ["filter-date", "filter-location", "filter-duration", "filter-state"].map((id) => document.getElementById(id));
+    const controls = ["filter-date", "filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
     function applyFilters() {
       const date = controls[0].value;
       const location = controls[1].value;
       const duration = controls[2].value;
       const state = controls[3].value;
+      const top1State = controls[4].value;
       for (const section of document.querySelectorAll(".scenario")) {
         const scenarioMatch = (!date || section.dataset.date === date) && (!duration || section.dataset.duration === duration);
         let visibleRows = 0;
         for (const row of section.querySelectorAll("tbody tr")) {
-          const visible = scenarioMatch && (!location || row.dataset.location === location) && (!state || row.dataset.mmState === state);
+          const top1Match = !top1State || (top1State === "high" ? row.dataset.top1High === "true" : row.dataset.top1High !== "true");
+          const visible = scenarioMatch && (!location || row.dataset.location === location) && (!state || row.dataset.mmState === state) && top1Match;
           row.hidden = !visible;
           if (visible) visibleRows += 1;
         }
@@ -565,22 +628,27 @@ function buildHtmlReport(payload) {
 </html>`;
 }
 
-function writeHtmlReport(payload, outputPath) {
+function writeHtmlReport(payload, outputPath, options = {}) {
   const targetPath = path.resolve(outputPath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, buildHtmlReport(payload), "utf8");
+  fs.writeFileSync(targetPath, buildHtmlReport(payload, options), "utf8");
   return targetPath;
 }
 
-function generateReportFromFile(inputPath, outputPath) {
+function generateReportFromFile(inputPath, outputPath, options = {}) {
   const payload = JSON.parse(fs.readFileSync(inputPath, "utf8"));
-  return writeHtmlReport(payload, outputPath);
+  return writeHtmlReport(payload, outputPath, options);
 }
 
 if (require.main === module) {
   const inputPath = process.argv[2] || "output/results-latest.json";
   const outputPath = process.argv[3] || "output/report.html";
-  const writtenPath = generateReportFromFile(inputPath, outputPath);
+  const qualityArg = process.argv.find((arg) => arg.startsWith("--quality="));
+  const qualityPath = qualityArg ? qualityArg.slice("--quality=".length) : null;
+  const quality = qualityPath && fs.existsSync(qualityPath)
+    ? JSON.parse(fs.readFileSync(qualityPath, "utf8"))
+    : null;
+  const writtenPath = generateReportFromFile(inputPath, outputPath, { quality });
   console.log(`HTML report saved to ${writtenPath}`);
 }
 

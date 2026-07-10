@@ -36,6 +36,8 @@ const IGNORED_API_PROVIDER_PATTERNS = [
   /^discovercars\s*choice$/i
 ];
 const DEFAULT_API_DOM_SANITY_RATE = 0.05;
+const DEFAULT_API_DOM_DRIFT_TRIGGER_RATE = 0.2;
+const DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS = 3;
 const DEFAULT_API_TIMEOUT_MS = 20_000;
 const DEFAULT_GEO_LOCATION_OVERRIDES = Object.freeze({
   "galeria krakowska shopping mall": Object.freeze({
@@ -46,6 +48,11 @@ const DEFAULT_GEO_LOCATION_OVERRIDES = Object.freeze({
   })
 });
 const SHARED_LOCATION_CANDIDATE_CACHE = new Map();
+const SHARED_API_DOM_DRIFT_STATE = {
+  comparison_count: 0,
+  drift_count: 0,
+  adaptive_validation_triggered: false
+};
 
 function clampPositiveInteger(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(value, 10);
@@ -68,6 +75,20 @@ class DiscoverCarsScraper {
   constructor(config) {
     this.config = config;
     this.locationCandidateCache = config.locationCandidateCache || SHARED_LOCATION_CANDIDATE_CACHE;
+    this.apiDomDriftState = config.apiDomDriftState || SHARED_API_DOM_DRIFT_STATE;
+    this.apiDomTelemetry = {
+      api_attempt_count: 0,
+      api_success_count: 0,
+      api_failure_count: 0,
+      dom_validation_count: 0,
+      dom_success_count: 0,
+      dom_failure_count: 0,
+      comparison_count: 0,
+      drift_count: 0,
+      browser_preferred_count: 0,
+      fallback_count: 0,
+      adaptive_validation_triggered: false
+    };
   }
 
   async run() {
@@ -130,7 +151,7 @@ class DiscoverCarsScraper {
       }
     }
 
-    return { results, failures };
+    return { results, failures, telemetry: this.buildApiDomTelemetrySummary() };
   }
 
   resolveLaunchOptions() {
@@ -156,12 +177,15 @@ class DiscoverCarsScraper {
   async runSingleLocation(location, getBrowser) {
     if (this.isApiFirstEnabled()) {
       let apiOutcome = null;
+      this.apiDomTelemetry.api_attempt_count += 1;
       try {
         apiOutcome = await this.runSingleLocationViaApi(location);
+        this.apiDomTelemetry.api_success_count += 1;
         if (!this.shouldValidateApiOutcome(location, apiOutcome.results)) {
           return apiOutcome;
         }
       } catch (apiError) {
+        this.apiDomTelemetry.api_failure_count += 1;
         apiOutcome = {
           ok: false,
           error: apiError instanceof Error ? apiError : new Error(String(apiError))
@@ -169,12 +193,26 @@ class DiscoverCarsScraper {
       }
 
       const browser = await getBrowser();
+      this.apiDomTelemetry.dom_validation_count += 1;
       const browserOutcome = await this.runSingleLocationWithBrowser(browser, location);
+      if (browserOutcome.ok) {
+        this.apiDomTelemetry.dom_success_count += 1;
+      } else {
+        this.apiDomTelemetry.dom_failure_count += 1;
+      }
       if (!apiOutcome.ok) {
+        if (browserOutcome.ok) {
+          this.apiDomTelemetry.fallback_count += 1;
+        }
         return browserOutcome;
       }
-      if (browserOutcome.ok && this.shouldPreferBrowserOutcome(apiOutcome.results, browserOutcome.results)) {
-        return browserOutcome;
+      if (browserOutcome.ok) {
+        const comparison = this.compareApiAndBrowserOutcomes(apiOutcome.results, browserOutcome.results);
+        this.recordApiDomComparison(comparison.preferBrowser);
+        if (comparison.preferBrowser) {
+          this.apiDomTelemetry.browser_preferred_count += 1;
+          return browserOutcome;
+        }
       }
       return apiOutcome;
     }
@@ -284,6 +322,10 @@ class DiscoverCarsScraper {
     if (selectedOffers.length < 3) {
       return true;
     }
+    if (this.apiDomDriftState.adaptive_validation_triggered) {
+      this.apiDomTelemetry.adaptive_validation_triggered = true;
+      return true;
+    }
     const sanityRate = clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1);
     if (sanityRate <= 0) {
       return false;
@@ -292,22 +334,27 @@ class DiscoverCarsScraper {
   }
 
   shouldPreferBrowserOutcome(apiOffers, browserOffers) {
+    return this.compareApiAndBrowserOutcomes(apiOffers, browserOffers).preferBrowser;
+  }
+
+  compareApiAndBrowserOutcomes(apiOffers, browserOffers) {
     const apiList = Array.isArray(apiOffers) ? apiOffers : [];
     const browserList = Array.isArray(browserOffers) ? browserOffers : [];
     if (!apiList.length) {
-      return browserList.length > 0;
+      return { preferBrowser: browserList.length > 0, reasons: browserList.length ? ["api_empty"] : [] };
     }
     if (!browserList.length) {
-      return false;
+      return { preferBrowser: false, reasons: [] };
     }
 
+    const reasons = [];
     const apiHasMm = apiList.some((offer) => isMmCarsRentalProvider(offer.provider));
     const browserHasMm = browserList.some((offer) => isMmCarsRentalProvider(offer.provider));
     if (!apiHasMm && browserHasMm) {
-      return true;
+      reasons.push("mm_missing_in_api");
     }
     if (apiList.length < 3 && browserList.length > apiList.length) {
-      return true;
+      reasons.push("api_offer_count_low");
     }
 
     const pickup = new Date(`${this.config.pickupDate}T00:00:00Z`);
@@ -328,17 +375,61 @@ class DiscoverCarsScraper {
         continue;
       }
       if (String(apiOffer.currency || "").toUpperCase() !== String(browserOffer.currency || "").toUpperCase()) {
-        return true;
+        reasons.push("currency_mismatch");
+        continue;
       }
       const apiTotal = Number(apiOffer.totalPrice);
       const browserTotal = Number(browserOffer.totalPrice);
       const tolerance = Math.max(2 * rentalDays, Math.abs(browserTotal) * 0.02);
       if (Number.isFinite(apiTotal) && Number.isFinite(browserTotal) && Math.abs(apiTotal - browserTotal) > tolerance) {
-        return true;
+        reasons.push("price_mismatch");
       }
     }
 
-    return false;
+    return { preferBrowser: reasons.length > 0, reasons: [...new Set(reasons)] };
+  }
+
+  updateAdaptiveValidationState() {
+    const comparisons = this.apiDomDriftState.comparison_count;
+    const minComparisons = clampPositiveInteger(
+      this.config.apiDomDriftMinComparisons,
+      DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS,
+      1,
+      100
+    );
+    const triggerRate = clampNumber(
+      this.config.apiDomDriftTriggerRate,
+      DEFAULT_API_DOM_DRIFT_TRIGGER_RATE,
+      0,
+      1
+    );
+    if (comparisons >= minComparisons && this.apiDomDriftState.drift_count / comparisons >= triggerRate) {
+      this.apiDomDriftState.adaptive_validation_triggered = true;
+      this.apiDomTelemetry.adaptive_validation_triggered = true;
+    }
+  }
+
+  recordApiDomComparison(isDrift) {
+    this.apiDomTelemetry.comparison_count += 1;
+    this.apiDomDriftState.comparison_count += 1;
+    if (isDrift) {
+      this.apiDomTelemetry.drift_count += 1;
+      this.apiDomDriftState.drift_count += 1;
+    }
+    this.updateAdaptiveValidationState();
+  }
+
+  buildApiDomTelemetrySummary() {
+    const comparisons = this.apiDomTelemetry.comparison_count;
+    return {
+      ...this.apiDomTelemetry,
+      adaptive_validation_triggered: this.apiDomTelemetry.adaptive_validation_triggered
+        || this.apiDomDriftState.adaptive_validation_triggered,
+      configured_validation_rate: clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1),
+      drift_rate_percent: comparisons
+        ? Number((this.apiDomTelemetry.drift_count / comparisons * 100).toFixed(2))
+        : 0
+    };
   }
 
   async runSingleLocationViaApi(location) {

@@ -3,21 +3,9 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { mergePayloads } = require("./mergeDiscovercarsResults");
 const { WARSAW_TIME_ZONE, addDaysToDateParts, getZonedDateParts } = require("./dateUtils");
+const { getDailyLocations } = require("./locationRegistry");
 
-const DEFAULT_LOCATIONS = [
-  "Gdansk Downtown",
-  "Gdansk Airport (GDN)",
-  "Katowice Downtown",
-  "Katowice Airport (KTW)",
-  "Krakow Train Station",
-  "Krakow Airport (KRK)",
-  "Poznan Downtown",
-  "Poznan Airport (POZ)",
-  "Warsaw Train Station",
-  "Warsaw Chopin Airport (WAW)",
-  "Wroclaw Downtown",
-  "Wroclaw Airport (WRO)"
-];
+const DEFAULT_LOCATIONS = getDailyLocations();
 
 const DEFAULT_DURATIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 

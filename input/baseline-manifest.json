@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "status": "confirmed_imported",
+  "workbook_sha256": "f1135523119ff62aae070c9648f4a55e82b32e7191d496fd85a5a357608626fe",
+  "confirmed_at": "2026-07-10T00:00:00+02:00",
+  "confirmed_by": "user",
+  "note": "Migrated from the existing confirmed baseline_workbook_sha256 guard. Live verification is produced by the mandatory daily sanity check."
+}

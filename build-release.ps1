@@ -31,6 +31,7 @@ $itemsToCopy = @(
   "README-USER.txt",
   "DISCOVERCARS_README.md",
   "discovercars.config.example.json",
+  "locations.config.json",
   "pricing-rules.config.example.json",
   "excel-rate-update.config.example.json",
   "install.ps1",

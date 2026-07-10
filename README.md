@@ -67,7 +67,7 @@ Jak dziala:
 
 Domyslny zakres w chmurze:
 
-- `locations`: lista `daily_locations` z `excel-rate-update.config.example.json`; zawiera osobno Krakow Train Station, Galeria Krakowska Shopping Mall i Krakow Airport (KRK), a pozostale miasta maja punkt miejski i lotnisko,
+- `locations`: profil `daily` z `locations.config.json`; zawiera osobno Krakow Train Station, Galeria Krakowska Shopping Mall i Krakow Airport (KRK), a pozostale miasta maja punkt miejski i lotnisko,
 - `rolling_days`: `45`
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
@@ -91,7 +91,7 @@ Pliki w artifact:
 - `rates-import-ready.xlsx` - gotowy plik importowy stawek, tylko `Sheet1`, ze wszystkimi rekomendowanymi zmianami zastosowanymi automatycznie,
 - `rates-updated.xlsx` - pelny workbook kontrolny z `Sheet1`, `Changed Positions`, `Recommendations Review` i `Validation`,
 - `excel-rate-update-summary.json` - podsumowanie zmian zastosowanych w workbooku,
-- `mm-rate-sanity-check.json` - live sanity check kilku rekomendacji; porownuje aktualna cene MM Cars Rental ze strony z cena MM zapisana w rekomendacji,
+- `mm-rate-sanity-check.json` - obowiazkowy live sanity check pelnego i recznego runu; sprawdza do 13 probek, porownuje ponowny odczyt MM z pelnym scraperem i weryfikuje relacje ceny strony do stawki z potwierdzonego baseline,
 - `quality-alerts.json` - alerty jakosciowe uzywane w Telegramie,
 - `run-manifest.json` - status `success/degraded/failure`, zakres, lokalizacje, duration i SHA kodu dla konkretnego runa,
 - `run-log.txt` - surowy log z uruchomienia,
@@ -117,7 +117,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu:
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalym linkiem `latest-full`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Alerty jakosciowe obejmuja tez sanity check MM: kilka probek jest ponownie sprawdzanych live na DiscoverCars i roznica powyzej `10 PLN/dzien` trafia do Telegrama. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, statusem baseline, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalym linkiem `latest-full`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Dla pelnego i recznego runu do 13 probek jest ponownie sprawdzanych live. Brak sanity checku, brak zweryfikowanej probki albo ostrzezenie przekraczajace prog blokuje publikacje nowego Excela. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
 
 Status `failure` blokuje publikacje nowego Excela i GitHub Pages, ale artifact diagnostyczny oraz Telegram nadal sa wysylane. Na koncu workflow bramka jakosci oznacza taki run jako nieudany, dzieki czemu kolejne zapasowe okno crona moze wykonac ponowna probe.
 
@@ -405,7 +405,7 @@ Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek 
 Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
-Mapowanie lokalizacji scrapera na kody importowe jest zapisane w `excel-rate-update.config.example.json` w `location_zones`. Dokladne lokalizacje sa preferowane przed ogolnym miastem, a ogolne aliasy typu `Warsaw` zostaja tylko dla wstecznej kompatybilnosci starszych runow.
+Jedynym zrodlem mapowania lokalizacji jest `locations.config.json`. Zawiera profile uruchomien, kanoniczna nazwe scrapera, typ punktu, kody importowe, placeID/geo tam, gdzie sa znane, aliasy starszych runow oraz relacje lustrzane typu `KRTI = KRLO`. Node, workflow i updater Excela czytaja ten sam rejestr.
 
 | Kod importu | Lokalizacja w scraperze | Uwagi |
 |---|---|---|
@@ -415,7 +415,7 @@ Mapowanie lokalizacji scrapera na kody importowe jest zapisane w `excel-rate-upd
 | KA1 | Katowice Downtown | placeID 4145 |
 | KALO | Katowice Airport (KTW) | placeID 4144 |
 | KRDW | Krakow Train Station | placeID 8504 |
-| KRGA | Krakow Train Station | Galeria Krakowska z UI mapuje sie do najblizszego punktu DiscoverCars: Krakow Train Station, placeID 8504 |
+| KRGA | Galeria Krakowska Shopping Mall | osobny punkt geo przy Pawiej 5; zachowuje odrebny rynek ofert od dworca |
 | KRLO | Krakow Airport (KRK) | placeID 4146 |
 | KRTI | Krakow Airport (KRK) | uzywa tych samych stawek co KRLO |
 | LO1 | Lodz Downtown | placeID 3446 |
@@ -453,7 +453,7 @@ Standardowy plik importowy zawiera wszystkie rekomendowane zmiany, ktore przeszl
 
 Rekomendacje uwzgledniaja kalibracje narzutu brokera DiscoverCars. `site_target_rate_pln_day` oznacza cene, w ktora narzedzie celuje na stronie DiscoverCars, a `suggested_rate_pln_day` oznacza stawke wpisywana do pliku importowego po odwroceniu szacowanego narzutu. Workflow publikuje `broker-markup-calibration.json`, deduplikuje obserwacje, uzywa mediany oraz minimalnej liczby probek i stosuje hierarchie lokalizacja+duration -> lokalizacja -> duration -> globalny fallback.
 
-Konfiguracja zawiera SHA256 zatwierdzonego pliku bazowego. Podmiana `input/mm-cars-rental-rates-inclusive-fp.xlsx` bez jednoczesnej aktualizacji `baseline_workbook_sha256` zatrzymuje automat przed modyfikacja Sheet1.
+`input/baseline-manifest.json` zapisuje SHA256, status i date potwierdzenia pliku bazowego. Tylko status `confirmed_imported` albo `verified_live` z hashem zgodnym z `input/mm-cars-rental-rates-inclusive-fp.xlsx` pozwala zmienic Sheet1 i uczyc kalibracje narzutu. Nowy plik przygotowany, ale jeszcze niewgrany na DiscoverCars, nie moze zostac uzyty jako produkcyjny baseline. Udany obowiazkowy sanity check zapisuje wynik live w artefaktach runu i `run-manifest.json`.
 
 Kolory w Excelu:
 

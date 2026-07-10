@@ -8,7 +8,8 @@ const DEFAULT_PRICING_RULES = Object.freeze({
   undercutBufferPlnDay: 1,
   top3SmallDecreaseThresholdPlnDay: 10,
   minChangePlnDay: 0.5,
-  roundingIncrementPlnDay: 0.01
+  roundingIncrementPlnDay: 0.01,
+  top1HighRateThresholdPlnDay: 150
 });
 
 function loadPricingRules(configPath = process.env.PRICING_RULES_CONFIG) {

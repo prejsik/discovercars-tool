@@ -16,6 +16,11 @@ function listRecommendations(payload) {
   return [];
 }
 
+function listBaselineObservations(payload) {
+  const observations = payload?.broker_markup_observations?.observations;
+  return Array.isArray(observations) ? observations : [];
+}
+
 function normalizeDate(value) {
   return String(value || "").slice(0, 10);
 }
@@ -34,6 +39,30 @@ function recommendationKey(item) {
     normalizeDate(item.start_date || item.pickup_date),
     String(item.rental_days || "")
   ].join("|");
+}
+
+function enrichRecommendationsWithBaseline(recommendations, excelSummary) {
+  const observations = new Map(
+    listBaselineObservations(excelSummary).map((item) => [
+      recommendationKey({
+        location: item.location,
+        pickup_date: item.pickup_date,
+        rental_days: item.duration_days
+      }),
+      item
+    ])
+  );
+  return listRecommendations(recommendations).map((item) => {
+    const observation = observations.get(recommendationKey(item));
+    if (!observation) {
+      return item;
+    }
+    return {
+      ...item,
+      baseline_import_rate_pln_day: asNumber(observation.old_import_rate_pln_day),
+      baseline_live_mm_rate_pln_day: asNumber(observation.live_mm_rate_pln_day)
+    };
+  });
 }
 
 function durationBand(value) {
@@ -133,7 +162,14 @@ function extractLiveMmRate(payload, location) {
   };
 }
 
-function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay }) {
+function buildSanityComparison({
+  recommendation,
+  livePayload,
+  thresholdPlnDay,
+  requireBaseline = false,
+  minMarkupMultiplier = 1,
+  maxMarkupMultiplier = 1.2
+}) {
   const location = recommendation.location;
   const live = extractLiveMmRate(livePayload, location);
   const recommendationRate = asNumber(recommendation.mm_rate_pln_day);
@@ -141,6 +177,7 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
   const siteTargetRate = asNumber(recommendation.site_target_rate_pln_day);
   const predictedSiteRate = asNumber(recommendation.predicted_site_rate_pln_day);
   const brokerMarkupMultiplier = asNumber(recommendation.broker_markup_multiplier);
+  const baselineImportRate = asNumber(recommendation.baseline_import_rate_pln_day);
   const delta = live.dailyRate === null || recommendationRate === null
     ? null
     : Math.round((live.dailyRate - recommendationRate) * 100) / 100;
@@ -153,14 +190,25 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
   const predictedSiteDelta = live.dailyRate === null || predictedSiteRate === null
     ? null
     : Math.round((live.dailyRate - predictedSiteRate) * 100) / 100;
-  const observedBrokerMarkupMultiplier = live.dailyRate === null || suggestedRate === null || suggestedRate <= 0
+  const observedBrokerMarkupMultiplier = live.dailyRate === null || baselineImportRate === null || baselineImportRate <= 0
     ? null
-    : Math.round((live.dailyRate / suggestedRate) * 10000) / 10000;
-  const status = delta === null
-    ? "WARNING"
-    : Math.abs(delta) > thresholdPlnDay
-      ? "WARNING"
-      : "OK";
+    : Math.round((live.dailyRate / baselineImportRate) * 10000) / 10000;
+  const warningReasons = [];
+  if (delta === null) {
+    warningReasons.push("live_rate_unavailable");
+  } else if (Math.abs(delta) > thresholdPlnDay) {
+    warningReasons.push("live_rate_changed_since_full_scrape");
+  }
+  if (requireBaseline && baselineImportRate === null) {
+    warningReasons.push("baseline_import_rate_missing");
+  }
+  if (
+    observedBrokerMarkupMultiplier !== null
+    && (observedBrokerMarkupMultiplier < minMarkupMultiplier || observedBrokerMarkupMultiplier > maxMarkupMultiplier)
+  ) {
+    warningReasons.push("baseline_markup_outside_allowed_range");
+  }
+  const status = warningReasons.length ? "WARNING" : "OK";
 
   return {
     status,
@@ -174,6 +222,7 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
     suggested_rate_pln_day: suggestedRate,
     site_target_rate_pln_day: siteTargetRate,
     predicted_site_rate_pln_day: predictedSiteRate,
+    baseline_import_rate_pln_day: baselineImportRate,
     live_minus_suggested_pln_day: suggestedDelta,
     live_minus_site_target_pln_day: siteTargetDelta,
     live_minus_predicted_site_pln_day: predictedSiteDelta,
@@ -181,6 +230,9 @@ function buildSanityComparison({ recommendation, livePayload, thresholdPlnDay })
     broker_markup_percent: asNumber(recommendation.broker_markup_percent),
     broker_markup_source: recommendation.broker_markup_source || "",
     observed_broker_markup_multiplier: observedBrokerMarkupMultiplier,
+    markup_multiplier_min: minMarkupMultiplier,
+    markup_multiplier_max: maxMarkupMultiplier,
+    warning_reasons: warningReasons,
     live_mm_rank: live.rank,
     source_generated_at: recommendation.source_generated_at || "",
     live_generated_at: live.generatedAt
@@ -251,12 +303,27 @@ function runCli(argv) {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const recommendations = readJson(recommendationsPath);
-  const sample = selectSanitySample(recommendations, sampleSize);
+  const excelSummary = args["excel-summary"] ? readJson(args["excel-summary"]) : null;
+  const requireBaseline = Boolean(excelSummary);
+  const enrichedRecommendations = enrichRecommendationsWithBaseline(recommendations, excelSummary);
+  const baselineCandidates = requireBaseline
+    ? enrichedRecommendations.filter((item) => asNumber(item.baseline_import_rate_pln_day) !== null)
+    : enrichedRecommendations;
+  const sample = selectSanitySample({ recommendations: baselineCandidates }, sampleSize);
+  const minMarkupMultiplier = Number(args["min-markup-multiplier"] || 1);
+  const maxMarkupMultiplier = Number(args["max-markup-multiplier"] || 1.2);
   const checks = [];
   for (const recommendation of sample) {
     try {
       const live = runScrape({ recommendation, outputDir, speedMode });
-      const check = buildSanityComparison({ recommendation, livePayload: live.payload, thresholdPlnDay });
+      const check = buildSanityComparison({
+        recommendation,
+        livePayload: live.payload,
+        thresholdPlnDay,
+        requireBaseline,
+        minMarkupMultiplier,
+        maxMarkupMultiplier
+      });
       checks.push({
         ...check,
         live_output_path: live.outputPath,
@@ -269,6 +336,7 @@ function runCli(argv) {
         start_date: normalizeDate(recommendation.start_date || recommendation.pickup_date),
         rental_days: Number(recommendation.rental_days),
         recommendation_mm_rate_pln_day: asNumber(recommendation.mm_rate_pln_day),
+        baseline_import_rate_pln_day: asNumber(recommendation.baseline_import_rate_pln_day),
         live_mm_rate_pln_day: null,
         delta_pln_day: null,
         error: error instanceof Error ? error.message : String(error)
@@ -277,12 +345,18 @@ function runCli(argv) {
   }
 
   const warningCount = checks.filter((item) => item.status !== "OK").length;
+  const baselineVerifiedCount = checks.filter(
+    (item) => item.status === "OK" && asNumber(item.baseline_import_rate_pln_day) !== null
+  ).length;
   const output = {
     generated_at: new Date().toISOString(),
     threshold_pln_day: thresholdPlnDay,
     sample_size_requested: sampleSize,
     checked_count: checks.length,
     warning_count: warningCount,
+    baseline_verification_required: requireBaseline,
+    baseline_observation_count: listBaselineObservations(excelSummary).length,
+    baseline_verified_count: baselineVerifiedCount,
     checks
   };
 
@@ -306,6 +380,7 @@ if (require.main === module) {
 
 module.exports = {
   buildSanityComparison,
+  enrichRecommendationsWithBaseline,
   extractLiveMmRate,
   selectSanitySample
 };

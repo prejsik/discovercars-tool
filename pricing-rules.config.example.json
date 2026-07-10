@@ -7,6 +7,7 @@
     "top3SmallDecreaseThresholdPlnDay": 10,
     "minChangePlnDay": 0.5,
     "roundingIncrementPlnDay": 0.01,
+    "top1HighRateThresholdPlnDay": 150,
     "brokerMarkupCalibration": {
       "enabled": true,
       "defaultMultiplier": 1.075,

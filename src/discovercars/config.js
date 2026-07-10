@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { buildGeoLocationOverrides, loadLocationRegistry } = require("../locationRegistry");
 const {
   makeTimestampForFile,
   normalizeWhitespace,
@@ -283,6 +284,13 @@ function loadConfig(argv) {
     : [parsedPickupDate.raw];
 
   const defaultCsvName = `discovercars-results-${makeTimestampForFile()}.csv`;
+  const configDir = fileConfig.__configPath ? path.dirname(fileConfig.__configPath) : process.cwd();
+  const registryPath = merged.locationRegistryFile
+    ? path.resolve(configDir, merged.locationRegistryFile)
+    : null;
+  const registryGeoOverrides = registryPath
+    ? buildGeoLocationOverrides(loadLocationRegistry(registryPath))
+    : {};
 
   return {
     baseUrl: normalizeWhitespace(merged.baseUrl || "https://www.discovercars.com"),
@@ -302,7 +310,10 @@ function loadConfig(argv) {
     ),
     timeoutMs: Number.parseInt(merged.timeoutMs || merged["timeout-ms"] || "45000", 10),
     apiTimeoutMs: Number.parseInt(merged.apiTimeoutMs || merged["api-timeout-ms"] || "20000", 10),
-    geoLocationOverrides: merged.geoLocationOverrides || {},
+    geoLocationOverrides: {
+      ...registryGeoOverrides,
+      ...(merged.geoLocationOverrides || {})
+    },
     headless: merged.headless !== false,
     browserExecutablePath: normalizeWhitespace(
       merged.browserExecutablePath || merged["browser-executable-path"] || ""

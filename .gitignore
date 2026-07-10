@@ -9,6 +9,9 @@
 !README-USER.txt
 !DISCOVERCARS_README.md
 !discovercars.config.example.json
+!excel-rate-update.config.example.json
+!locations.config.json
+!pricing-rules.config.example.json
 !RENTCARS_README.md
 !rentcars.config.example.json
 !install.ps1
@@ -21,6 +24,7 @@
 !run-tables.ps1
 !build-release.ps1
 !input/
+!input/baseline-manifest.json
 !input/mm-cars-rental-rates-inclusive-fp.xlsx
 !manual-reports/
 !manual-reports/**
@@ -33,6 +37,8 @@
 !src/**
 !tests/
 !tests/**
+!tools/
+!tools/**
 
 # Always keep generated/heavy content out of Git.
 node_modules/

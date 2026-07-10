@@ -76,6 +76,8 @@ The CSV contains:
 
 ## Notes
 
+- Production location names, DiscoverCars identifiers, import zones, aliases, and the daily profile live in `locations.config.json`.
+- `input/baseline-manifest.json` must confirm that the hashed baseline workbook was imported before the Excel updater can use it.
 - The scraper works sequentially on purpose to reduce flakiness and lower the chance of anti-bot triggers.
 - On a failed location, the tool stores debug artifacts in the configured `artifactsDir`.
 - If DiscoverCars changes their UI, the main places to adjust are:

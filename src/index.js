@@ -18,18 +18,9 @@ const {
   printCompactScenarioTable,
   savePayloadToFile
 } = require("./formatters");
+const { getProfileLocations } = require("./locationRegistry");
 
-const DEFAULT_LOCATIONS = [
-  "Warsaw",
-  "Krakow",
-  "Gdansk",
-  "Katowice",
-  "Wroclaw",
-  "Poznan",
-  "Lodz",
-  "Bydgoszcz",
-  "Torun"
-];
+const DEFAULT_LOCATIONS = getProfileLocations("legacy_default");
 const DEFAULT_START_DAYS = ["friday"];
 const DEFAULT_RENTAL_DURATIONS = Array.from({ length: 10 }, (_, index) => index + 1);
 const ALL_START_DAYS = ["thursday", "friday"];
@@ -901,6 +892,36 @@ function buildFallbackSummary(scenarios) {
   return summary;
 }
 
+function buildApiDomMonitoringSummary(scenarios) {
+  const summaries = (scenarios || []).map((scenario) => scenario?.api_dom_monitoring).filter(Boolean);
+  const totals = {
+    api_attempt_count: 0,
+    api_success_count: 0,
+    api_failure_count: 0,
+    dom_validation_count: 0,
+    dom_success_count: 0,
+    dom_failure_count: 0,
+    comparison_count: 0,
+    drift_count: 0,
+    browser_preferred_count: 0,
+    fallback_count: 0,
+    adaptive_validation_triggered: false
+  };
+  for (const summary of summaries) {
+    for (const key of Object.keys(totals)) {
+      if (key === "adaptive_validation_triggered") {
+        totals[key] = totals[key] || Boolean(summary[key]);
+      } else {
+        totals[key] += Number(summary[key] || 0);
+      }
+    }
+  }
+  totals.drift_rate_percent = totals.comparison_count
+    ? Number((totals.drift_count / totals.comparison_count * 100).toFixed(2))
+    : 0;
+  return totals;
+}
+
 function buildMultiScenarioPayload({ scenarios, cli, resolvedProfile }) {
   const flattenedErrors = [];
 
@@ -942,6 +963,7 @@ function buildMultiScenarioPayload({ scenarios, cli, resolvedProfile }) {
     scenarios,
     errors: flattenedErrors,
     fallback_summary: buildFallbackSummary(scenarios),
+    api_dom_monitoring: buildApiDomMonitoringSummary(scenarios),
     cheapest_overall: collectCheapestOverallAcrossScenarios(scenarios)
   };
 }
@@ -1563,6 +1585,7 @@ async function main() {
       scenarioPayload.start_date = scenario.start_date || null;
       scenarioPayload.rental_days = scenario.rental_days;
       scenarioPayload.execution = executionOutput.fallbackMeta || null;
+      scenarioPayload.api_dom_monitoring = executionOutput.telemetry || null;
       payloadBuffer[scenarioIndex] = scenarioPayload;
 
       try {

@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "daily": [
+      "gdansk_downtown",
+      "gdansk_airport",
+      "katowice_downtown",
+      "katowice_airport",
+      "krakow_train_station",
+      "krakow_galeria",
+      "krakow_airport",
+      "poznan_downtown",
+      "poznan_airport",
+      "warsaw_train_station",
+      "warsaw_airport",
+      "wroclaw_downtown",
+      "wroclaw_airport"
+    ],
+    "legacy_default": [
+      "Warsaw",
+      "Krakow",
+      "Gdansk",
+      "Katowice",
+      "Wroclaw",
+      "Poznan",
+      "Lodz",
+      "Bydgoszcz",
+      "Torun"
+    ]
+  },
+  "locations": [
+    {
+      "id": "bydgoszcz_airport",
+      "scraper_label": "Bydgoszcz Airport (BZG)",
+      "city": "Bydgoszcz",
+      "kind": "airport",
+      "zones": ["BYLO"],
+      "discovercars": { "place_id": 5827 }
+    },
+    {
+      "id": "gdansk_downtown",
+      "scraper_label": "Gdansk Downtown",
+      "city": "Gdansk",
+      "kind": "city",
+      "zones": ["GD1"],
+      "discovercars": { "place_id": 3451 }
+    },
+    {
+      "id": "gdansk_airport",
+      "scraper_label": "Gdansk Airport (GDN)",
+      "city": "Gdansk",
+      "kind": "airport",
+      "zones": ["GDLO"],
+      "discovercars": { "place_id": 2106 }
+    },
+    {
+      "id": "katowice_downtown",
+      "scraper_label": "Katowice Downtown",
+      "city": "Katowice",
+      "kind": "city",
+      "zones": ["KA1"],
+      "discovercars": { "place_id": 4145 }
+    },
+    {
+      "id": "katowice_airport",
+      "scraper_label": "Katowice Airport (KTW)",
+      "city": "Katowice",
+      "kind": "airport",
+      "zones": ["KALO"],
+      "discovercars": { "place_id": 4144 }
+    },
+    {
+      "id": "krakow_train_station",
+      "scraper_label": "Krakow Train Station",
+      "city": "Krakow",
+      "kind": "city",
+      "zones": ["KRDW"],
+      "discovercars": { "place_id": 8504 }
+    },
+    {
+      "id": "krakow_galeria",
+      "scraper_label": "Galeria Krakowska Shopping Mall",
+      "city": "Krakow",
+      "kind": "city",
+      "zones": ["KRGA"],
+      "discovercars": {
+        "geo": {
+          "latitude": 50.0662682,
+          "longitude": 19.9461205,
+          "radius_meters": 20000,
+          "name": "Pawia 5, 31-154 Krakow, Poland"
+        }
+      }
+    },
+    {
+      "id": "krakow_airport",
+      "scraper_label": "Krakow Airport (KRK)",
+      "city": "Krakow",
+      "kind": "airport",
+      "zones": ["KRLO", "KRTI"],
+      "discovercars": { "place_id": 4146 }
+    },
+    {
+      "id": "lodz_downtown",
+      "scraper_label": "Lodz Downtown",
+      "city": "Lodz",
+      "kind": "city",
+      "zones": ["LO1"],
+      "discovercars": { "place_id": 3446 }
+    },
+    {
+      "id": "lodz_airport",
+      "scraper_label": "Lodz Lublinek Airport (LCJ)",
+      "city": "Lodz",
+      "kind": "airport",
+      "zones": ["LOLO"],
+      "discovercars": { "place_id": 1942 }
+    },
+    {
+      "id": "lubin_downtown",
+      "scraper_label": "Lubin Downtown",
+      "city": "Lubin",
+      "kind": "city",
+      "zones": ["LU1"],
+      "discovercars": { "place_id": 7306 }
+    },
+    {
+      "id": "olsztyn_downtown",
+      "scraper_label": "Olsztyn Downtown",
+      "city": "Olsztyn",
+      "kind": "city",
+      "zones": ["OL1"],
+      "discovercars": { "place_id": 5856 }
+    },
+    {
+      "id": "opole_downtown",
+      "scraper_label": "Opole Downtown",
+      "city": "Opole",
+      "kind": "city",
+      "zones": ["OP1"],
+      "discovercars": { "place_id": 6089 }
+    },
+    {
+      "id": "poznan_downtown",
+      "scraper_label": "Poznan Downtown",
+      "city": "Poznan",
+      "kind": "city",
+      "zones": ["PO1"],
+      "discovercars": { "place_id": 3449 }
+    },
+    {
+      "id": "poznan_airport",
+      "scraper_label": "Poznan Airport (POZ)",
+      "city": "Poznan",
+      "kind": "airport",
+      "zones": ["POLO"],
+      "discovercars": { "place_id": 1663 }
+    },
+    {
+      "id": "torun_downtown",
+      "scraper_label": "Torun Downtown",
+      "city": "Torun",
+      "kind": "city",
+      "zones": ["TO1"],
+      "discovercars": { "place_id": 5829 }
+    },
+    {
+      "id": "warsaw_west_station",
+      "scraper_label": "Warsaw West Train Station",
+      "city": "Warsaw",
+      "kind": "city",
+      "zones": ["WA1"],
+      "discovercars": { "place_id": 356108 }
+    },
+    {
+      "id": "warsaw_train_station",
+      "scraper_label": "Warsaw Train Station",
+      "city": "Warsaw",
+      "kind": "city",
+      "zones": ["WA2"],
+      "discovercars": { "place_id": 8305 }
+    },
+    {
+      "id": "warsaw_airport",
+      "scraper_label": "Warsaw Chopin Airport (WAW)",
+      "city": "Warsaw",
+      "kind": "airport",
+      "zones": ["WALO"],
+      "discovercars": { "place_id": 1664 }
+    },
+    {
+      "id": "wroclaw_downtown",
+      "scraper_label": "Wroclaw Downtown",
+      "city": "Wroclaw",
+      "kind": "city",
+      "zones": ["WR1"],
+      "discovercars": { "place_id": 3459 }
+    },
+    {
+      "id": "wroclaw_airport",
+      "scraper_label": "Wroclaw Airport (WRO)",
+      "city": "Wroclaw",
+      "kind": "airport",
+      "zones": ["WRLO"],
+      "discovercars": { "place_id": 2103 }
+    }
+  ],
+  "aliases": {
+    "Bydgoszcz": ["BYLO"],
+    "Gdansk": ["GD1", "GDLO"],
+    "Katowice": ["KA1", "KALO"],
+    "Krakow": ["KRDW", "KRGA", "KRLO", "KRTI"],
+    "Krakow Dworzec": ["KRDW"],
+    "Lodz": ["LO1", "LOLO"],
+    "Lodz Centrum": ["LO1"],
+    "Lodz Airport": ["LOLO"],
+    "Lubin": ["LU1"],
+    "Olsztyn": ["OL1"],
+    "Opole": ["OP1"],
+    "Poznan": ["PO1", "POLO"],
+    "Torun": ["TO1"],
+    "Warsaw": ["WA1", "WA2", "WALO"],
+    "Warszawa Zachodnia Dworzec kolejowy": ["WA1"],
+    "Warszawa Dworzec kolejowy": ["WA2"],
+    "Lotnisko Warszawa (WAW)": ["WALO"],
+    "Wroclaw": ["WR1", "WRLO"]
+  },
+  "zone_mirrors": {
+    "KRTI": "KRLO"
+  }
+}

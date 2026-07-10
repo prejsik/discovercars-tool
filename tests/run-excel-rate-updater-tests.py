@@ -15,6 +15,8 @@ from tools.update_excel_rates import (  # noqa: E402
     apply_updates,
     build_validation_rows,
     get_duration_columns,
+    load_baseline_confirmation,
+    load_config,
     merge_config,
     parse_date_value,
     parse_number,
@@ -153,7 +155,29 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
-    example_config = merge_config(json.loads((ROOT / "excel-rate-update.config.example.json").read_text(encoding="utf-8")))
+    example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
+    baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
+    assert_equal(baseline_confirmation["status"], "confirmed_imported", "confirmed baseline status")
+    assert_equal(baseline_confirmation["calibration_eligible"], True, "confirmed baseline calibration eligibility")
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        temporary_path = Path(temporary_dir)
+        pending_manifest = {
+            "schema_version": 1,
+            "status": "prepared",
+            "workbook_sha256": baseline_manifest["workbook_sha256"],
+        }
+        (temporary_path / "baseline.json").write_text(json.dumps(pending_manifest), encoding="utf-8")
+        pending_config = merge_config({"baseline_manifest_file": "baseline.json"})
+        pending_config["_config_dir"] = str(temporary_path)
+        try:
+            load_baseline_confirmation(pending_config, baseline_manifest["workbook_sha256"])
+        except ValueError as error:
+            assert "not confirmed as imported" in str(error)
+        else:
+            raise AssertionError("prepared baseline should not be accepted")
+
     location_zones = {
         str(location): {str(zone).upper() for zone in zones}
         for location, zones in example_config["location_zones"].items()

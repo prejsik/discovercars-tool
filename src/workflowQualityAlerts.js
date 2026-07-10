@@ -58,8 +58,37 @@ function listOfferCurrencies(scenario, location) {
   )];
 }
 
+function summarizeApiDomMonitoring(results, scenarios) {
+  if (results?.api_dom_monitoring) {
+    return results.api_dom_monitoring;
+  }
+  const summary = {
+    comparison_count: 0,
+    drift_count: 0,
+    fallback_count: 0,
+    browser_preferred_count: 0,
+    adaptive_validation_triggered: false
+  };
+  for (const scenario of scenarios || []) {
+    const monitoring = scenario?.api_dom_monitoring;
+    if (!monitoring) {
+      continue;
+    }
+    summary.comparison_count += Number(monitoring.comparison_count || 0);
+    summary.drift_count += Number(monitoring.drift_count || 0);
+    summary.fallback_count += Number(monitoring.fallback_count || 0);
+    summary.browser_preferred_count += Number(monitoring.browser_preferred_count || 0);
+    summary.adaptive_validation_triggered ||= Boolean(monitoring.adaptive_validation_triggered);
+  }
+  summary.drift_rate_percent = summary.comparison_count
+    ? Number((summary.drift_count / summary.comparison_count * 100).toFixed(2))
+    : 0;
+  return summary;
+}
+
 function buildScrapeQualityReport({ results, expectedLocations }) {
   const scenarios = listScenarios(results);
+  const apiDomMonitoring = summarizeApiDomMonitoring(results, scenarios);
   const locations = splitCsv(expectedLocations || results?.locations?.join(","));
   const coverage = [];
   let missingTop3Count = 0;
@@ -94,7 +123,13 @@ function buildScrapeQualityReport({ results, expectedLocations }) {
   let status = "success";
   if (!results || !scenarios.length || invalidCurrencyCount > 0 || top3Coverage < 0.95) {
     status = "failure";
-  } else if (missingTop3Count > 0 || missingMmCount > 0 || failedScenarioCount > 0 || chunkFailureCount > 0) {
+  } else if (
+    missingTop3Count > 0
+    || missingMmCount > 0
+    || failedScenarioCount > 0
+    || chunkFailureCount > 0
+    || apiDomMonitoring.adaptive_validation_triggered
+  ) {
     status = "degraded";
   }
 
@@ -108,15 +143,25 @@ function buildScrapeQualityReport({ results, expectedLocations }) {
     invalid_currency_count: invalidCurrencyCount,
     failed_scenario_count: failedScenarioCount,
     chunk_failure_count: chunkFailureCount,
-    coverage
+    coverage,
+    api_dom_monitoring: apiDomMonitoring
   };
 }
 
-function buildQualityReport({ results, recommendations, excelSummary, sanityCheck, expectedLocations, scrapeOnly = false }) {
+function buildQualityReport({
+  results,
+  recommendations,
+  excelSummary,
+  sanityCheck,
+  expectedLocations,
+  scrapeOnly = false,
+  requireSanity = false
+}) {
   const alerts = [];
   const scenarios = listScenarios(results);
   const locations = splitCsv(expectedLocations);
   const scrape = buildScrapeQualityReport({ results, expectedLocations });
+  const requireVerifiedSanitySample = Boolean(requireSanity && Number(excelSummary?.change_count || 0) > 0);
 
   if (!results) {
     alerts.push("Brak pliku results-latest.json.");
@@ -143,6 +188,15 @@ function buildQualityReport({ results, recommendations, excelSummary, sanityChec
   if (scrape.chunk_failure_count > 0) {
     alerts.push(`Niepelne chunki scrapera po retry: ${scrape.chunk_failure_count}.`);
   }
+  const apiDom = scrape.api_dom_monitoring || {};
+  if (Number(apiDom.comparison_count || 0) > 0 && Number(apiDom.drift_count || 0) > 0) {
+    alerts.push(
+      `Kontrola API-DOM: rozjazd ${apiDom.drift_count}/${apiDom.comparison_count} (${apiDom.drift_rate_percent || 0}%), wybrano DOM ${apiDom.browser_preferred_count || 0} razy.`
+    );
+  }
+  if (apiDom.adaptive_validation_triggered) {
+    alerts.push("Kontrola API-DOM automatycznie zwiekszyla probe DOM z powodu podwyzszonego poziomu rozjazdow.");
+  }
 
   if (scrapeOnly) {
     return { ...scrape, alert_count: alerts.length, alerts };
@@ -167,7 +221,11 @@ function buildQualityReport({ results, recommendations, excelSummary, sanityChec
     }
   }
 
-  if (sanityCheck) {
+  let requiredSanityFailed = false;
+  if (requireVerifiedSanitySample && !sanityCheck) {
+    alerts.push("Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline.");
+    requiredSanityFailed = true;
+  } else if (sanityCheck) {
     const warnings = listSanityWarnings(sanityCheck);
     if (warnings.length) {
       const threshold = sanityCheck.threshold_pln_day ?? "brak danych";
@@ -176,25 +234,57 @@ function buildQualityReport({ results, recommendations, excelSummary, sanityChec
         .map((item) => {
           const scenario = `${item.location || "?"} ${item.start_date || "?"} ${item.rental_days || "?"}d`;
           const delta = item.delta_pln_day ?? "brak danych";
-          return `${scenario}: roznica ${delta} PLN/dzien`;
+          const reasons = Array.isArray(item.warning_reasons) && item.warning_reasons.length
+            ? `; powod ${item.warning_reasons.join(",")}`
+            : "";
+          const multiplier = item.observed_broker_markup_multiplier == null
+            ? ""
+            : `; narzut x${item.observed_broker_markup_multiplier}`;
+          return `${scenario}: roznica ${delta} PLN/dzien${reasons}${multiplier}`;
         })
         .join("; ");
       alerts.push(
         `Sanity check MM: ${warnings.length}/${sanityCheck.checked_count || 0} probek przekracza prog ${threshold} PLN/dzien. ${details}`
       );
     }
+    if (requireVerifiedSanitySample && Number(sanityCheck.checked_count || 0) === 0) {
+      alerts.push("Obowiazkowy sanity check MM nie zweryfikowal zadnej probki.");
+      requiredSanityFailed = true;
+    }
+    if (requireVerifiedSanitySample && warnings.length) {
+      requiredSanityFailed = true;
+    }
+    if (
+      requireVerifiedSanitySample
+      && sanityCheck.baseline_verification_required
+      && Number(sanityCheck.baseline_verified_count || 0) < Number(sanityCheck.checked_count || 0)
+    ) {
+      alerts.push(
+        `Baseline po imporcie potwierdzony dla ${sanityCheck.baseline_verified_count || 0}/${sanityCheck.checked_count || 0} probek.`
+      );
+      requiredSanityFailed = true;
+    }
   }
 
   let status = scrape.status;
   const failedExcelValidation = Array.isArray(excelSummary?.validation)
     && excelSummary.validation.some((row) => row?.status === "FAIL");
-  if (!recommendations || !excelSummary || failedExcelValidation) {
+  if (!recommendations || !excelSummary || failedExcelValidation || requiredSanityFailed) {
     status = "failure";
   } else if (status === "success" && alerts.length) {
     status = "degraded";
   }
 
-  return { ...scrape, status, alert_count: alerts.length, alerts };
+  return {
+    ...scrape,
+    status,
+    sanity_required: Boolean(requireSanity),
+    sanity_checked_count: Number(sanityCheck?.checked_count || 0),
+    sanity_warning_count: Number(sanityCheck?.warning_count || 0),
+    baseline_verified_count: Number(sanityCheck?.baseline_verified_count || 0),
+    alert_count: alerts.length,
+    alerts
+  };
 }
 
 function buildQualityAlerts(input) {
@@ -221,7 +311,8 @@ function runCli(argv) {
     excelSummary: readJsonIfExists(args["excel-summary"]),
     sanityCheck: readJsonIfExists(args["sanity-check"]),
     expectedLocations: args.locations,
-    scrapeOnly: Object.prototype.hasOwnProperty.call(args, "scrape-only")
+    scrapeOnly: Object.prototype.hasOwnProperty.call(args, "scrape-only"),
+    requireSanity: Object.prototype.hasOwnProperty.call(args, "require-sanity")
   });
   const output = report;
   const outputPath = args.output ? path.resolve(args.output) : null;

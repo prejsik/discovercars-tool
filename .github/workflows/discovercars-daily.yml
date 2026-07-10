@@ -8,6 +8,7 @@ on:
       - ".github/workflows/discovercars-daily.yml"
       - "excel-rate-update.config.example.json"
       - "input/**"
+      - "locations.config.json"
       - "pricing-rules.config.example.json"
       - "src/**"
       - "tools/update_excel_rates.py"
@@ -200,7 +201,7 @@ jobs:
             default_durations="$PUSH_TEST_DURATIONS"
             default_speed_mode="$PUSH_TEST_SPEED_MODE"
           else
-            default_locations=$(node -e "const c=require('./excel-rate-update.config.example.json'); process.stdout.write((c.daily_locations||[]).join(','));")
+            default_locations=$(node -e "const {getDailyLocations}=require('./src/locationRegistry'); process.stdout.write(getDailyLocations().join(','));")
             default_rolling_days="$SCHEDULE_ROLLING_DAYS"
             default_durations="$SCHEDULE_DURATIONS"
             default_speed_mode="$SCHEDULE_SPEED_MODE"
@@ -445,7 +446,6 @@ jobs:
       - name: Run MM rate sanity check
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
-        continue-on-error: true
         env:
           RUN_TYPE: ${{ steps.options.outputs.run_type }}
         run: |
@@ -453,16 +453,20 @@ jobs:
             echo "Skipping MM sanity check for push smoke run."
             exit 0
           fi
-          if [[ -f output/final-pricing-recommendations.json ]]; then
+          if [[ -f output/final-pricing-recommendations.json && -f output/excel-rate-update-summary.json ]]; then
             node src/mmRateSanityCheck.js \
               --recommendations=output/final-pricing-recommendations.json \
+              --excel-summary=output/excel-rate-update-summary.json \
               --output=output/mm-rate-sanity-check.json \
               --work-dir=output/mm-rate-sanity-live \
-              --sample-size=6 \
+              --sample-size=13 \
               --threshold=10 \
+              --min-markup-multiplier=1 \
+              --max-markup-multiplier=1.2 \
               --speed-mode="${{ steps.options.outputs.speed_mode }}"
           else
-            echo "::warning::Final pricing recommendations are missing; MM sanity check skipped."
+            echo "::error::Final recommendations or Excel summary are missing; mandatory MM sanity check cannot run."
+            exit 1
           fi
 
       - name: Update broker markup calibration
@@ -480,16 +484,34 @@ jobs:
         id: quality
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
+        env:
+          RUN_TYPE: ${{ steps.options.outputs.run_type }}
         run: |
+          sanity_args=()
+          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
+            sanity_args+=(--require-sanity)
+          fi
           node src/workflowQualityAlerts.js \
             --results=output/results-latest.json \
             --recommendations=output/final-pricing-recommendations.json \
             --excel-summary=output/excel-rate-update-summary.json \
             --sanity-check=output/mm-rate-sanity-check.json \
             --locations="${{ steps.options.outputs.locations }}" \
+            "${sanity_args[@]}" \
             --output=output/quality-alerts.json
           status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); process.stdout.write(d.status || 'failure');")
           echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate HTML with quality status
+        if: steps.gate.outputs.should_run == 'true' && always()
+        shell: bash
+        run: |
+          if [[ -f output/results-latest.json ]]; then
+            if [[ ! -f output/quality-alerts.json ]]; then
+              printf '%s\n' '{"status":"failure","alerts":["Kontrola jakosci nie wygenerowala wyniku; Excel zostal zablokowany."]}' > output/quality-alerts.json
+            fi
+            node src/reportHtml.js output/results-latest.json output/report.html --quality=output/quality-alerts.json
+          fi
 
       - name: Generate run manifest
         if: steps.gate.outputs.should_run == 'true' && always()
@@ -502,16 +524,16 @@ jobs:
           START_DATES: ${{ steps.options.outputs.start_dates }}
           DURATIONS: ${{ steps.options.outputs.durations }}
         run: |
-          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const quality=fs.existsSync('output/quality-alerts.json')?JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')):{}; const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
+          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
 
       - name: Prepare GitHub Pages site
         id: pages-site
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         env:
           RUN_TYPE: ${{ steps.options.outputs.run_type }}
           PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
-          QUALITY_STATUS: ${{ steps.quality.outputs.status }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || 'failure' }}
         run: |
           mkdir -p pages
 
@@ -569,29 +591,41 @@ jobs:
           fi
 
           mkdir -p "pages/$run_dir"
+          if [[ "$QUALITY_STATUS" == "failure" ]]; then
+            rm -f \
+              "pages/$run_dir/pricing-recommendations.json" \
+              "pages/$run_dir/final-pricing-recommendations.json" \
+              "pages/$run_dir/rates-updated.xlsx" \
+              "pages/$run_dir/rates-import-ready.xlsx" \
+              "pages/$run_dir/excel-rate-update-summary.json" \
+              "pages/$run_dir/mm-rate-sanity-check.json" \
+              "pages/$run_dir/broker-markup-calibration.json"
+          fi
           cp output/report.html "pages/$run_dir/report.html"
           cp output/results-latest.json "pages/$run_dir/results-latest.json"
           cp output/run-log.txt "pages/$run_dir/run-log.txt"
-          if [[ -f output/pricing-recommendations.json ]]; then
-            cp output/pricing-recommendations.json "pages/$run_dir/pricing-recommendations.json"
-          fi
-          if [[ -f output/final-pricing-recommendations.json ]]; then
-            cp output/final-pricing-recommendations.json "pages/$run_dir/final-pricing-recommendations.json"
-          fi
-          if [[ -f output/rates-updated.xlsx ]]; then
-            cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
-          fi
-          if [[ -f output/rates-import-ready.xlsx ]]; then
-            cp output/rates-import-ready.xlsx "pages/$run_dir/rates-import-ready.xlsx"
-          fi
-          if [[ -f output/excel-rate-update-summary.json ]]; then
-            cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
-          fi
-          if [[ -f output/mm-rate-sanity-check.json ]]; then
-            cp output/mm-rate-sanity-check.json "pages/$run_dir/mm-rate-sanity-check.json"
-          fi
-          if [[ -f output/broker-markup-calibration.json ]]; then
-            cp output/broker-markup-calibration.json "pages/$run_dir/broker-markup-calibration.json"
+          if [[ "$QUALITY_STATUS" != "failure" ]]; then
+            if [[ -f output/pricing-recommendations.json ]]; then
+              cp output/pricing-recommendations.json "pages/$run_dir/pricing-recommendations.json"
+            fi
+            if [[ -f output/final-pricing-recommendations.json ]]; then
+              cp output/final-pricing-recommendations.json "pages/$run_dir/final-pricing-recommendations.json"
+            fi
+            if [[ -f output/rates-updated.xlsx ]]; then
+              cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
+            fi
+            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
+              cp output/rates-import-ready.xlsx "pages/$run_dir/rates-import-ready.xlsx"
+            fi
+            if [[ -f output/excel-rate-update-summary.json ]]; then
+              cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
+            fi
+            if [[ -f output/mm-rate-sanity-check.json ]]; then
+              cp output/mm-rate-sanity-check.json "pages/$run_dir/mm-rate-sanity-check.json"
+            fi
+            if [[ -f output/broker-markup-calibration.json ]]; then
+              cp output/broker-markup-calibration.json "pages/$run_dir/broker-markup-calibration.json"
+            fi
           fi
           if [[ -f output/quality-alerts.json ]]; then
             cp output/quality-alerts.json "pages/$run_dir/quality-alerts.json"
@@ -600,12 +634,12 @@ jobs:
             cp output/run-manifest.json "pages/$run_dir/run-manifest.json"
           fi
 
-          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
+          if [[ ( "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ) && "$QUALITY_STATUS" != "failure" ]]; then
             mkdir -p pages/latest-excel
             if [[ -f output/rates-updated.xlsx ]]; then
               cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
             fi
-            if [[ -f output/rates-import-ready.xlsx ]]; then
+            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
               cp output/rates-import-ready.xlsx pages/latest-excel/rates-import-ready.xlsx
             fi
             if [[ -f output/final-pricing-recommendations.json ]]; then
@@ -639,21 +673,21 @@ jobs:
           if [[ -n "$page_base" ]]; then
             echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
             echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
-            if [[ -f output/rates-import-ready.xlsx ]]; then
+            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
               echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
             fi
-            if [[ -f output/rates-updated.xlsx ]]; then
+            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-updated.xlsx ]]; then
               echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
             fi
           fi
 
       - name: Configure GitHub Pages
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
         uses: actions/configure-pages@v5
         continue-on-error: true
 
       - name: Upload GitHub Pages artifact
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
         uses: actions/upload-pages-artifact@v3
         continue-on-error: true
         with:
@@ -661,7 +695,7 @@ jobs:
 
       - name: Deploy GitHub Pages
         id: pages-deployment
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.quality.outputs.status != 'failure'
+        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
         uses: actions/deploy-pages@v4
         continue-on-error: true
 
@@ -691,7 +725,7 @@ jobs:
 
       - name: Upload Excel import workbook
         id: upload-excel
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: steps.gate.outputs.should_run == 'true' && steps.quality.outputs.status != 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-excel-import-${{ github.run_number }}
@@ -769,9 +803,11 @@ jobs:
 
           excel_change_count="brak danych"
           excel_row_count="brak danych"
+          baseline_summary="brak danych"
           if [[ -f output/excel-rate-update-summary.json ]]; then
             excel_change_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.change_count ?? 'brak danych'));")
             excel_row_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.pickup_date_expansion?.expanded_row_count ?? 'brak danych'));")
+            baseline_summary=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); const b=data.baseline_confirmation||{}; process.stdout.write(String(b.status||'brak') + ', hash ' + (b.workbook_sha256 ? 'zgodny' : 'brak'));")
           fi
 
           broker_markup_summary="brak danych"
@@ -822,7 +858,7 @@ jobs:
             excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
           fi
 
-          summary_section=$(printf 'Status: %s\nKod scrapera: %s\nTyp runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$status_label" "${SCRAPER_EXIT_CODE:-brak danych}" "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
+          summary_section=$(printf 'Status: %s\nKod scrapera: %s\nTyp runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nBaseline: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$status_label" "${SCRAPER_EXIT_CODE:-brak danych}" "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$baseline_summary" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
 
           pages_section=""
           if [[ -n "$FULL_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
