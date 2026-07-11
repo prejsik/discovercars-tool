@@ -310,6 +310,9 @@ function loadConfig(argv) {
     ),
     timeoutMs: Number.parseInt(merged.timeoutMs || merged["timeout-ms"] || "45000", 10),
     apiTimeoutMs: Number.parseInt(merged.apiTimeoutMs || merged["api-timeout-ms"] || "20000", 10),
+    apiDomSanityRate: Number.parseFloat(merged.apiDomSanityRate ?? 0.05),
+    apiDomDriftMinComparisons: Number.parseInt(merged.apiDomDriftMinComparisons || "20", 10),
+    apiDomMaxValidationsPerLocation: Number.parseInt(merged.apiDomMaxValidationsPerLocation || "50", 10),
     geoLocationOverrides: {
       ...registryGeoOverrides,
       ...(merged.geoLocationOverrides || {})

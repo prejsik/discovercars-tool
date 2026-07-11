@@ -324,21 +324,65 @@ runTest("API DOM sanity prefers browser when comparable prices differ materially
   assert.equal(scraper.shouldPreferBrowserOutcome(api, browser), true);
 });
 
+runTest("API DOM comparison does not drift only because DOM has fewer offers", () => {
+  const scraper = new DiscoverCarsScraper({ pickupDate: "2026-07-10", dropoffDate: "2026-07-12" });
+  const api = [
+    { provider: "MM Cars Rental", totalPrice: 100, currency: "PLN" },
+    { provider: "Other", totalPrice: 110, currency: "PLN" },
+    { provider: "Third", totalPrice: 120, currency: "PLN" }
+  ];
+  const comparison = scraper.compareApiAndBrowserOutcomes(api, api.slice(0, 2));
+  assert.equal(comparison.preferBrowser, false);
+  assert.deepEqual(comparison.reasons, []);
+});
+
 runTest("API DOM sanity increases DOM validation after repeated drift", () => {
   const scraper = new DiscoverCarsScraper({
     pickupDate: "2026-07-10",
     dropoffDate: "2026-07-12",
-    apiDomSanityRate: 0,
-    apiDomDriftMinComparisons: 3,
-    apiDomDriftTriggerRate: 0.2,
-    apiDomDriftState: { comparison_count: 0, drift_count: 0, adaptive_validation_triggered: false }
+    apiDomSanityRate: 0.05,
+    apiDomDriftMinComparisons: 20,
+    apiDomDriftState: { by_location: {} }
   });
-  scraper.recordApiDomComparison(true);
-  scraper.recordApiDomComparison(false);
-  scraper.recordApiDomComparison(false);
+  for (let index = 0; index < 20; index += 1) {
+    scraper.recordApiDomComparison("Warsaw", { reasons: index < 6 ? ["mm_price_mismatch"] : [] });
+  }
+  assert.equal(scraper.getLocationValidationRate("Warsaw"), 0.2);
+  assert.equal(scraper.getLocationValidationRate("Krakow"), 0.05);
   assert.equal(scraper.apiDomTelemetry.adaptive_validation_triggered, true);
-  assert.equal(scraper.shouldValidateApiOutcome("Warsaw", [{}, {}, {}]), true);
-  assert.equal(scraper.buildApiDomTelemetrySummary().drift_rate_percent, 33.33);
+  assert.equal(scraper.buildApiDomTelemetrySummary().drift_rate_percent, 30);
+});
+
+runTest("active pricing candidates always require DOM validation", () => {
+  const scraper = new DiscoverCarsScraper({
+    pickupDate: "2026-07-10",
+    dropoffDate: "2026-07-12",
+    apiDomSanityRate: 0,
+    apiDomDriftState: { by_location: {} }
+  });
+  const activeTop1Gap = [
+    { provider: "MM Cars Rental", totalPrice: 200, currency: "PLN" },
+    { provider: "Other", totalPrice: 240, currency: "PLN" },
+    { provider: "Third", totalPrice: 260, currency: "PLN" }
+  ];
+  const inactiveTop1Gap = activeTop1Gap.map((item) => ({ ...item }));
+  inactiveTop1Gap[1].totalPrice = 218;
+  assert.equal(scraper.shouldValidateApiOutcome("Warsaw", activeTop1Gap), true);
+  assert.equal(scraper.shouldValidateApiOutcome("Krakow", inactiveTop1Gap), false);
+  assert.equal(scraper.apiDomTelemetry.mandatory_recommendation_validation_count, 1);
+});
+
+runTest("sparse API results respect the per-location DOM validation cap", () => {
+  const scraper = new DiscoverCarsScraper({
+    pickupDate: "2026-07-10",
+    dropoffDate: "2026-07-12",
+    apiDomSanityRate: 0.05,
+    apiDomMaxValidationsPerLocation: 50,
+    apiDomDriftState: { by_location: {} }
+  });
+  scraper.getLocationDriftState("Gdansk Downtown").validation_count = 50;
+  const sparseOffers = [{ provider: "Autounion", totalPrice: 120, currency: "PLN" }];
+  assert.equal(scraper.shouldValidateApiOutcome("Gdansk Downtown", sparseOffers), false);
 });
 
 runTest("chunked runner expands rolling days into ISO start dates", () => {
@@ -454,7 +498,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /table-layout: fixed/);
 });
 
-runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 5 PLN per day above MM top1", () => {
+runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per day above MM top1", () => {
   const html = buildHtmlReport({
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
@@ -600,7 +644,7 @@ runTest("buildHtmlReport switches between automatic and all offers with MM posit
   assert.match(html, /offer-view-all count-cell">4/);
 });
 
-runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 5 PLN per day", () => {
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Krakow"],
@@ -632,7 +676,7 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 5 
   assert.match(output.recommendations[0].reason, /top2 jest drozszy/);
 });
 
-runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 PLN per day", () => {
+runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 10 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",
     locations: ["Krakow"],
@@ -647,7 +691,7 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 P
           Krakow: {
             top_3: [
               { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 },
-              { provider_name: "Flex To Go", total_price: 150, currency: "PLN", rental_days: 2 }
+              { provider_name: "Flex To Go", total_price: 160, currency: "PLN", rental_days: 2 }
             ],
             mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 140, currency: "PLN", rental_days: 2 }
           }
@@ -660,8 +704,8 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 5 P
   assert.equal(output.recommendations[0].action, "increase");
   assert.equal(output.recommendations[0].recommendation_type, "top1_gap");
   assert.equal(output.recommendations[0].target_rank, 1);
-  assert.equal(output.recommendations[0].suggested_rate_pln_day, 74);
-  assert.match(output.recommendations[0].reason, /co najmniej 5 PLN/);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 79);
+  assert.match(output.recommendations[0].reason, /co najmniej 10 PLN/);
 });
 
 runTest("buildPricingRecommendations blocks mixed currencies and keeps a decision constraint", () => {

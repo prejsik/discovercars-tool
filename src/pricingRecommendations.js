@@ -149,6 +149,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const top2Rate = toDailyRate(top2);
   const top3Rate = toDailyRate(top3);
   const top1Signal = top1SignalIndex?.get(buildObservationKey(scenario, location)) || null;
+  const sourceValidation = scenario?.source_validation_by_location?.[location] || { status: "api_unverified", reasons: [] };
 
   const base = {
     scenario_id: scenario.scenario_id || null,
@@ -168,6 +169,8 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     top3_provider: formatProviderName(top3),
     top3_rate_pln_day: top3Rate == null ? null : Number(top3Rate.toFixed(2)),
     top1_high_rate: Boolean(top1Signal?.is_high_rate),
+    source_validation_status: sourceValidation.status || "api_unverified",
+    source_validation_reasons: Array.isArray(sourceValidation.reasons) ? sourceValidation.reasons : [],
     source_generated_at: scenario.source_generated_at_by_location?.[location]
       || scenario.generated_at
       || rootPayload.generated_at

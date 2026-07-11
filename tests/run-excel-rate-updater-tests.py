@@ -227,7 +227,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 10 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-07-10",
                             "rental_days": 2,
@@ -363,7 +363,7 @@ def main():
         assert ws["J6"].comment is None
         assert_equal(changed_ws["A1"].value, "Legenda", "changed sheet legend title")
         assert_equal(changed_ws["A2"].value, "Top1 gap", "top1 legend label")
-        assert "co najmniej 5 PLN" in changed_ws["B2"].value
+        assert "co najmniej 10 PLN" in changed_ws["B2"].value
         assert_equal(rgb(changed_ws["A2"]), "9DC3E6", "top1 legend color")
         assert_equal(changed_ws["A3"].value, "Male obnizenie top3", "top3 legend label")
         assert_equal(rgb(changed_ws["A3"]), "FFC7CE", "top3 legend color")
@@ -377,7 +377,7 @@ def main():
         assert_equal(changed_ws.max_row, 20, "changed sheet row count")
         assert_equal(changed_ws["A16"].value, "CDMV", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O16"].value
-        assert "co najmniej 5 PLN" in changed_ws["O16"].value
+        assert "co najmniej 10 PLN" in changed_ws["O16"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O16"].value
         assert "Poprzednia stawka: 70 PLN" in changed_ws["O16"].value
         assert "Nowa stawka: 81 PLN" in changed_ws["O16"].value
@@ -504,7 +504,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 10 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-06-10",
                             "rental_days": 2,
@@ -674,7 +674,7 @@ def main():
                         {
                             "action": "increase",
                             "recommendation_type": "top1_gap",
-                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 5 PLN/dzien; cel to 1 PLN ponizej top2.",
+                            "reason": "MM Cars Rental jest top1, a top2 jest drozszy o co najmniej 10 PLN/dzien; cel to 1 PLN ponizej top2.",
                             "location": "Warsaw",
                             "start_date": "2026-06-11",
                             "rental_days": 2,

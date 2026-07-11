@@ -67,7 +67,8 @@ function summarizeApiDomMonitoring(results, scenarios) {
     drift_count: 0,
     fallback_count: 0,
     browser_preferred_count: 0,
-    adaptive_validation_triggered: false
+    adaptive_validation_triggered: false,
+    reason_counts: {}
   };
   for (const scenario of scenarios || []) {
     const monitoring = scenario?.api_dom_monitoring;
@@ -79,6 +80,9 @@ function summarizeApiDomMonitoring(results, scenarios) {
     summary.fallback_count += Number(monitoring.fallback_count || 0);
     summary.browser_preferred_count += Number(monitoring.browser_preferred_count || 0);
     summary.adaptive_validation_triggered ||= Boolean(monitoring.adaptive_validation_triggered);
+    for (const [reason, count] of Object.entries(monitoring.reason_counts || {})) {
+      summary.reason_counts[reason] = (summary.reason_counts[reason] || 0) + Number(count || 0);
+    }
   }
   summary.drift_rate_percent = summary.comparison_count
     ? Number((summary.drift_count / summary.comparison_count * 100).toFixed(2))
@@ -190,12 +194,17 @@ function buildQualityReport({
   }
   const apiDom = scrape.api_dom_monitoring || {};
   if (Number(apiDom.comparison_count || 0) > 0 && Number(apiDom.drift_count || 0) > 0) {
+    const reasonSummary = Object.entries(apiDom.reason_counts || {})
+      .sort((left, right) => Number(right[1]) - Number(left[1]))
+      .slice(0, 4)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(", ");
     alerts.push(
-      `Kontrola API-DOM: rozjazd ${apiDom.drift_count}/${apiDom.comparison_count} (${apiDom.drift_rate_percent || 0}%), wybrano DOM ${apiDom.browser_preferred_count || 0} razy.`
+      `Kontrola API-DOM: rozjazd ${apiDom.drift_count}/${apiDom.comparison_count} (${apiDom.drift_rate_percent || 0}%), wybrano DOM ${apiDom.browser_preferred_count || 0} razy.${reasonSummary ? ` Powody: ${reasonSummary}.` : ""}`
     );
   }
   if (apiDom.adaptive_validation_triggered) {
-    alerts.push("Kontrola API-DOM automatycznie zwiekszyla probe DOM z powodu podwyzszonego poziomu rozjazdow.");
+    alerts.push("Kontrola API-DOM zwiekszyla probe tylko dla lokalizacji z podwyzszonym poziomem rozjazdow.");
   }
 
   if (scrapeOnly) {
@@ -206,6 +215,11 @@ function buildQualityReport({
     alerts.push("Brak pliku final-pricing-recommendations.json.");
   } else if (listRecommendations(recommendations).filter((item) => item.action !== "hold").length === 0) {
     alerts.push("Brak aktywnych rekomendacji cenowych.");
+  }
+  if (Number(recommendations?.dom_verification?.blocked_count || 0) > 0) {
+    alerts.push(
+      `Kontrola DOM rekomendacji zablokowala ${recommendations.dom_verification.blocked_count}/${recommendations.dom_verification.active_input_count || 0} aktywnych zmian.`
+    );
   }
 
   if (!excelSummary) {

@@ -116,7 +116,7 @@ def get_pricing_rules(config: dict[str, Any]) -> dict[str, Any]:
     path = Path(str(config.get("pricing_rules_file") or "pricing-rules.config.example.json"))
     if not path.exists():
         return {
-            "top1GapThresholdPlnDay": 5,
+            "top1GapThresholdPlnDay": 10,
             "top1UndercutThresholdPlnDay": 10,
             "top3SmallDecreaseThresholdPlnDay": 10,
             "undercutBufferPlnDay": 1,
@@ -580,7 +580,7 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
     if recommendation_type == "top1_gap":
         return (
             "MM Cars Rental jest na 1 miejscu, a druga oferta jest drozsza o co najmniej "
-            "5 PLN/dzien. Cel jest ustawiony 1 PLN ponizej top2: "
+            "10 PLN/dzien. Cel jest ustawiony 1 PLN ponizej top2: "
             f"{benchmark_provider} ({benchmark_rate} PLN)."
         )
     if recommendation_type == "top3_small_decrease":
@@ -1008,7 +1008,7 @@ def write_changed_positions_sheet(
 
     header_row = int(config["header_row"])
     pricing_rules = get_pricing_rules(config)
-    top1_gap = format_rate_for_comment(parse_number(pricing_rules.get("top1GapThresholdPlnDay")) or 5)
+    top1_gap = format_rate_for_comment(parse_number(pricing_rules.get("top1GapThresholdPlnDay")) or 10)
     undercut_limit = format_rate_for_comment(parse_number(pricing_rules.get("top1UndercutThresholdPlnDay")) or 10)
     top3_limit = format_rate_for_comment(parse_number(pricing_rules.get("top3SmallDecreaseThresholdPlnDay")) or 10)
     undercut_buffer = format_rate_for_comment(parse_number(pricing_rules.get("undercutBufferPlnDay")) or 1)

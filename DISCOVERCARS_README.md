@@ -74,6 +74,16 @@ The CSV contains:
 - `currency`
 - `source`
 
+## API-DOM quality control
+
+- API is the primary source for every scenario.
+- DOM validation starts at a deterministic 5% sample.
+- Escalation is calculated independently per location after at least 20 comparisons: 5%, 10%, or at most 20%.
+- Sparse API results use a 20% DOM sample instead of forcing a browser check for every scenario.
+- A location is capped at 50 sampled DOM validations per process; API failures still use DOM fallback.
+- Active price recommendations without prior DOM confirmation are verified in DOM before Excel generation.
+- The HTML report shows API, DOM confirmation, fallback, or conflict under each location and lists drift reasons.
+
 ## Notes
 
 - Production location names, DiscoverCars identifiers, import zones, aliases, and the daily profile live in `locations.config.json`.

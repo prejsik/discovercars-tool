@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const DEFAULT_PRICING_RULES = Object.freeze({
-  top1GapThresholdPlnDay: 5,
+  top1GapThresholdPlnDay: 10,
   top1RaiseBufferPlnDay: 1,
   top1UndercutThresholdPlnDay: 10,
   undercutBufferPlnDay: 1,

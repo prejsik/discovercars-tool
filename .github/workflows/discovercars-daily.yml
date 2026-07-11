@@ -427,8 +427,27 @@ jobs:
 
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
+      - name: Verify active recommendations in DOM
+        id: dom-verification
+        if: steps.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        shell: bash
+        run: |
+          if [[ -f output/final-pricing-recommendations.json ]]; then
+            node src/verifyActiveRecommendationsDom.js \
+              --input=output/final-pricing-recommendations.json \
+              --output=output/final-pricing-recommendations.json \
+              --work-dir=output/dom-recommendation-verification \
+              --concurrency=2 \
+              --timeout=45000 \
+              --speed-mode="${{ steps.options.outputs.speed_mode }}" \
+              | tee output/dom-recommendation-verification-summary.json
+          else
+            echo "::error::Final recommendations are missing; DOM verification cannot run."
+            exit 1
+          fi
+
       - name: Generate Excel import workbook
-        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
+        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure' && steps.dom-verification.outcome == 'success'
         shell: bash
         run: |
           if [[ -f output/final-pricing-recommendations.json ]]; then
@@ -709,6 +728,7 @@ jobs:
             output/results-latest.json
             output/pricing-recommendations.json
             output/final-pricing-recommendations.json
+            output/dom-recommendation-verification-summary.json
             output/rates-updated.xlsx
             output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json

@@ -418,6 +418,7 @@ async function runLegacyFallbackBatch(options) {
     results: sortOffersByPrice(results),
     errors,
     locationBreakdown,
+    sourceValidationByLocation: fallbackOutput.sourceValidationByLocation || {},
     telemetry: fallbackOutput.telemetry || null
   };
 }

@@ -901,24 +901,45 @@ function buildApiDomMonitoringSummary(scenarios) {
     dom_validation_count: 0,
     dom_success_count: 0,
     dom_failure_count: 0,
+    mandatory_recommendation_validation_count: 0,
     comparison_count: 0,
     drift_count: 0,
     browser_preferred_count: 0,
     fallback_count: 0,
-    adaptive_validation_triggered: false
+    adaptive_validation_triggered: false,
+    reason_counts: {},
+    by_location: {}
   };
   for (const summary of summaries) {
-    for (const key of Object.keys(totals)) {
+    for (const key of Object.keys(totals).filter((item) => !["reason_counts", "by_location"].includes(item))) {
       if (key === "adaptive_validation_triggered") {
         totals[key] = totals[key] || Boolean(summary[key]);
       } else {
         totals[key] += Number(summary[key] || 0);
       }
     }
+    for (const [reason, count] of Object.entries(summary.reason_counts || {})) {
+      totals.reason_counts[reason] = (totals.reason_counts[reason] || 0) + Number(count || 0);
+    }
+    for (const [location, item] of Object.entries(summary.by_location || {})) {
+      if (!totals.by_location[location]) {
+        totals.by_location[location] = { comparison_count: 0, drift_count: 0, validation_count: 0, reason_counts: {} };
+      }
+      const target = totals.by_location[location];
+      target.comparison_count += Number(item.comparison_count || 0);
+      target.drift_count += Number(item.drift_count || 0);
+      target.validation_count += Number(item.validation_count || 0);
+      for (const [reason, count] of Object.entries(item.reason_counts || {})) {
+        target.reason_counts[reason] = (target.reason_counts[reason] || 0) + Number(count || 0);
+      }
+    }
   }
   totals.drift_rate_percent = totals.comparison_count
     ? Number((totals.drift_count / totals.comparison_count * 100).toFixed(2))
     : 0;
+  for (const item of Object.values(totals.by_location)) {
+    item.drift_rate_percent = item.comparison_count ? Number((item.drift_count / item.comparison_count * 100).toFixed(2)) : 0;
+  }
   return totals;
 }
 
@@ -1586,6 +1607,7 @@ async function main() {
       scenarioPayload.rental_days = scenario.rental_days;
       scenarioPayload.execution = executionOutput.fallbackMeta || null;
       scenarioPayload.api_dom_monitoring = executionOutput.telemetry || null;
+      scenarioPayload.source_validation_by_location = executionOutput.sourceValidationByLocation || {};
       payloadBuffer[scenarioIndex] = scenarioPayload;
 
       try {

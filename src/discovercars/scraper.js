@@ -36,8 +36,12 @@ const IGNORED_API_PROVIDER_PATTERNS = [
   /^discovercars\s*choice$/i
 ];
 const DEFAULT_API_DOM_SANITY_RATE = 0.05;
-const DEFAULT_API_DOM_DRIFT_TRIGGER_RATE = 0.2;
-const DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS = 3;
+const DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS = 20;
+const DEFAULT_API_DOM_MEDIUM_DRIFT_RATE = 0.1;
+const DEFAULT_API_DOM_HIGH_DRIFT_RATE = 0.25;
+const DEFAULT_API_DOM_MEDIUM_SAMPLE_RATE = 0.1;
+const DEFAULT_API_DOM_HIGH_SAMPLE_RATE = 0.2;
+const DEFAULT_API_DOM_MAX_VALIDATIONS_PER_LOCATION = 50;
 const DEFAULT_API_TIMEOUT_MS = 20_000;
 const DEFAULT_GEO_LOCATION_OVERRIDES = Object.freeze({
   "galeria krakowska shopping mall": Object.freeze({
@@ -49,9 +53,7 @@ const DEFAULT_GEO_LOCATION_OVERRIDES = Object.freeze({
 });
 const SHARED_LOCATION_CANDIDATE_CACHE = new Map();
 const SHARED_API_DOM_DRIFT_STATE = {
-  comparison_count: 0,
-  drift_count: 0,
-  adaptive_validation_triggered: false
+  by_location: {}
 };
 
 function clampPositiveInteger(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
@@ -83,11 +85,14 @@ class DiscoverCarsScraper {
       dom_validation_count: 0,
       dom_success_count: 0,
       dom_failure_count: 0,
+      mandatory_recommendation_validation_count: 0,
       comparison_count: 0,
       drift_count: 0,
       browser_preferred_count: 0,
       fallback_count: 0,
-      adaptive_validation_triggered: false
+      adaptive_validation_triggered: false,
+      reason_counts: {},
+      by_location: {}
     };
   }
 
@@ -104,6 +109,7 @@ class DiscoverCarsScraper {
     const results = [];
     const failures = [];
     const offerViewsByLocation = {};
+    const sourceValidationByLocation = {};
     const locations = Array.isArray(this.config.locations) ? [...this.config.locations] : [];
     const workerCount = clampPositiveInteger(this.config.locationConcurrency, 1, 1, 6);
     const boundedWorkers = Math.max(1, Math.min(workerCount, locations.length || 1));
@@ -138,6 +144,7 @@ class DiscoverCarsScraper {
         if (outcome.ok) {
           results.push(...outcome.results);
           offerViewsByLocation[location] = outcome.offerViews || null;
+          sourceValidationByLocation[location] = outcome.sourceValidation || { status: "api_unverified", reasons: [] };
           console.log(
             `OK  ${location} -> ${outcome.cheapest.provider} -> ${formatMoney(outcome.cheapest.totalPrice, outcome.cheapest.currency)}`
           );
@@ -153,7 +160,7 @@ class DiscoverCarsScraper {
       }
     }
 
-    return { results, failures, offerViewsByLocation, telemetry: this.buildApiDomTelemetrySummary() };
+    return { results, failures, offerViewsByLocation, sourceValidationByLocation, telemetry: this.buildApiDomTelemetrySummary() };
   }
 
   resolveLaunchOptions() {
@@ -184,7 +191,7 @@ class DiscoverCarsScraper {
         apiOutcome = await this.runSingleLocationViaApi(location);
         this.apiDomTelemetry.api_success_count += 1;
         if (!this.shouldValidateApiOutcome(location, apiOutcome.results)) {
-          return apiOutcome;
+          return { ...apiOutcome, sourceValidation: { status: "api_unverified", reasons: [] } };
         }
       } catch (apiError) {
         this.apiDomTelemetry.api_failure_count += 1;
@@ -196,6 +203,7 @@ class DiscoverCarsScraper {
 
       const browser = await getBrowser();
       this.apiDomTelemetry.dom_validation_count += 1;
+      this.recordDomValidation(location);
       const browserOutcome = await this.runSingleLocationWithBrowser(browser, location);
       if (browserOutcome.ok) {
         this.apiDomTelemetry.dom_success_count += 1;
@@ -205,22 +213,31 @@ class DiscoverCarsScraper {
       if (!apiOutcome.ok) {
         if (browserOutcome.ok) {
           this.apiDomTelemetry.fallback_count += 1;
+          return { ...browserOutcome, sourceValidation: { status: "dom_fallback", reasons: ["api_failure"] } };
         }
         return browserOutcome;
       }
       if (browserOutcome.ok) {
         const comparison = this.compareApiAndBrowserOutcomes(apiOutcome.results, browserOutcome.results);
-        this.recordApiDomComparison(comparison.preferBrowser);
+        this.recordApiDomComparison(location, comparison);
         if (comparison.preferBrowser) {
           this.apiDomTelemetry.browser_preferred_count += 1;
-          return browserOutcome;
+          return { ...browserOutcome, sourceValidation: { status: "api_dom_conflict_dom_used", reasons: comparison.reasons } };
         }
+        return {
+          ...apiOutcome,
+          sourceValidation: {
+            status: comparison.reasons.length ? "api_dom_conflict_api_used" : "dom_confirmed",
+            reasons: comparison.reasons
+          }
+        };
       }
-      return apiOutcome;
+      return { ...apiOutcome, sourceValidation: { status: "dom_validation_failed_api_used", reasons: ["dom_failure"] } };
     }
 
     const browser = await getBrowser();
-    return await this.runSingleLocationWithBrowser(browser, location);
+    const outcome = await this.runSingleLocationWithBrowser(browser, location);
+    return outcome.ok ? { ...outcome, sourceValidation: { status: "dom_only", reasons: [] } } : outcome;
   }
 
   async runSingleLocationWithBrowser(browser, location) {
@@ -327,18 +344,46 @@ class DiscoverCarsScraper {
     if (!selectedOffers.length) {
       return true;
     }
-    if (selectedOffers.length < 3) {
+    if (this.isPotentialPricingRecommendation(selectedOffers)) {
+      this.apiDomTelemetry.mandatory_recommendation_validation_count += 1;
       return true;
     }
-    if (this.apiDomDriftState.adaptive_validation_triggered) {
-      this.apiDomTelemetry.adaptive_validation_triggered = true;
-      return true;
+    const locationState = this.getLocationDriftState(location);
+    const maxValidations = clampPositiveInteger(
+      this.config.apiDomMaxValidationsPerLocation,
+      DEFAULT_API_DOM_MAX_VALIDATIONS_PER_LOCATION,
+      1,
+      500
+    );
+    if (locationState.validation_count >= maxValidations) {
+      return false;
     }
-    const sanityRate = clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1);
+    const sanityRate = Math.max(
+      this.getLocationValidationRate(location),
+      selectedOffers.length < 3 ? HIGH_DRIFT_API_DOM_SANITY_RATE : 0
+    );
     if (sanityRate <= 0) {
       return false;
     }
     return deterministicSample(location, this.config.pickupDate, this.config.dropoffDate, sanityRate);
+  }
+
+  isPotentialPricingRecommendation(offers) {
+    const sorted = [...(offers || [])].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
+    const mmIndex = sorted.findIndex((offer) => isMmCarsRentalProvider(offer.provider));
+    if (mmIndex < 0) return false;
+    const days = daysBetweenIso(this.config.pickupDate, this.config.dropoffDate);
+    const daily = (offer) => Number(offer?.totalPrice) / days;
+    const mmRate = daily(sorted[mmIndex]);
+    if (!Number.isFinite(mmRate)) return false;
+    if (mmIndex === 0) {
+      const top2Rate = daily(sorted[1]);
+      return Number.isFinite(top2Rate) && top2Rate - mmRate >= 10;
+    }
+    const competitorIndex = mmIndex === 1 ? 0 : Math.min(mmIndex - 1, 2);
+    const competitorRate = daily(sorted[competitorIndex]);
+    const decrease = mmRate - competitorRate + 1;
+    return Number.isFinite(decrease) && decrease >= 0.5 && decrease < 10;
   }
 
   shouldPreferBrowserOutcome(apiOffers, browserOffers) {
@@ -356,83 +401,119 @@ class DiscoverCarsScraper {
     }
 
     const reasons = [];
-    const apiHasMm = apiList.some((offer) => isMmCarsRentalProvider(offer.provider));
-    const browserHasMm = browserList.some((offer) => isMmCarsRentalProvider(offer.provider));
-    if (!apiHasMm && browserHasMm) {
-      reasons.push("mm_missing_in_api");
-    }
-    if (apiList.length < 3 && browserList.length > apiList.length) {
-      reasons.push("api_offer_count_low");
-    }
-
-    const pickup = new Date(`${this.config.pickupDate}T00:00:00Z`);
-    const dropoff = new Date(`${this.config.dropoffDate}T00:00:00Z`);
-    const rentalDays = Math.max(1, Math.round((dropoff - pickup) / 86400000));
     const apiSorted = [...apiList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
     const browserSorted = [...browserList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
-    const pairs = [
-      [apiSorted[0], browserSorted[0]],
-      [apiSorted[1], browserSorted[1]],
-      [
-        apiList.find((offer) => isMmCarsRentalProvider(offer.provider)),
-        browserList.find((offer) => isMmCarsRentalProvider(offer.provider))
-      ]
-    ];
-    for (const [apiOffer, browserOffer] of pairs) {
-      if (!apiOffer || !browserOffer) {
-        continue;
-      }
+    const apiTop1 = apiSorted[0] || null;
+    const browserTop1 = browserSorted[0] || null;
+    const apiMm = apiList.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
+    const browserMm = browserList.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
+    let preferBrowser = false;
+
+    if (Boolean(apiMm) !== Boolean(browserMm)) {
+      reasons.push(apiMm ? "mm_missing_in_dom" : "mm_missing_in_api");
+      preferBrowser = !apiMm && Boolean(browserMm);
+    }
+    if (apiTop1 && browserTop1 && normalizeProviderForComparison(apiTop1.provider) !== normalizeProviderForComparison(browserTop1.provider)) {
+      reasons.push("top1_provider_mismatch");
+      preferBrowser ||= browserList.length >= 3;
+    }
+
+    const compareMatchedPrice = (apiOffer, browserOffer, label, absoluteTolerance, percentTolerance) => {
+      if (!apiOffer || !browserOffer) return;
+      if (normalizeProviderForComparison(apiOffer.provider) !== normalizeProviderForComparison(browserOffer.provider)) return;
       if (String(apiOffer.currency || "").toUpperCase() !== String(browserOffer.currency || "").toUpperCase()) {
-        reasons.push("currency_mismatch");
-        continue;
+        reasons.push(`${label}_currency_mismatch`);
+        preferBrowser = true;
+        return;
       }
-      const apiTotal = Number(apiOffer.totalPrice);
-      const browserTotal = Number(browserOffer.totalPrice);
-      const tolerance = Math.max(2 * rentalDays, Math.abs(browserTotal) * 0.02);
-      if (Number.isFinite(apiTotal) && Number.isFinite(browserTotal) && Math.abs(apiTotal - browserTotal) > tolerance) {
-        reasons.push("price_mismatch");
+      const days = Math.max(1, Number(this.config.rentalDays) || daysBetweenIso(this.config.pickupDate, this.config.dropoffDate));
+      const apiDaily = Number(apiOffer.totalPrice) / days;
+      const browserDaily = Number(browserOffer.totalPrice) / days;
+      const tolerance = Math.max(absoluteTolerance, Math.abs(browserDaily) * percentTolerance);
+      if (Number.isFinite(apiDaily) && Number.isFinite(browserDaily) && Math.abs(apiDaily - browserDaily) > tolerance) {
+        reasons.push(`${label}_price_mismatch`);
+        preferBrowser = true;
       }
-    }
+    };
 
-    return { preferBrowser: reasons.length > 0, reasons: [...new Set(reasons)] };
+    compareMatchedPrice(apiTop1, browserTop1, "top1", 5, 0.05);
+    compareMatchedPrice(apiMm, browserMm, "mm", 3, 0.03);
+    return { preferBrowser, reasons: [...new Set(reasons)] };
   }
 
-  updateAdaptiveValidationState() {
-    const comparisons = this.apiDomDriftState.comparison_count;
-    const minComparisons = clampPositiveInteger(
-      this.config.apiDomDriftMinComparisons,
-      DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS,
-      1,
-      100
-    );
-    const triggerRate = clampNumber(
-      this.config.apiDomDriftTriggerRate,
-      DEFAULT_API_DOM_DRIFT_TRIGGER_RATE,
-      0,
-      1
-    );
-    if (comparisons >= minComparisons && this.apiDomDriftState.drift_count / comparisons >= triggerRate) {
-      this.apiDomDriftState.adaptive_validation_triggered = true;
+  getLocationDriftState(location) {
+    if (!this.apiDomDriftState.by_location) this.apiDomDriftState.by_location = {};
+    const key = normalizeWhitespace(location).toLowerCase();
+    if (!this.apiDomDriftState.by_location[key]) {
+      this.apiDomDriftState.by_location[key] = { comparison_count: 0, drift_count: 0, validation_count: 0, reason_counts: {} };
+    }
+    return this.apiDomDriftState.by_location[key];
+  }
+
+  getLocationValidationRate(location) {
+    const state = this.getLocationDriftState(location);
+    const baseRate = clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1);
+    const minComparisons = clampPositiveInteger(this.config.apiDomDriftMinComparisons, DEFAULT_API_DOM_DRIFT_MIN_COMPARISONS, 1, 200);
+    if (state.comparison_count < minComparisons) return baseRate;
+    const driftRate = state.comparison_count ? state.drift_count / state.comparison_count : 0;
+    if (driftRate >= DEFAULT_API_DOM_HIGH_DRIFT_RATE) {
       this.apiDomTelemetry.adaptive_validation_triggered = true;
+      return Math.max(baseRate, DEFAULT_API_DOM_HIGH_SAMPLE_RATE);
     }
+    if (driftRate >= DEFAULT_API_DOM_MEDIUM_DRIFT_RATE) {
+      this.apiDomTelemetry.adaptive_validation_triggered = true;
+      return Math.max(baseRate, DEFAULT_API_DOM_MEDIUM_SAMPLE_RATE);
+    }
+    return baseRate;
   }
 
-  recordApiDomComparison(isDrift) {
+  recordDomValidation(location) {
+    const state = this.getLocationDriftState(location);
+    state.validation_count += 1;
+    const local = this.getLocalLocationTelemetry(location);
+    local.validation_count += 1;
+  }
+
+  recordApiDomComparison(location, comparison) {
+    const isDrift = Boolean(comparison?.reasons?.length);
+    const state = this.getLocationDriftState(location);
+    const local = this.getLocalLocationTelemetry(location);
     this.apiDomTelemetry.comparison_count += 1;
-    this.apiDomDriftState.comparison_count += 1;
+    state.comparison_count += 1;
+    local.comparison_count += 1;
     if (isDrift) {
       this.apiDomTelemetry.drift_count += 1;
-      this.apiDomDriftState.drift_count += 1;
+      state.drift_count += 1;
+      local.drift_count += 1;
     }
-    this.updateAdaptiveValidationState();
+    for (const reason of comparison?.reasons || []) {
+      this.apiDomTelemetry.reason_counts[reason] = (this.apiDomTelemetry.reason_counts[reason] || 0) + 1;
+      state.reason_counts[reason] = (state.reason_counts[reason] || 0) + 1;
+      local.reason_counts[reason] = (local.reason_counts[reason] || 0) + 1;
+    }
+  }
+
+  getLocalLocationTelemetry(location) {
+    const key = normalizeWhitespace(location);
+    if (!this.apiDomTelemetry.by_location[key]) {
+      this.apiDomTelemetry.by_location[key] = { comparison_count: 0, drift_count: 0, validation_count: 0, reason_counts: {} };
+    }
+    return this.apiDomTelemetry.by_location[key];
   }
 
   buildApiDomTelemetrySummary() {
     const comparisons = this.apiDomTelemetry.comparison_count;
+    const byLocation = {};
+    for (const [location, state] of Object.entries(this.apiDomTelemetry.by_location || {})) {
+      byLocation[location] = {
+        ...state,
+        drift_rate_percent: state.comparison_count ? Number((state.drift_count / state.comparison_count * 100).toFixed(2)) : 0,
+        current_validation_rate: this.getLocationValidationRate(location)
+      };
+    }
     return {
       ...this.apiDomTelemetry,
-      adaptive_validation_triggered: this.apiDomTelemetry.adaptive_validation_triggered
-        || this.apiDomDriftState.adaptive_validation_triggered,
+      by_location: byLocation,
       configured_validation_rate: clampNumber(this.config.apiDomSanityRate, DEFAULT_API_DOM_SANITY_RATE, 0, 1),
       drift_rate_percent: comparisons
         ? Number((this.apiDomTelemetry.drift_count / comparisons * 100).toFixed(2))
@@ -1839,6 +1920,17 @@ function isMmCarsRentalProvider(provider) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ");
   return normalized.includes("mm cars rental");
+}
+
+function normalizeProviderForComparison(provider) {
+  return normalizeWhitespace(provider).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function daysBetweenIso(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const days = Math.round((end - start) / 86400000);
+  return Number.isFinite(days) && days > 0 ? days : 1;
 }
 
 function resolveGeoLocationOverride(location, configuredOverrides = {}) {

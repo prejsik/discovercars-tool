@@ -267,6 +267,21 @@ function cheaperOffersLabel(view) {
   return Number.isFinite(count) && count >= 0 ? String(count) : "Brak danych";
 }
 
+function sourceValidationLabel(validation) {
+  const status = String(validation?.status || "api_unverified");
+  const labels = {
+    api_unverified: "API",
+    dom_confirmed: "DOM potwierdzony",
+    api_dom_conflict_dom_used: "API-DOM konflikt: DOM",
+    api_dom_conflict_api_used: "API-DOM konflikt: API",
+    dom_fallback: "DOM fallback",
+    dom_only: "DOM",
+    dom_validation_failed_api_used: "DOM niedostepny: API",
+    dom_recommendation_verified: "DOM rekomendacji"
+  };
+  return labels[status] || status;
+}
+
 function buildScenarioRows(rootPayload, scenarioPayload) {
   const locations = scenarioLocations(rootPayload, scenarioPayload);
 
@@ -281,12 +296,14 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
       const rowClass = index % 2 === 0 ? "even" : "odd";
       const automaticHigh = isTop1High(automatic);
       const allHigh = isTop1High(all);
+      const sourceValidation = scenarioPayload?.source_validation_by_location?.[location] || null;
+      const sourceReasons = Array.isArray(sourceValidation?.reasons) ? sourceValidation.reasons.join(", ") : "";
       const automaticTop1Title = automaticHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
       const allTop1Title = allHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
 
       return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-mm-state-automatic="${getMmState(automatic)}" data-mm-state-all="${getMmState(all)}" data-top1-high-automatic="${automaticHigh}" data-top1-high-all="${allHigh}">
         <td class="index">${index}</td>
-        <td class="location">${escapeHtml(location)}</td>
+        <td class="location">${escapeHtml(location)}<span class="source-badge" title="${escapeHtml(sourceReasons)}">${escapeHtml(sourceValidationLabel(sourceValidation))}</span></td>
         ${buildDualCell(providerContent(automaticTop3[0]), providerContent(allTop3[0]), isMmCarsProvider(automaticTop3[0]?.provider_name) ? getMmClassName(automaticTop3[0], automaticTop3) : "", isMmCarsProvider(allTop3[0]?.provider_name) ? getMmClassName(allTop3[0], allTop3) : "")}
         ${buildDualCell(priceContent(automaticTop3[0]), priceContent(allTop3[0]), automaticHigh ? "top1-high" : "", allHigh ? "top1-high" : "", automaticTop1Title, allTop1Title)}
         ${buildDualCell(providerContent(automaticTop3[1]), providerContent(allTop3[1]), isMmCarsProvider(automaticTop3[1]?.provider_name) ? getMmClassName(automaticTop3[1], automaticTop3) : "", isMmCarsProvider(allTop3[1]?.provider_name) ? getMmClassName(allTop3[1], allTop3) : "")}
@@ -321,7 +338,7 @@ function summarizeApiDomMonitoring(payload, scenarios) {
   if (payload?.api_dom_monitoring) {
     return payload.api_dom_monitoring;
   }
-  const summary = { comparison_count: 0, drift_count: 0, fallback_count: 0, adaptive_validation_triggered: false };
+  const summary = { comparison_count: 0, drift_count: 0, fallback_count: 0, adaptive_validation_triggered: false, reason_counts: {} };
   for (const scenario of scenarios) {
     const item = scenario?.api_dom_monitoring;
     if (!item) continue;
@@ -329,6 +346,9 @@ function summarizeApiDomMonitoring(payload, scenarios) {
     summary.drift_count += Number(item.drift_count || 0);
     summary.fallback_count += Number(item.fallback_count || 0);
     summary.adaptive_validation_triggered ||= Boolean(item.adaptive_validation_triggered);
+    for (const [reason, count] of Object.entries(item.reason_counts || {})) {
+      summary.reason_counts[reason] = (summary.reason_counts[reason] || 0) + Number(count || 0);
+    }
   }
   return summary;
 }
@@ -399,6 +419,11 @@ function buildHtmlReport(payload, options = {}) {
   const top1Signals = [...top1SignalIndex.values()];
   const highTop1Count = top1Signals.filter((signal) => signal.is_high_rate).length;
   const apiDom = summarizeApiDomMonitoring(payload, scenarios);
+  const apiDomReasons = Object.entries(apiDom.reason_counts || {})
+    .sort((left, right) => Number(right[1]) - Number(left[1]))
+    .slice(0, 5)
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(" | ");
 
   return `<!doctype html>
 <html lang="pl">
@@ -569,6 +594,17 @@ function buildHtmlReport(payload, options = {}) {
     body[data-offer-view="all"] .offer-view-automatic { display: none; }
     body[data-offer-view="all"] .offer-view-all { display: block; }
     .rank-cell, .count-cell { color: var(--text); }
+    .source-badge {
+      display: block;
+      width: fit-content;
+      margin-top: 4px;
+      padding: 2px 4px;
+      border: 1px solid #596273;
+      border-radius: 3px;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 400;
+    }
 
     td.index {
       color: var(--text);
@@ -664,20 +700,22 @@ function buildHtmlReport(payload, options = {}) {
   <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
   ${buildQualityBanner(options.quality)}
   <div class="summary">Scenariusze: ${scenarios.length} | sprawdzenia lokalizacji: ${locationChecks} | brak MM Cars Rental: ${missingMm} | błędy: ${errorCount} | Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d: ${highTop1Count} | API-DOM: ${apiDom.drift_count || 0}/${apiDom.comparison_count || 0} rozjazdów${apiDom.adaptive_validation_triggered ? " (próba DOM zwiększona)" : ""}</div>
+  ${apiDomReasons ? `<div class="summary">Powody API-DOM: ${escapeHtml(apiDomReasons)}</div>` : ""}
   <div class="legend">
     <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
     <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-top1-gap">Top1: +5 PLN/d</span> Top 2 jest droższy od MM o min. 5 PLN/dzień</span>
+    <span><span class="badge mm mm-top1-gap">Top1: +10 PLN/d</span> Top 2 jest droższy od MM o min. 10 PLN/dzień</span>
     <span><span class="badge mm mm-top1-gap-20">Top1: +20 PLN/d</span> Top 2 jest droższy od MM o min. 20 PLN/dzień</span>
     <span><span class="badge mm mm-top1-gap-30">Top1: +30 PLN/d</span> Top 2 jest droższy od MM o min. 30 PLN/dzień</span>
     <span><span class="badge top1-high">Top1 &gt; 150</span> stawka Top1 przekracza 150 PLN/dzień</span>
+    <span><span class="badge">API / DOM</span> źródło danych i wynik kontroli widoczny pod lokalizacją</span>
   </div>
   <div class="toolbar">
     <label>Skrzynia<select id="filter-transmission"><option value="automatic">Tylko automaty</option><option value="all">Wszystkie auta</option></select></label>
     <label>Data<input id="filter-date" type="date"></label>
     <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
     <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
-    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 5–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
+    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 10–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
     <label>Kontrola Top1<select id="filter-top1"><option value="">Wszystkie</option><option value="high">Powyżej 150 PLN/d</option><option value="normal">Do 150 PLN/d</option></select></label>
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
