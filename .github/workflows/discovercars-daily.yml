@@ -763,35 +763,26 @@ jobs:
           retention-days: 14
 
       - name: Notify Telegram
-        if: always() && steps.gate.outputs.should_run == 'true' && steps.upload.outputs['artifact-url'] != ''
+        if: always() && steps.gate.outputs.should_run == 'true'
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url }}
-          FULL_REPORT_URL: ${{ steps.pages-site.outputs.full_report_url }}
           PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
           PAGES_EXCEL_REPORT_URL: ${{ steps.pages-site.outputs.excel_report_url }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
-          MERGE_SOURCE: ${{ steps.final-recommendations.outputs.merge_source }}
           RUN_STARTED_EPOCH: ${{ steps.gate.outputs.run_started_epoch }}
-          RUN_STARTED_WARSAW: ${{ steps.gate.outputs.run_started_warsaw }}
-          SCRAPER_STARTED_WARSAW: ${{ steps.scraper.outputs.started_warsaw }}
-          SCRAPER_COMPLETED_WARSAW: ${{ steps.scraper.outputs.completed_warsaw }}
           SCRAPER_DURATION_SECONDS: ${{ steps.scraper.outputs.duration_seconds }}
-          LOCATIONS: ${{ steps.options.outputs.locations }}
           ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
           START_DATES: ${{ steps.options.outputs.start_dates }}
           START_DATE_COUNT: ${{ steps.options.outputs.start_date_count }}
           DURATIONS: ${{ steps.options.outputs.durations }}
-          SPEED_MODE: ${{ steps.options.outputs.speed_mode }}
           SCENARIO_COUNT: ${{ steps.options.outputs.scenario_count }}
           LOCATION_CHECK_COUNT: ${{ steps.options.outputs.location_check_count }}
           QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
-          SCRAPER_EXIT_CODE: ${{ steps.scraper.outputs.exit_code }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
@@ -817,53 +808,38 @@ jobs:
           }
 
           recommendation_count="brak danych"
+          increase_count="brak danych"
+          decrease_count="brak danych"
           if [[ -f output/final-pricing-recommendations.json ]]; then
-            recommendation_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/final-pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const count=Number.isFinite(data.recommendation_count) ? data.recommendation_count : list.filter((item) => item && item.action !== 'hold').length; process.stdout.write(String(count));")
+            recommendation_stats=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/final-pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const active=list.filter((item) => item && item.action !== 'hold'); const total=Number.isFinite(data.recommendation_count) ? data.recommendation_count : active.length; const increases=active.filter((item) => item.action === 'increase').length; const decreases=active.filter((item) => item.action === 'decrease').length; process.stdout.write([total,increases,decreases].join('|'));")
+            IFS='|' read -r recommendation_count increase_count decrease_count <<< "$recommendation_stats"
           fi
 
           excel_change_count="brak danych"
-          excel_row_count="brak danych"
-          baseline_summary="brak danych"
           if [[ -f output/excel-rate-update-summary.json ]]; then
             excel_change_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.change_count ?? 'brak danych'));")
-            excel_row_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.pickup_date_expansion?.expanded_row_count ?? 'brak danych'));")
-            baseline_summary=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); const b=data.baseline_confirmation||{}; process.stdout.write(String(b.status||'brak') + ', hash ' + (b.workbook_sha256 ? 'zgodny' : 'brak'));")
           fi
 
-          broker_markup_summary="brak danych"
-          if [[ -f output/broker-markup-calibration.json ]]; then
-            broker_markup_summary=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/broker-markup-calibration.json','utf8')); const cfg=data.brokerMarkupCalibration || {}; const learning=data.learning || {}; const multiplier=Number(cfg.defaultMultiplier); const percent=Number.isFinite(multiplier) ? ((multiplier - 1) * 100).toFixed(2) + '%' : 'brak'; process.stdout.write('fallback ' + percent + ', obserwacje ' + String(learning.observation_count ?? 0));")
-          fi
-
-          quality_alerts="brak"
+          quality_alert_count="0"
+          blocking_alerts=""
           if [[ -f output/quality-alerts.json ]]; then
-            quality_alerts=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.alerts) ? data.alerts : []; process.stdout.write(alerts.length ? alerts.map((item) => '- ' + item).join('\n') : 'brak');")
+            quality_alert_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.alerts) ? data.alerts : []; process.stdout.write(String(alerts.length));")
+            blocking_alerts=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.blocking_alerts) ? data.blocking_alerts : []; process.stdout.write(alerts.slice(0,2).join(' '));")
           fi
 
-          run_completed_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
           now_epoch="$(date +%s)"
           run_duration_seconds=0
           if [[ "$RUN_STARTED_EPOCH" =~ ^[0-9]+$ ]]; then
             run_duration_seconds=$((now_epoch - RUN_STARTED_EPOCH))
           fi
 
-          run_type_label="$RUN_TYPE"
-          if [[ "$RUN_TYPE" == "full" ]]; then
-            run_type_label="pelny poranny"
-          elif [[ "$RUN_TYPE" == "push-smoke" ]]; then
-            run_type_label="test po pushu"
-          elif [[ "$RUN_TYPE" == "manual" ]]; then
-            run_type_label="reczny"
-          fi
-
-          status_label="sukces"
-          title="DiscoverCars: wyniki sa gotowe."
+          status_label="GOTOWE"
+          excel_ready="TAK"
           if [[ "$QUALITY_STATUS" == "degraded" ]]; then
-            status_label="niepelny - wymaga kontroli"
-            title="DiscoverCars: run zakonczony z ostrzezeniami."
+            status_label="GOTOWE Z OSTRZEZENIAMI"
           elif [[ "$QUALITY_STATUS" == "failure" ]]; then
-            status_label="blad - nowy Excel nie zostal opublikowany"
-            title="DiscoverCars: run zakonczyl sie bledem."
+            status_label="BLAD"
+            excel_ready="NIE"
           fi
 
           scraper_time="$(format_duration "$SCRAPER_DURATION_SECONDS")"
@@ -873,22 +849,20 @@ jobs:
             range_label="konkretne daty (${START_DATE_COUNT}), durations ${DURATIONS}"
           fi
 
-          excel_section=""
-          if [[ -f output/rates-import-ready.xlsx && -n "$EXCEL_ARTIFACT_URL" ]]; then
-            excel_section=$(printf '\nExcel importowy:\n%s\n' "$EXCEL_ARTIFACT_URL")
+          report_url="${PAGE_URL:-$ARTIFACT_URL}"
+          excel_url="${PAGES_EXCEL_URL:-$EXCEL_ARTIFACT_URL}"
+
+          warning_section=""
+          if [[ "$QUALITY_STATUS" == "degraded" ]]; then
+            warning_section=$(printf '\nOstrzezenia: %s (szczegoly w raporcie)\n' "$quality_alert_count")
+          elif [[ "$QUALITY_STATUS" == "failure" ]]; then
+            warning_section=$(printf '\nPowod blokady: %s\n' "${blocking_alerts:-brak szczegolow - sprawdz GitHub Actions}")
           fi
 
-          summary_section=$(printf 'Status: %s\nKod scrapera: %s\nTyp runa: %s\nStart automatu: %s\nKoniec automatu: %s\nCzas automatu: %s\nStart scrapera: %s\nKoniec scrapera: %s\nCzas scrapera: %s\nZakres: %s\nMiasta: %s\nScenariusze: %s; sprawdzenia lokalizacji: %s\nRekomendacje: %s\nZmiany w Excelu: %s; wiersze Sheet1: %s\nBaseline: %s\nKalibracja narzutu: %s\nTryb predkosci: %s\nFinal recommendations: %s\nAlerty jakosciowe:\n%s\n' "$status_label" "${SCRAPER_EXIT_CODE:-brak danych}" "$run_type_label" "$RUN_STARTED_WARSAW" "$run_completed_warsaw" "$run_time" "${SCRAPER_STARTED_WARSAW:-brak danych}" "${SCRAPER_COMPLETED_WARSAW:-brak danych}" "$scraper_time" "$range_label" "$LOCATIONS" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$excel_change_count" "$excel_row_count" "$baseline_summary" "$broker_markup_summary" "$SPEED_MODE" "${MERGE_SOURCE:-brak danych}" "$quality_alerts")
+          message=$(printf 'DiscoverCars | %s\n\nExcel do importu: %s\nZakres: %s\nScenariusze: %s | sprawdzenia: %s\nRekomendacje: %s | podwyzki: %s | obnizki: %s\nZmienione komorki: %s\nCzas: %s | scraper: %s\n%s\nRaport: %s\nExcel importowy: %s\nExcel z rekomendacjami: %s\nSzczegoly techniczne: %s\n' "$status_label" "$excel_ready" "$range_label" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$increase_count" "$decrease_count" "$excel_change_count" "$run_time" "$scraper_time" "$warning_section" "${report_url:-brak}" "${excel_url:-niedostepny}" "${PAGES_EXCEL_REPORT_URL:-niedostepny}" "$RUN_URL")
 
-          pages_section=""
-          if [[ -n "$FULL_REPORT_URL" || -n "$PAGES_EXCEL_URL" ]]; then
-            pages_section=$(printf '\nLinki stale:\nPelny raport:\n%s\nExcel importowy gotowy:\n%s\nRaport Excel:\n%s\n' "${FULL_REPORT_URL:-brak}" "${PAGES_EXCEL_URL:-brak}" "${PAGES_EXCEL_REPORT_URL:-brak}")
-          fi
-
-          if [[ -n "$PAGE_URL" ]]; then
-            message=$(printf '%s\n\n%s\nRaport tego runa:\n%s\n%s\n%s\nArtifact backup:\n%s\n\nGitHub Actions run:\n%s\n' "$title" "$summary_section" "$PAGE_URL" "$pages_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
-          else
-            message=$(printf '%s\n\n%s\n%s\nArtifact:\n%s\n\nGitHub Actions run:\n%s\n' "$title" "$summary_section" "$excel_section" "$ARTIFACT_URL" "$RUN_URL")
+          if [[ "$QUALITY_STATUS" == "failure" ]]; then
+            message=$(printf 'DiscoverCars | %s\n\nExcel do importu: %s\nZakres: %s\nCzas: %s | scraper: %s\n%s\nRaport: %s\nSzczegoly techniczne: %s\n' "$status_label" "$excel_ready" "$range_label" "$run_time" "$scraper_time" "$warning_section" "${report_url:-brak}" "$RUN_URL")
           fi
 
           if ! curl --fail --show-error --silent \
