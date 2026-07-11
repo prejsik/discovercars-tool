@@ -366,8 +366,14 @@ function buildQualityBanner(quality) {
   if (!quality || quality.status === "success") {
     return "";
   }
-  const alerts = Array.isArray(quality.alerts)
-    ? quality.alerts.filter((item) => !/API-DOM|kontrola DOM/i.test(String(item))).slice(0, 3).join(" ")
+  const alertSource = quality.status === "failure"
+    ? quality.blocking_alerts
+    : quality.alerts;
+  const alerts = Array.isArray(alertSource)
+    ? alertSource
+      .filter((item) => !/API-DOM|kontrola DOM|Brak MM Cars Rental dla/i.test(String(item)))
+      .slice(0, 3)
+      .join(" ")
     : "";
   const message = quality.status === "failure"
     ? "Raport danych zostal opublikowany, ale nowy Excel zostal zablokowany przez kontrole jakosci."

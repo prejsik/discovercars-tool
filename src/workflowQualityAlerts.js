@@ -162,15 +162,20 @@ function buildQualityReport({
   requireSanity = false
 }) {
   const alerts = [];
+  const blockingAlerts = [];
+  const addBlockingAlert = (message) => {
+    alerts.push(message);
+    blockingAlerts.push(message);
+  };
   const scenarios = listScenarios(results);
   const locations = splitCsv(expectedLocations);
   const scrape = buildScrapeQualityReport({ results, expectedLocations });
   const requireVerifiedSanitySample = Boolean(requireSanity && Number(excelSummary?.change_count || 0) > 0);
 
   if (!results) {
-    alerts.push("Brak pliku results-latest.json.");
+    addBlockingAlert("Brak pliku results-latest.json.");
   } else if (!scenarios.length) {
-    alerts.push("Brak scenariuszy w results-latest.json.");
+    addBlockingAlert("Brak scenariuszy w results-latest.json.");
   }
 
   if (scenarios.length && locations.length) {
@@ -187,7 +192,10 @@ function buildQualityReport({
   }
 
   if (scrape.invalid_currency_count > 0) {
-    alerts.push(`Nieprawidlowa lub mieszana waluta: ${scrape.invalid_currency_count} scenariuszy/lokalizacji.`);
+    addBlockingAlert(`Nieprawidlowa lub mieszana waluta: ${scrape.invalid_currency_count} scenariuszy/lokalizacji.`);
+  }
+  if (scrape.top3_coverage_percent < 95) {
+    addBlockingAlert(`Pokrycie Top 3 wynosi ${scrape.top3_coverage_percent}%, ponizej wymaganego minimum 95%.`);
   }
   if (scrape.chunk_failure_count > 0) {
     alerts.push(`Niepelne chunki scrapera po retry: ${scrape.chunk_failure_count}.`);
@@ -208,11 +216,11 @@ function buildQualityReport({
   }
 
   if (scrapeOnly) {
-    return { ...scrape, alert_count: alerts.length, alerts };
+    return { ...scrape, alert_count: alerts.length, alerts, blocking_alerts: blockingAlerts };
   }
 
   if (!recommendations) {
-    alerts.push("Brak pliku final-pricing-recommendations.json.");
+    addBlockingAlert("Brak pliku final-pricing-recommendations.json.");
   } else if (listRecommendations(recommendations).filter((item) => item.action !== "hold").length === 0) {
     alerts.push("Brak aktywnych rekomendacji cenowych.");
   }
@@ -223,21 +231,26 @@ function buildQualityReport({
   }
 
   if (!excelSummary) {
-    alerts.push("Brak pliku excel-rate-update-summary.json.");
+    addBlockingAlert("Brak pliku excel-rate-update-summary.json.");
   } else {
     if (Number(excelSummary.change_count || 0) === 0) {
       alerts.push("Excel nie zawiera zmian stawek.");
     }
     for (const row of Array.isArray(excelSummary.validation) ? excelSummary.validation : []) {
       if (row.status && row.status !== "OK" && row.status !== "INFO") {
-        alerts.push(`Validation ${row.status}: ${row.check} (${row.issue_count}).`);
+        const message = `Validation ${row.status}: ${row.check} (${row.issue_count}).`;
+        if (row.status === "FAIL") {
+          addBlockingAlert(message);
+        } else {
+          alerts.push(message);
+        }
       }
     }
   }
 
   let requiredSanityFailed = false;
   if (requireVerifiedSanitySample && !sanityCheck) {
-    alerts.push("Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline.");
+    addBlockingAlert("Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline.");
     requiredSanityFailed = true;
   } else if (sanityCheck) {
     const warnings = listSanityWarnings(sanityCheck);
@@ -262,7 +275,7 @@ function buildQualityReport({
       );
     }
     if (requireVerifiedSanitySample && Number(sanityCheck.checked_count || 0) === 0) {
-      alerts.push("Obowiazkowy sanity check MM nie zweryfikowal zadnej probki.");
+      addBlockingAlert("Obowiazkowy sanity check MM nie zweryfikowal zadnej probki.");
       requiredSanityFailed = true;
     }
     if (
@@ -270,11 +283,12 @@ function buildQualityReport({
       && sanityCheck.baseline_verification_required
       && Number(sanityCheck.baseline_verified_count || 0) < Number(sanityCheck.checked_count || 0)
     ) {
-      alerts.push(
-        `Baseline po imporcie potwierdzony dla ${sanityCheck.baseline_verified_count || 0}/${sanityCheck.checked_count || 0} probek.`
-      );
+      const message = `Baseline po imporcie potwierdzony dla ${sanityCheck.baseline_verified_count || 0}/${sanityCheck.checked_count || 0} probek.`;
       if (Number(sanityCheck.baseline_verified_count || 0) === 0) {
+        addBlockingAlert(message);
         requiredSanityFailed = true;
+      } else {
+        alerts.push(message);
       }
     }
   }
@@ -296,7 +310,8 @@ function buildQualityReport({
     sanity_warning_count: Number(sanityCheck?.warning_count || 0),
     baseline_verified_count: Number(sanityCheck?.baseline_verified_count || 0),
     alert_count: alerts.length,
-    alerts
+    alerts,
+    blocking_alerts: blockingAlerts
   };
 }
 

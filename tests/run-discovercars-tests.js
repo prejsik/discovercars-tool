@@ -596,6 +596,22 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   assert.match(html, /nowy Excel zostal zablokowany/);
 });
 
+runTest("quality banner shows blocking causes instead of missing MM warnings", () => {
+  const html = buildHtmlReport({ locations: [], scenarios: [] }, {
+    quality: {
+      status: "failure",
+      alerts: [
+        "Brak MM Cars Rental dla Gdansk Downtown: 195/195 scenariuszy.",
+        "Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline."
+      ],
+      blocking_alerts: ["Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline."]
+    }
+  });
+
+  assert.match(html, /Brak obowiazkowego sanity checku MM/);
+  assert.doesNotMatch(html, /Brak MM Cars Rental dla Gdansk Downtown/);
+});
+
 runTest("buildHtmlReport defaults to all cars and airports with optional automatic and branch filters", () => {
   const automaticMm = { provider_name: "MM Cars Rental", total_price: 220, currency: "PLN", rental_days: 2 };
   const html = buildHtmlReport({
@@ -1255,7 +1271,11 @@ runTest("required sanity check blocks missing verification but keeps warnings de
     requireSanity: true
   };
 
-  assert.equal(buildQualityReport({ ...input, sanityCheck: null }).status, "failure");
+  const missingSanity = buildQualityReport({ ...input, sanityCheck: null });
+  assert.equal(missingSanity.status, "failure");
+  assert.deepEqual(missingSanity.blocking_alerts, [
+    "Brak obowiazkowego sanity checku MM po potwierdzonym imporcie baseline."
+  ]);
   assert.equal(buildQualityReport({
     ...input,
     sanityCheck: {
