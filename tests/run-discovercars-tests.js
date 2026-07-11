@@ -556,12 +556,12 @@ runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per da
   const gap20Html = buildHtmlReport(buildPayload(140));
   assert.match(gap20Html, /data-mm-state-automatic="top1-gap-20"/);
   assert.match(gap20Html, /offer-view-automatic mm mm-top1-gap-20/);
-  assert.match(gap20Html, /option value="top1-gap-20"/);
+  assert.match(gap20Html, /type="checkbox" value="top1-gap-20"/);
 
   const gap30Html = buildHtmlReport(buildPayload(160));
   assert.match(gap30Html, /data-mm-state-automatic="top1-gap-30"/);
   assert.match(gap30Html, /offer-view-automatic mm mm-top1-gap-30/);
-  assert.match(gap30Html, /option value="top1-gap-30"/);
+  assert.match(gap30Html, /type="checkbox" value="top1-gap-30"/);
 });
 
 runTest("top1 above 150 PLN per day is highlighted without blocking recommendations", () => {
@@ -591,7 +591,7 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   });
   assert.match(html, /data-top1-high-automatic="true"/);
   assert.match(html, /offer-view-automatic top1-high/);
-  assert.match(html, /option value="high">Powyżej 150 PLN\/d/);
+  assert.match(html, /type="checkbox" value="high"><span>Powyżej 150 PLN\/d/);
   assert.doesNotMatch(html, /anomalia top1/i);
   assert.match(html, /nowy Excel zostal zablokowany/);
 });
@@ -639,6 +639,11 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   assert.match(html, /value="automatic">Tylko automaty/);
   assert.match(html, /id="filter-location-type"><option value="airport">Lotniska/);
   assert.match(html, /value="all">Wszystkie oddziały/);
+  assert.match(html, /class="multi-filter" id="filter-location"/);
+  assert.match(html, /class="multi-filter" id="filter-duration"/);
+  assert.match(html, /type="checkbox" value="2"/);
+  assert.match(html, /selectedDurations\.has\(section\.dataset\.duration\)/);
+  assert.match(html, /summary\.textContent = checked\.length \+ " wybrane"/);
   assert.match(html, /data-location-type="branch"/);
   assert.match(html, /locationType === "all" \|\| row\.dataset\.locationType === locationType/);
   assert.match(html, /applyFilters\(\);/);
@@ -663,6 +668,21 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
     }]
   });
   assert.match(airportHtml, /data-location-type="airport"/);
+
+  const multiDurationHtml = buildHtmlReport({
+    locations: ["Warsaw Chopin Airport (WAW)"],
+    scenarios: [2, 5].map((rentalDays) => ({
+      start_date: "2026-07-12",
+      rental_days: rentalDays,
+      top_3_plus_mm_by_location: {
+        "Warsaw Chopin Airport (WAW)": {
+          top_3: [{ provider_name: "Other", total_price: 100 * rentalDays, currency: "PLN", rental_days: rentalDays }]
+        }
+      }
+    }))
+  });
+  assert.match(multiDurationHtml, /type="checkbox" value="2"/);
+  assert.match(multiDurationHtml, /type="checkbox" value="5"/);
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {

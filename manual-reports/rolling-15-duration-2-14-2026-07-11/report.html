@@ -65,8 +65,8 @@
       border-bottom: 1px solid #2d333b;
     }
 
-    .toolbar label { color: var(--muted); font-size: 12px; }
-    .toolbar select, .toolbar input {
+    .toolbar > label, .filter-label { color: var(--muted); font-size: 12px; }
+    .toolbar select, .toolbar input[type="date"], .multi-filter > summary {
       display: block;
       margin-top: 4px;
       min-height: 34px;
@@ -76,6 +76,45 @@
       color: var(--text);
       padding: 5px 8px;
     }
+
+    .filter-field { min-width: 150px; }
+    .filter-label { display: block; }
+    .multi-filter { position: relative; margin-top: 4px; }
+    .multi-filter > summary {
+      min-width: 150px;
+      cursor: pointer;
+      list-style: none;
+      line-height: 22px;
+    }
+    .multi-filter > summary::-webkit-details-marker { display: none; }
+    .multi-filter > summary::after { content: "▾"; float: right; margin-left: 12px; }
+    .multi-filter[open] > summary::after { content: "▴"; }
+    .multi-options {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 220px;
+      max-width: 340px;
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid #596273;
+      border-radius: 4px;
+      background: #11151b;
+      box-shadow: 0 8px 20px #00000066;
+      padding: 6px;
+    }
+    .multi-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 7px 6px;
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .multi-option:hover { background: #242b35; }
+    .multi-option input { flex: 0 0 auto; margin: 1px 0 0; }
 
     .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
 
@@ -274,10 +313,10 @@
     <label>Skrzynia<select id="filter-transmission"><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
     <label>Oddziały<select id="filter-location-type"><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option></select></label>
     <label>Data<input id="filter-date" type="date"></label>
-    <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option><option>Galeria Krakowska Shopping Mall</option><option>Gdansk Airport (GDN)</option><option>Gdansk Downtown</option><option>Katowice Airport (KTW)</option><option>Katowice Downtown</option><option>Krakow Airport (KRK)</option><option>Krakow Train Station</option><option>Poznan Airport (POZ)</option><option>Poznan Downtown</option><option>Warsaw Chopin Airport (WAW)</option><option>Warsaw Train Station</option><option>Wroclaw Airport (WRO)</option><option>Wroclaw Downtown</option></select></label>
-    <label>Duration<select id="filter-duration"><option value="">Wszystkie</option><option value="2">2 dni</option><option value="3">3 dni</option><option value="4">4 dni</option><option value="5">5 dni</option><option value="6">6 dni</option><option value="7">7 dni</option><option value="8">8 dni</option><option value="9">9 dni</option><option value="10">10 dni</option><option value="11">11 dni</option><option value="12">12 dni</option><option value="13">13 dni</option><option value="14">14 dni</option></select></label>
-    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 10–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
-    <label>Kontrola Top1<select id="filter-top1"><option value="">Wszystkie</option><option value="high">Powyżej 150 PLN/d</option><option value="normal">Do 150 PLN/d</option></select></label>
+    <div class="filter-field"><span class="filter-label">Lokalizacja</span><details class="multi-filter" id="filter-location" data-all-label="Wszystkie"><summary>Wszystkie</summary><div class="multi-options"><label class="multi-option"><input type="checkbox" value="Galeria Krakowska Shopping Mall"><span>Galeria Krakowska Shopping Mall</span></label><label class="multi-option"><input type="checkbox" value="Gdansk Airport (GDN)"><span>Gdansk Airport (GDN)</span></label><label class="multi-option"><input type="checkbox" value="Gdansk Downtown"><span>Gdansk Downtown</span></label><label class="multi-option"><input type="checkbox" value="Katowice Airport (KTW)"><span>Katowice Airport (KTW)</span></label><label class="multi-option"><input type="checkbox" value="Katowice Downtown"><span>Katowice Downtown</span></label><label class="multi-option"><input type="checkbox" value="Krakow Airport (KRK)"><span>Krakow Airport (KRK)</span></label><label class="multi-option"><input type="checkbox" value="Krakow Train Station"><span>Krakow Train Station</span></label><label class="multi-option"><input type="checkbox" value="Poznan Airport (POZ)"><span>Poznan Airport (POZ)</span></label><label class="multi-option"><input type="checkbox" value="Poznan Downtown"><span>Poznan Downtown</span></label><label class="multi-option"><input type="checkbox" value="Warsaw Chopin Airport (WAW)"><span>Warsaw Chopin Airport (WAW)</span></label><label class="multi-option"><input type="checkbox" value="Warsaw Train Station"><span>Warsaw Train Station</span></label><label class="multi-option"><input type="checkbox" value="Wroclaw Airport (WRO)"><span>Wroclaw Airport (WRO)</span></label><label class="multi-option"><input type="checkbox" value="Wroclaw Downtown"><span>Wroclaw Downtown</span></label></div></details></div>
+    <div class="filter-field"><span class="filter-label">Duration</span><details class="multi-filter" id="filter-duration" data-all-label="Wszystkie"><summary>Wszystkie</summary><div class="multi-options"><label class="multi-option"><input type="checkbox" value="2"><span>2 dni</span></label><label class="multi-option"><input type="checkbox" value="3"><span>3 dni</span></label><label class="multi-option"><input type="checkbox" value="4"><span>4 dni</span></label><label class="multi-option"><input type="checkbox" value="5"><span>5 dni</span></label><label class="multi-option"><input type="checkbox" value="6"><span>6 dni</span></label><label class="multi-option"><input type="checkbox" value="7"><span>7 dni</span></label><label class="multi-option"><input type="checkbox" value="8"><span>8 dni</span></label><label class="multi-option"><input type="checkbox" value="9"><span>9 dni</span></label><label class="multi-option"><input type="checkbox" value="10"><span>10 dni</span></label><label class="multi-option"><input type="checkbox" value="11"><span>11 dni</span></label><label class="multi-option"><input type="checkbox" value="12"><span>12 dni</span></label><label class="multi-option"><input type="checkbox" value="13"><span>13 dni</span></label><label class="multi-option"><input type="checkbox" value="14"><span>14 dni</span></label></div></details></div>
+    <div class="filter-field"><span class="filter-label">Stan MM</span><details class="multi-filter" id="filter-state" data-all-label="Wszystkie"><summary>Wszystkie</summary><div class="multi-options"><label class="multi-option"><input type="checkbox" value="missing"><span>Brak MM</span></label><label class="multi-option"><input type="checkbox" value="top1-gap"><span>Top1: różnica 10–19,99 PLN/d</span></label><label class="multi-option"><input type="checkbox" value="top1-gap-20"><span>Top1: różnica 20–29,99 PLN/d</span></label><label class="multi-option"><input type="checkbox" value="top1-gap-30"><span>Top1: różnica min. 30 PLN/d</span></label><label class="multi-option"><input type="checkbox" value="close"><span>Blisko wyższej pozycji</span></label><label class="multi-option"><input type="checkbox" value="normal"><span>Pozostałe</span></label></div></details></div>
+    <div class="filter-field"><span class="filter-label">Kontrola Top1</span><details class="multi-filter" id="filter-top1" data-all-label="Wszystkie"><summary>Wszystkie</summary><div class="multi-options"><label class="multi-option"><input type="checkbox" value="high"><span>Powyżej 150 PLN/d</span></label><label class="multi-option"><input type="checkbox" value="normal"><span>Do 150 PLN/d</span></label></div></details></div>
   </div>
   <section class="scenario" data-date="2026-07-12" data-duration="2">
     <h2>Scenario 1/195: 2026-07-12 (Sunday) + 2 day(s)</h2>
@@ -40452,25 +40491,45 @@
   <script>
     const transmissionControl = document.getElementById("filter-transmission");
     const locationTypeControl = document.getElementById("filter-location-type");
-    const controls = ["filter-date", "filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
+    const dateControl = document.getElementById("filter-date");
+    const multiControls = ["filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
+    function selectedValues(control) {
+      return new Set(Array.from(control.querySelectorAll("input:checked")).map((input) => input.value));
+    }
+    function updateMultiSummary(control) {
+      const checked = Array.from(control.querySelectorAll("input:checked"));
+      const summary = control.querySelector("summary");
+      if (!checked.length) {
+        summary.textContent = control.dataset.allLabel;
+      } else if (checked.length === 1) {
+        summary.textContent = checked[0].closest("label").querySelector("span").textContent;
+      } else {
+        summary.textContent = checked.length + " wybrane";
+      }
+    }
     function applyFilters() {
       const offerView = transmissionControl.value;
       const locationType = locationTypeControl.value;
       document.body.dataset.offerView = offerView;
-      const date = controls[0].value;
-      const location = controls[1].value;
-      const duration = controls[2].value;
-      const state = controls[3].value;
-      const top1State = controls[4].value;
+      const date = dateControl.value;
+      const selectedLocations = selectedValues(multiControls[0]);
+      const selectedDurations = selectedValues(multiControls[1]);
+      const selectedStates = selectedValues(multiControls[2]);
+      const selectedTop1States = selectedValues(multiControls[3]);
+      multiControls.forEach(updateMultiSummary);
       for (const section of document.querySelectorAll(".scenario")) {
-        const scenarioMatch = (!date || section.dataset.date === date) && (!duration || section.dataset.duration === duration);
+        const scenarioMatch = (!date || section.dataset.date === date)
+          && (!selectedDurations.size || selectedDurations.has(section.dataset.duration));
         let visibleRows = 0;
         for (const row of section.querySelectorAll("tbody tr")) {
           const mmState = offerView === "all" ? row.dataset.mmStateAll : row.dataset.mmStateAutomatic;
           const top1High = offerView === "all" ? row.dataset.top1HighAll : row.dataset.top1HighAutomatic;
-          const top1Match = !top1State || (top1State === "high" ? top1High === "true" : top1High !== "true");
+          const top1State = top1High === "true" ? "high" : "normal";
+          const top1Match = !selectedTop1States.size || selectedTop1States.has(top1State);
           const locationTypeMatch = locationType === "all" || row.dataset.locationType === locationType;
-          const visible = scenarioMatch && locationTypeMatch && (!location || row.dataset.location === location) && (!state || mmState === state) && top1Match;
+          const locationMatch = !selectedLocations.size || selectedLocations.has(row.dataset.location);
+          const stateMatch = !selectedStates.size || selectedStates.has(mmState);
+          const visible = scenarioMatch && locationTypeMatch && locationMatch && stateMatch && top1Match;
           row.hidden = !visible;
           if (visible) visibleRows += 1;
         }
@@ -40479,7 +40538,8 @@
     }
     transmissionControl.addEventListener("input", applyFilters);
     locationTypeControl.addEventListener("input", applyFilters);
-    controls.forEach((control) => control.addEventListener("input", applyFilters));
+    dateControl.addEventListener("input", applyFilters);
+    multiControls.forEach((control) => control.addEventListener("change", applyFilters));
     applyFilters();
   </script>
 </body>

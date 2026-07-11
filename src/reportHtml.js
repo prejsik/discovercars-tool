@@ -375,6 +375,11 @@ function buildQualityBanner(quality) {
   return `<div class="quality-banner quality-${escapeHtml(quality.status)}"><strong>${escapeHtml(message)}</strong>${alerts ? ` ${escapeHtml(alerts)}` : ""}</div>`;
 }
 
+function buildMultiFilter(id, label, options, allLabel = "Wszystkie") {
+  const optionHtml = options.map((option) => `<label class="multi-option"><input type="checkbox" value="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span></label>`).join("");
+  return `<div class="filter-field"><span class="filter-label">${escapeHtml(label)}</span><details class="multi-filter" id="${escapeHtml(id)}" data-all-label="${escapeHtml(allLabel)}"><summary>${escapeHtml(allLabel)}</summary><div class="multi-options">${optionHtml}</div></details></div>`;
+}
+
 function buildHtmlReport(payload, options = {}) {
   const scenarios = normalizeScenarios(payload);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, PRICING_RULES);
@@ -388,6 +393,20 @@ function buildHtmlReport(payload, options = {}) {
   const errorCount = scenarios.reduce((sum, scenario) => sum + (scenario.errors || []).length, 0);
   const top1Signals = [...top1SignalIndex.values()];
   const highTop1Count = top1Signals.filter((signal) => signal.is_high_rate).length;
+  const locationOptions = locations.map((location) => ({ value: location, label: location }));
+  const durationOptions = durations.map((duration) => ({ value: String(duration), label: `${duration} dni` }));
+  const mmStateOptions = [
+    { value: "missing", label: "Brak MM" },
+    { value: "top1-gap", label: "Top1: różnica 10–19,99 PLN/d" },
+    { value: "top1-gap-20", label: "Top1: różnica 20–29,99 PLN/d" },
+    { value: "top1-gap-30", label: "Top1: różnica min. 30 PLN/d" },
+    { value: "close", label: "Blisko wyższej pozycji" },
+    { value: "normal", label: "Pozostałe" }
+  ];
+  const top1Options = [
+    { value: "high", label: "Powyżej 150 PLN/d" },
+    { value: "normal", label: "Do 150 PLN/d" }
+  ];
   return `<!doctype html>
 <html lang="pl">
 <head>
@@ -455,8 +474,8 @@ function buildHtmlReport(payload, options = {}) {
       border-bottom: 1px solid #2d333b;
     }
 
-    .toolbar label { color: var(--muted); font-size: 12px; }
-    .toolbar select, .toolbar input {
+    .toolbar > label, .filter-label { color: var(--muted); font-size: 12px; }
+    .toolbar select, .toolbar input[type="date"], .multi-filter > summary {
       display: block;
       margin-top: 4px;
       min-height: 34px;
@@ -466,6 +485,45 @@ function buildHtmlReport(payload, options = {}) {
       color: var(--text);
       padding: 5px 8px;
     }
+
+    .filter-field { min-width: 150px; }
+    .filter-label { display: block; }
+    .multi-filter { position: relative; margin-top: 4px; }
+    .multi-filter > summary {
+      min-width: 150px;
+      cursor: pointer;
+      list-style: none;
+      line-height: 22px;
+    }
+    .multi-filter > summary::-webkit-details-marker { display: none; }
+    .multi-filter > summary::after { content: "▾"; float: right; margin-left: 12px; }
+    .multi-filter[open] > summary::after { content: "▴"; }
+    .multi-options {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 220px;
+      max-width: 340px;
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid #596273;
+      border-radius: 4px;
+      background: #11151b;
+      box-shadow: 0 8px 20px #00000066;
+      padding: 6px;
+    }
+    .multi-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 7px 6px;
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .multi-option:hover { background: #242b35; }
+    .multi-option input { flex: 0 0 auto; margin: 1px 0 0; }
 
     .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
 
@@ -664,34 +722,54 @@ function buildHtmlReport(payload, options = {}) {
     <label>Skrzynia<select id="filter-transmission"><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
     <label>Oddziały<select id="filter-location-type"><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option></select></label>
     <label>Data<input id="filter-date" type="date"></label>
-    <label>Lokalizacja<select id="filter-location"><option value="">Wszystkie</option>${locations.map((location) => `<option>${escapeHtml(location)}</option>`).join("")}</select></label>
-    <label>Duration<select id="filter-duration"><option value="">Wszystkie</option>${durations.map((duration) => `<option value="${duration}">${duration} dni</option>`).join("")}</select></label>
-    <label>Stan MM<select id="filter-state"><option value="">Wszystkie</option><option value="missing">Brak MM</option><option value="top1-gap">Top1: różnica 10–19,99 PLN/d</option><option value="top1-gap-20">Top1: różnica 20–29,99 PLN/d</option><option value="top1-gap-30">Top1: różnica min. 30 PLN/d</option><option value="close">Blisko wyższej pozycji</option><option value="normal">Pozostałe</option></select></label>
-    <label>Kontrola Top1<select id="filter-top1"><option value="">Wszystkie</option><option value="high">Powyżej 150 PLN/d</option><option value="normal">Do 150 PLN/d</option></select></label>
+    ${buildMultiFilter("filter-location", "Lokalizacja", locationOptions)}
+    ${buildMultiFilter("filter-duration", "Duration", durationOptions)}
+    ${buildMultiFilter("filter-state", "Stan MM", mmStateOptions)}
+    ${buildMultiFilter("filter-top1", "Kontrola Top1", top1Options)}
   </div>
   ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
   <script>
     const transmissionControl = document.getElementById("filter-transmission");
     const locationTypeControl = document.getElementById("filter-location-type");
-    const controls = ["filter-date", "filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
+    const dateControl = document.getElementById("filter-date");
+    const multiControls = ["filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
+    function selectedValues(control) {
+      return new Set(Array.from(control.querySelectorAll("input:checked")).map((input) => input.value));
+    }
+    function updateMultiSummary(control) {
+      const checked = Array.from(control.querySelectorAll("input:checked"));
+      const summary = control.querySelector("summary");
+      if (!checked.length) {
+        summary.textContent = control.dataset.allLabel;
+      } else if (checked.length === 1) {
+        summary.textContent = checked[0].closest("label").querySelector("span").textContent;
+      } else {
+        summary.textContent = checked.length + " wybrane";
+      }
+    }
     function applyFilters() {
       const offerView = transmissionControl.value;
       const locationType = locationTypeControl.value;
       document.body.dataset.offerView = offerView;
-      const date = controls[0].value;
-      const location = controls[1].value;
-      const duration = controls[2].value;
-      const state = controls[3].value;
-      const top1State = controls[4].value;
+      const date = dateControl.value;
+      const selectedLocations = selectedValues(multiControls[0]);
+      const selectedDurations = selectedValues(multiControls[1]);
+      const selectedStates = selectedValues(multiControls[2]);
+      const selectedTop1States = selectedValues(multiControls[3]);
+      multiControls.forEach(updateMultiSummary);
       for (const section of document.querySelectorAll(".scenario")) {
-        const scenarioMatch = (!date || section.dataset.date === date) && (!duration || section.dataset.duration === duration);
+        const scenarioMatch = (!date || section.dataset.date === date)
+          && (!selectedDurations.size || selectedDurations.has(section.dataset.duration));
         let visibleRows = 0;
         for (const row of section.querySelectorAll("tbody tr")) {
           const mmState = offerView === "all" ? row.dataset.mmStateAll : row.dataset.mmStateAutomatic;
           const top1High = offerView === "all" ? row.dataset.top1HighAll : row.dataset.top1HighAutomatic;
-          const top1Match = !top1State || (top1State === "high" ? top1High === "true" : top1High !== "true");
+          const top1State = top1High === "true" ? "high" : "normal";
+          const top1Match = !selectedTop1States.size || selectedTop1States.has(top1State);
           const locationTypeMatch = locationType === "all" || row.dataset.locationType === locationType;
-          const visible = scenarioMatch && locationTypeMatch && (!location || row.dataset.location === location) && (!state || mmState === state) && top1Match;
+          const locationMatch = !selectedLocations.size || selectedLocations.has(row.dataset.location);
+          const stateMatch = !selectedStates.size || selectedStates.has(mmState);
+          const visible = scenarioMatch && locationTypeMatch && locationMatch && stateMatch && top1Match;
           row.hidden = !visible;
           if (visible) visibleRows += 1;
         }
@@ -700,7 +778,8 @@ function buildHtmlReport(payload, options = {}) {
     }
     transmissionControl.addEventListener("input", applyFilters);
     locationTypeControl.addEventListener("input", applyFilters);
-    controls.forEach((control) => control.addEventListener("input", applyFilters));
+    dateControl.addEventListener("input", applyFilters);
+    multiControls.forEach((control) => control.addEventListener("change", applyFilters));
     applyFilters();
   </script>
 </body>
