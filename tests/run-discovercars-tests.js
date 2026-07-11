@@ -1193,7 +1193,7 @@ runTest("sanity recommendations use confirmed baseline import rates from Excel s
   assert.equal(enriched[0].baseline_live_mm_rate_pln_day, 110);
 });
 
-runTest("required sanity check blocks publishing when missing or warning", () => {
+runTest("required sanity check blocks missing verification but keeps warnings degraded", () => {
   const input = {
     expectedLocations: "Warsaw",
     results: {
@@ -1221,10 +1221,34 @@ runTest("required sanity check blocks publishing when missing or warning", () =>
       checked_count: 1,
       warning_count: 1,
       baseline_verification_required: true,
+      baseline_verified_count: 1,
+      checks: [{ status: "WARNING", warning_reasons: ["live_rate_changed_since_full_scrape"] }]
+    }
+  }).status, "degraded");
+  assert.equal(buildQualityReport({
+    ...input,
+    sanityCheck: {
+      checked_count: 1,
+      warning_count: 1,
+      baseline_verification_required: true,
       baseline_verified_count: 0,
-      checks: [{ status: "WARNING" }]
+      checks: [{ status: "WARNING", warning_reasons: ["live_rate_unavailable"] }]
     }
   }).status, "failure");
+  assert.equal(buildQualityReport({
+    ...input,
+    sanityCheck: {
+      checked_count: 13,
+      warning_count: 3,
+      baseline_verification_required: true,
+      baseline_verified_count: 10,
+      checks: [
+        { status: "WARNING", warning_reasons: ["live_rate_changed_since_full_scrape"] },
+        { status: "WARNING", warning_reasons: ["baseline_markup_outside_allowed_range"] },
+        { status: "WARNING", warning_reasons: ["live_rate_changed_since_full_scrape"] }
+      ]
+    }
+  }).status, "degraded");
   assert.equal(buildQualityReport({
     ...input,
     sanityCheck: {

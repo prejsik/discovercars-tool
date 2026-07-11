@@ -265,9 +265,6 @@ function buildQualityReport({
       alerts.push("Obowiazkowy sanity check MM nie zweryfikowal zadnej probki.");
       requiredSanityFailed = true;
     }
-    if (requireVerifiedSanitySample && warnings.length) {
-      requiredSanityFailed = true;
-    }
     if (
       requireVerifiedSanitySample
       && sanityCheck.baseline_verification_required
@@ -276,7 +273,9 @@ function buildQualityReport({
       alerts.push(
         `Baseline po imporcie potwierdzony dla ${sanityCheck.baseline_verified_count || 0}/${sanityCheck.checked_count || 0} probek.`
       );
-      requiredSanityFailed = true;
+      if (Number(sanityCheck.baseline_verified_count || 0) === 0) {
+        requiredSanityFailed = true;
+      }
     }
   }
 

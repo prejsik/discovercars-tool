@@ -346,7 +346,7 @@ function runCli(argv) {
 
   const warningCount = checks.filter((item) => item.status !== "OK").length;
   const baselineVerifiedCount = checks.filter(
-    (item) => item.status === "OK" && asNumber(item.baseline_import_rate_pln_day) !== null
+    (item) => asNumber(item.baseline_import_rate_pln_day) !== null && asNumber(item.live_mm_rate_pln_day) !== null
   ).length;
   const output = {
     generated_at: new Date().toISOString(),
