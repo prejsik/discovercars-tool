@@ -596,7 +596,7 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   assert.match(html, /nowy Excel zostal zablokowany/);
 });
 
-runTest("buildHtmlReport switches between automatic and all offers with MM position and cheaper count", () => {
+runTest("buildHtmlReport defaults to all cars and airports with optional automatic and branch filters", () => {
   const automaticMm = { provider_name: "MM Cars Rental", total_price: 220, currency: "PLN", rental_days: 2 };
   const html = buildHtmlReport({
     locations: ["Warsaw"],
@@ -634,14 +634,35 @@ runTest("buildHtmlReport switches between automatic and all offers with MM posit
   });
 
   assert.match(html, /id="filter-transmission"/);
+  assert.match(html, /<body data-offer-view="all">/);
+  assert.match(html, /id="filter-transmission"><option value="all">Wszystkie auta/);
   assert.match(html, /value="automatic">Tylko automaty/);
-  assert.match(html, /value="all">Wszystkie auta/);
+  assert.match(html, /id="filter-location-type"><option value="airport">Lotniska/);
+  assert.match(html, /value="all">Wszystkie oddziały/);
+  assert.match(html, /data-location-type="branch"/);
+  assert.match(html, /locationType === "all" \|\| row\.dataset\.locationType === locationType/);
+  assert.match(html, /applyFilters\(\);/);
   assert.match(html, /offer-view-automatic[^>]*>Auto One/);
   assert.match(html, /offer-view-all[^>]*>Manual One/);
   assert.match(html, /offer-view-automatic rank-cell">Top 2/);
   assert.match(html, /offer-view-all rank-cell">Top 3/);
   assert.match(html, /offer-view-automatic count-cell">1/);
   assert.match(html, /offer-view-all count-cell">4/);
+  assert.doesNotMatch(html, /API-DOM|API \/ DOM|source-badge/);
+
+  const airportHtml = buildHtmlReport({
+    locations: ["Warsaw Chopin Airport (WAW)"],
+    scenarios: [{
+      start_date: "2026-07-12",
+      rental_days: 2,
+      top_3_plus_mm_by_location: {
+        "Warsaw Chopin Airport (WAW)": {
+          top_3: [{ provider_name: "Other", total_price: 200, currency: "PLN", rental_days: 2 }]
+        }
+      }
+    }]
+  });
+  assert.match(airportHtml, /data-location-type="airport"/);
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {
