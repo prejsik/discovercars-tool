@@ -1,30 +1,32 @@
-DiscoverCars Tool - quick start
-===============================
+DiscoverCars - szybki start
+===========================
 
-1) Run setup once:
-   - double click: setup.bat
+1) Jednorazowa instalacja:
+   - kliknij dwukrotnie setup.bat
 
-2) Run the tool:
-   - double click: start.bat
+2) Uruchomienie narzędzia:
+   - kliknij dwukrotnie start.bat
 
-3) In the window:
-   - choose rental durations (you can select many),
-   - choose pickup start dates:
-     range From-To creates all dates automatically,
-     or choose Specific dates and click days in the calendar,
-     click the same day again to remove it,
-     you can also paste many specific dates at once,
-   - choose speed mode:
-     fast = quicker default test,
-     safe = previous stable behavior,
-     turbo = most aggressive,
-   - click Run.
+3) W oknie:
+   - wybierz długości najmu; możesz zaznaczyć kilka,
+   - wybierz daty rozpoczęcia najmu:
+     zakres tworzy automatycznie wszystkie dni od daty „Od” do „Do”,
+     albo wybierz konkretne dni w kalendarzu lub wklej ich listę,
+     ponowne kliknięcie dnia usuwa go z listy,
+   - wybierz tryb działania:
+     fast = zalecany i szybszy,
+     safe = wolniejszy, stabilny tryb,
+     turbo = najbardziej agresywny,
+   - kliknij „Uruchom”.
 
-Notes:
-- Output tables are printed in the console window.
-- JSON result is saved automatically in:
+Ważne:
+- Tabele wynikowe są wyświetlane w oknie konsoli.
+- Po zakończeniu najnowszy raport HTML otwiera się automatycznie.
+- Wynik JSON zapisuje się automatycznie w:
   output\results-YYYYMMDD-HHMMSS.json
   output\results-latest.json
-- If the run is interrupted, the next run resumes automatically
-  from the checkpoint (output\state.json).
-- If fast/turbo gives worse results, run again and choose safe.
+- Raport HTML zapisuje się w:
+  output\report-YYYYMMDD-HHMMSS.html
+  output\report.html
+- Po przerwaniu kolejny run wznawia pracę z pliku output\state.json.
+- Jeśli fast lub turbo daje gorsze wyniki, uruchom ponownie w trybie safe.

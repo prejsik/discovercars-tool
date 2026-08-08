@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -8,7 +8,7 @@ function Show-MessageBox {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Message,
-    [string]$Title = "DiscoverCars launcher",
+    [string]$Title = "DiscoverCars",
     [ValidateSet("Info", "Error", "Warning")]
     [string]$Type = "Info"
   )
@@ -33,23 +33,23 @@ function Show-MessageBox {
 function Ensure-Requirements {
   $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
   if (-not $nodeCommand) {
-    Show-MessageBox -Message "Node.js was not found. Install Node.js 18+ and run start.bat again." -Type Error
-    throw "Node.js is required."
+    Show-MessageBox -Message "Nie znaleziono Node.js. Zainstaluj Node.js 18+ i ponownie uruchom start.bat." -Type Error
+    throw "Node.js jest wymagany."
   }
 
   $entryPath = Join-Path $root "src\index.js"
   if (-not (Test-Path $entryPath)) {
-    Show-MessageBox -Message "File src\index.js was not found. Check project files." -Type Error
-    throw "Missing src\index.js."
+    Show-MessageBox -Message "Nie znaleziono pliku src\index.js. Sprawdź kompletność projektu." -Type Error
+    throw "Brak src\index.js."
   }
 
   $playwrightPackagePath = Join-Path $root "node_modules\playwright\package.json"
   if (-not (Test-Path $playwrightPackagePath)) {
-    Write-Host "Dependencies not found. Running install.ps1..." -ForegroundColor Yellow
+    Write-Host "Brak zależności. Uruchamiam install.ps1..." -ForegroundColor Yellow
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "install.ps1")
     if ($LASTEXITCODE -ne 0) {
-      Show-MessageBox -Message "install.ps1 failed. Fix installation issues and run start.bat again." -Type Error
-      throw "Dependency installation failed."
+      Show-MessageBox -Message "Instalacja nie powiodła się. Usuń zgłoszone błędy i ponownie uruchom start.bat." -Type Error
+      throw "Instalacja zależności nie powiodła się."
     }
   }
 }
@@ -59,10 +59,13 @@ function Show-RunPicker {
   Add-Type -AssemblyName System.Drawing
 
   $form = New-Object System.Windows.Forms.Form
-  $form.Text = "DiscoverCars - Options"
+  $form.Text = "DiscoverCars - uruchom scraper"
   $form.StartPosition = "CenterScreen"
   $form.Width = 560
-  $form.Height = 910
+  $form.Height = [Math]::Min(910, [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Height - 60)
+  $form.MinimumSize = New-Object System.Drawing.Size(560, 520)
+  $form.AutoScroll = $true
+  $form.MaximizeBox = $false
   $form.TopMost = $true
 
   $durationsLabel = New-Object System.Windows.Forms.Label
@@ -70,7 +73,7 @@ function Show-RunPicker {
   $durationsLabel.Top = 18
   $durationsLabel.Width = 500
   $durationsLabel.Height = 48
-  $durationsLabel.Text = "Select rental durations. You can select multiple options.`nOptions '2-20 (all)' and '2-10 (all)' select common ranges."
+  $durationsLabel.Text = "Wybierz długości najmu. Możesz zaznaczyć kilka opcji.`nZakresy pozwalają szybko wybrać wszystkie popularne długości."
   $form.Controls.Add($durationsLabel)
 
   $checkedList = New-Object System.Windows.Forms.CheckedListBox
@@ -79,8 +82,8 @@ function Show-RunPicker {
   $checkedList.Width = 500
   $checkedList.Height = 250
   $checkedList.CheckOnClick = $true
-  [void]$checkedList.Items.Add("2-20 (all)")
-  [void]$checkedList.Items.Add("2-10 (all)")
+  [void]$checkedList.Items.Add("2-20 (wszystkie)")
+  [void]$checkedList.Items.Add("2-10 (wszystkie)")
   foreach ($day in 2..20) {
     [void]$checkedList.Items.Add("$day")
   }
@@ -129,7 +132,7 @@ function Show-RunPicker {
   $startDatesLabel.Top = 345
   $startDatesLabel.Width = 500
   $startDatesLabel.Height = 44
-  $startDatesLabel.Text = "Choose pickup start dates. Use a date range, or paste specific dates at once.`nNo Add date button needed."
+  $startDatesLabel.Text = "Wybierz zakres dat rozpoczęcia najmu albo konkretne daty."
   $form.Controls.Add($startDatesLabel)
 
   $rangeRadio = New-Object System.Windows.Forms.RadioButton
@@ -137,7 +140,7 @@ function Show-RunPicker {
   $rangeRadio.Top = 398
   $rangeRadio.Width = 220
   $rangeRadio.Height = 24
-  $rangeRadio.Text = "Date range (from - to)"
+  $rangeRadio.Text = "Zakres dat"
   $rangeRadio.Checked = $true
   $form.Controls.Add($rangeRadio)
 
@@ -146,7 +149,7 @@ function Show-RunPicker {
   $specificRadio.Top = 398
   $specificRadio.Width = 220
   $specificRadio.Height = 24
-  $specificRadio.Text = "Specific dates"
+  $specificRadio.Text = "Wybrane daty"
   $form.Controls.Add($specificRadio)
 
   $fromLabel = New-Object System.Windows.Forms.Label
@@ -154,7 +157,7 @@ function Show-RunPicker {
   $fromLabel.Top = 438
   $fromLabel.Width = 80
   $fromLabel.Height = 22
-  $fromLabel.Text = "From:"
+  $fromLabel.Text = "Od:"
   $form.Controls.Add($fromLabel)
 
   $fromDatePicker = New-Object System.Windows.Forms.DateTimePicker
@@ -171,7 +174,7 @@ function Show-RunPicker {
   $toLabel.Top = 438
   $toLabel.Width = 50
   $toLabel.Height = 22
-  $toLabel.Text = "To:"
+  $toLabel.Text = "Do:"
   $form.Controls.Add($toLabel)
 
   $toDatePicker = New-Object System.Windows.Forms.DateTimePicker
@@ -188,7 +191,7 @@ function Show-RunPicker {
   $specificDatesLabel.Top = 485
   $specificDatesLabel.Width = 500
   $specificDatesLabel.Height = 32
-  $specificDatesLabel.Text = "Specific dates: click dates in the calendar to add/remove them, or paste dates manually."
+  $specificDatesLabel.Text = "Daty: kliknij w kalendarzu lub wklej listę w formacie RRRR-MM-DD."
   $form.Controls.Add($specificDatesLabel)
 
   $specificCalendar = New-Object System.Windows.Forms.MonthCalendar
@@ -214,7 +217,7 @@ function Show-RunPicker {
   $clearSpecificDatesButton.Top = 625
   $clearSpecificDatesButton.Width = 170
   $clearSpecificDatesButton.Height = 28
-  $clearSpecificDatesButton.Text = "Clear selected dates"
+  $clearSpecificDatesButton.Text = "Wyczyść daty"
   $form.Controls.Add($clearSpecificDatesButton)
 
   $dateModeHint = New-Object System.Windows.Forms.Label
@@ -222,7 +225,7 @@ function Show-RunPicker {
   $dateModeHint.Top = 690
   $dateModeHint.Width = 500
   $dateModeHint.Height = 22
-  $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
+  $dateModeHint.Text = "Zakres obejmuje wszystkie dni od daty początkowej do końcowej."
   $form.Controls.Add($dateModeHint)
 
   $speedLabel = New-Object System.Windows.Forms.Label
@@ -230,7 +233,7 @@ function Show-RunPicker {
   $speedLabel.Top = 720
   $speedLabel.Width = 500
   $speedLabel.Height = 32
-  $speedLabel.Text = "Speed mode. Use safe to return to the previous stable behavior."
+  $speedLabel.Text = "Tryb działania"
   $form.Controls.Add($speedLabel)
 
   $speedCombo = New-Object System.Windows.Forms.ComboBox
@@ -330,9 +333,9 @@ function Show-RunPicker {
     $clearSpecificDatesButton.Enabled = -not $rangeMode
 
     if ($rangeMode) {
-      $dateModeHint.Text = "Range mode creates every date from From to To, inclusive."
+      $dateModeHint.Text = "Zakres obejmuje wszystkie dni od daty początkowej do końcowej."
     } else {
-      $dateModeHint.Text = "Specific mode: click a date to add it, click it again to remove it."
+      $dateModeHint.Text = "Kliknij datę, aby ją dodać; kliknij ponownie, aby ją usunąć."
     }
   }
 
@@ -376,7 +379,7 @@ function Show-RunPicker {
   $runButton.Top = 815
   $runButton.Width = 170
   $runButton.Height = 30
-  $runButton.Text = "Run"
+  $runButton.Text = "Uruchom"
   $form.Controls.Add($runButton)
 
   $cancelButton = New-Object System.Windows.Forms.Button
@@ -384,7 +387,7 @@ function Show-RunPicker {
   $cancelButton.Top = 815
   $cancelButton.Width = 170
   $cancelButton.Height = 30
-  $cancelButton.Text = "Cancel"
+  $cancelButton.Text = "Anuluj"
   $form.Controls.Add($cancelButton)
 
   $runButton.Add_Click({
@@ -395,8 +398,8 @@ function Show-RunPicker {
 
     if ($picked.Count -eq 0) {
       [void][System.Windows.Forms.MessageBox]::Show(
-        "Select at least one duration option.",
-        "Validation",
+        "Wybierz co najmniej jedną długość najmu.",
+        "Sprawdź ustawienia",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Warning
       )
@@ -406,8 +409,8 @@ function Show-RunPicker {
     if ($rangeRadio.Checked) {
       if ($fromDatePicker.Value.Date -gt $toDatePicker.Value.Date) {
         [void][System.Windows.Forms.MessageBox]::Show(
-          "Start date range is invalid. 'From' must be before or equal to 'To'.",
-          "Validation",
+          "Nieprawidłowy zakres dat. Data Od nie może być późniejsza niż data Do.",
+          "Sprawdź ustawienia",
           [System.Windows.Forms.MessageBoxButtons]::OK,
           [System.Windows.Forms.MessageBoxIcon]::Warning
         )
@@ -421,8 +424,8 @@ function Show-RunPicker {
       $parsedSpecificDates = Parse-SpecificStartDates -Text $specificDatesTextBox.Text
       if (@($parsedSpecificDates.invalid).Count -gt 0) {
         [void][System.Windows.Forms.MessageBox]::Show(
-          "Invalid start date(s): $(@($parsedSpecificDates.invalid) -join ', '). Use YYYY-MM-DD format.",
-          "Validation",
+          "Nieprawidłowe daty: $(@($parsedSpecificDates.invalid) -join ', '). Użyj formatu RRRR-MM-DD.",
+          "Sprawdź ustawienia",
           [System.Windows.Forms.MessageBoxButtons]::OK,
           [System.Windows.Forms.MessageBoxIcon]::Warning
         )
@@ -434,8 +437,8 @@ function Show-RunPicker {
 
     if ($pickedStartDates.Count -eq 0) {
       [void][System.Windows.Forms.MessageBox]::Show(
-        "Choose at least one start date.",
-        "Validation",
+        "Wybierz co najmniej jedną datę rozpoczęcia najmu.",
+        "Sprawdź ustawienia",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Warning
       )
@@ -480,11 +483,11 @@ function Resolve-Durations {
       Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
   )
 
-  if ($selectedTokens -contains "2-20 (all)") {
+  if ($selectedTokens -contains "2-20 (wszystkie)") {
     return @(2..20)
   }
 
-  if ($selectedTokens -contains "2-10 (all)") {
+  if ($selectedTokens -contains "2-10 (wszystkie)") {
     return @(2..10)
   }
 
@@ -510,7 +513,7 @@ Ensure-Requirements
 
 $pickedOptions = Show-RunPicker
 if (-not $pickedOptions) {
-  Write-Host "Run cancelled." -ForegroundColor Yellow
+  Write-Host "Anulowano uruchomienie." -ForegroundColor Yellow
   exit 0
 }
 
@@ -520,7 +523,7 @@ $selected = @(
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 )
 if ($selected.Count -eq 0) {
-  Write-Host "Run cancelled." -ForegroundColor Yellow
+  Write-Host "Anulowano uruchomienie." -ForegroundColor Yellow
   exit 0
 }
 
@@ -531,7 +534,7 @@ $startDates = @(
     Sort-Object -Unique
 )
 if ($startDates.Count -eq 0) {
-  Write-Host "Run cancelled (no start dates)." -ForegroundColor Yellow
+  Write-Host "Anulowano uruchomienie: nie wybrano dat." -ForegroundColor Yellow
   exit 0
 }
 
@@ -544,7 +547,7 @@ if ([string]::IsNullOrWhiteSpace($speedMode)) {
 }
 
 Write-Host ""
-Write-Host "Running DiscoverCars with durations: $durationsCsv | start-dates: $startDatesCsv | speed-mode: $speedMode" -ForegroundColor Cyan
+Write-Host "Uruchamiam DiscoverCars | długości: $durationsCsv | daty: $startDatesCsv | tryb: $speedMode" -ForegroundColor Cyan
 Write-Host ""
 
 $outputDir = Join-Path $root "output"
@@ -555,10 +558,13 @@ if (-not (Test-Path $outputDir)) {
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $jsonPath = Join-Path $outputDir "results-$timestamp.json"
 $jsonLatestPath = Join-Path $outputDir "results-latest.json"
+$htmlPath = Join-Path $outputDir "report-$timestamp.html"
+$htmlLatestPath = Join-Path $outputDir "report.html"
+$reportGenerated = $false
 $locationsConfig = Get-Content -LiteralPath (Join-Path $root "excel-rate-update.config.example.json") -Raw | ConvertFrom-Json
 $locationsCsv = (@($locationsConfig.daily_locations) -join ",")
 if ([string]::IsNullOrWhiteSpace($locationsCsv)) {
-  throw "No daily_locations found in excel-rate-update.config.example.json"
+  throw "Brak daily_locations w excel-rate-update.config.example.json"
 }
 
 $nodeArgs = @(
@@ -581,18 +587,34 @@ $exitCode = $LASTEXITCODE
 
 if (Test-Path $jsonPath) {
   Copy-Item -Path $jsonPath -Destination $jsonLatestPath -Force
+
+  & node "src/reportHtml.js" $jsonPath $htmlPath
+  if ($LASTEXITCODE -eq 0 -and (Test-Path $htmlPath)) {
+    Copy-Item -Path $htmlPath -Destination $htmlLatestPath -Force
+    $reportGenerated = $true
+    Start-Process -FilePath $htmlLatestPath
+  } else {
+    Write-Host "Nie udało się wygenerować raportu HTML." -ForegroundColor Yellow
+  }
 }
 
 Write-Host ""
-Write-Host "Saved JSON: $jsonPath" -ForegroundColor DarkCyan
-Write-Host "Latest JSON alias: $jsonLatestPath" -ForegroundColor DarkCyan
+if (Test-Path $jsonPath) {
+  Write-Host "Zapisano JSON: $jsonPath" -ForegroundColor DarkCyan
+  Write-Host "Najnowszy JSON: $jsonLatestPath" -ForegroundColor DarkCyan
+} else {
+  Write-Host "Scraper nie utworzył pliku JSON." -ForegroundColor Yellow
+}
+if ($reportGenerated) {
+  Write-Host "Raport HTML: $htmlLatestPath" -ForegroundColor DarkCyan
+}
 
 if ($exitCode -eq 0) {
   Write-Host ""
-  Write-Host "Completed successfully." -ForegroundColor Green
+  Write-Host "Zakończono pomyślnie." -ForegroundColor Green
   exit 0
 }
 
 Write-Host ""
-Write-Host "Finished with error code: $exitCode" -ForegroundColor Red
+Write-Host "Zakończono z kodem błędu: $exitCode" -ForegroundColor Red
 exit $exitCode

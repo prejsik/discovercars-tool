@@ -107,8 +107,6 @@ jobs:
           cp -R manual-reports/. pages/manual-reports/
 
           echo "manual_index_url=$page_base/manual-reports/index.html" >> "$GITHUB_OUTPUT"
-          echo "july_url=$page_base/manual-reports/lipiec-2026/report.html" >> "$GITHUB_OUTPUT"
-          echo "august_url=$page_base/manual-reports/sierpien-2026/report.html" >> "$GITHUB_OUTPUT"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -129,8 +127,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INDEX_URL: ${{ steps.pages-site.outputs.manual_index_url }}
-          JULY_URL: ${{ steps.pages-site.outputs.july_url }}
-          AUGUST_URL: ${{ steps.pages-site.outputs.august_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DEPLOY_OUTCOME: ${{ steps.deployment.outcome }}
         run: |
@@ -140,7 +136,7 @@ jobs:
           fi
 
           if [[ "$DEPLOY_OUTCOME" == "success" ]]; then
-            message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nLipiec 2026:\n%s\n\nSierpien 2026:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$JULY_URL" "$AUGUST_URL" "$RUN_URL")
+            message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$RUN_URL")
           else
             message=$(printf 'DiscoverCars: publikacja recznych raportow nie powiodla sie.\n\nStatus wdrozenia: %s\nGitHub Actions run:\n%s\n' "${DEPLOY_OUTCOME:-brak danych}" "$RUN_URL")
           fi

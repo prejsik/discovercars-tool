@@ -82,13 +82,13 @@ The CSV contains:
 - Sparse API results use a 20% DOM sample instead of forcing a browser check for every scenario.
 - A location is capped at 50 sampled DOM validations per process; API failures still use DOM fallback.
 - Active price recommendations without prior DOM confirmation are verified in DOM before Excel generation.
-- The HTML report shows API, DOM confirmation, fallback, or conflict under each location and lists drift reasons.
+- The HTML report hides implementation details such as API/DOM and focuses on prices, MM Cars Rental position, and the number of cheaper offers.
 
 ## Notes
 
 - Production location names, DiscoverCars identifiers, import zones, aliases, and the daily profile live in `locations.config.json`.
 - `input/baseline-manifest.json` must confirm that the hashed baseline workbook was imported before the Excel updater can use it.
-- The scraper works sequentially on purpose to reduce flakiness and lower the chance of anti-bot triggers.
+- Concurrency is controlled by the selected `safe`, `fast`, or `turbo` profile and bounded to reduce flakiness and anti-bot risk.
 - On a failed location, the tool stores debug artifacts in the configured `artifactsDir`.
 - If DiscoverCars changes their UI, the main places to adjust are:
   - `fillSearchForm`

@@ -1,4 +1,7 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
@@ -12,7 +15,8 @@ const {
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildLocationBreakdown } = require("../src/discoverCars");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
-const { buildHtmlReport } = require("../src/reportHtml");
+const { buildHtmlReport, generateReportFromFile } = require("../src/reportHtml");
+const { buildTelegramSummary, formatDuration, summarizeNumberList } = require("../src/telegramSummary");
 const {
   buildSanityComparison,
   enrichRecommendationsWithBaseline,
@@ -493,16 +497,21 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
     ]
   });
 
-  assert.match(html, /<table>/);
+  assert.match(html, /<table aria-label="Porównanie cen:/);
   assert.match(html, /Top 1 firma/);
   assert.match(html, /Top 1 PLN\/d/);
   assert.match(html, /MM Cars Rental \(8\.8\)/);
   assert.match(html, /mm-close/);
-  assert.match(html, /50\.00 PLN\/day/);
+  assert.match(html, /50,00 PLN\/d/);
   assert.match(html, /filter-location/);
-  assert.match(html, /brak MM Cars Rental/);
+  assert.match(html, /bez MM Cars Rental/);
+  assert.match(html, /Kontrola cen DiscoverCars/);
+  assert.match(html, /Wygenerowano:/);
+  assert.match(html, /Legenda oznaczeń/);
+  assert.match(html, /<td class="index">1<\/td>/);
   assert.doesNotMatch(html, /source \/ car/i);
   assert.doesNotMatch(html, /evidence-cell/);
+  assert.doesNotMatch(html, /Not available|Scenario \d|rental_days|\/day/);
   assert.match(html, /table-layout: fixed/);
 });
 
@@ -537,8 +546,9 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
     ]
   });
 
-  assert.match(html, /offer-view-automatic mm mm-top1-gap">MM Cars Rental \(8\.8\)<\/span>/);
-  assert.match(html, /offer-view-automatic mm mm-top1-gap">50\.00 PLN\/day<\/span>/);
+  assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>MM Cars Rental \(8\.8\)<\/span>/);
+  assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>50,00 PLN\/d<\/span>/);
+  assert.match(html, /aria-label="MM Cars Rental \(8\.8\)\. MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN\/d\."/);
 });
 
 runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per day", () => {
@@ -601,7 +611,7 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   assert.match(html, /offer-view-automatic top1-high/);
   assert.match(html, /type="checkbox" value="high"><span>Powyżej 150 PLN\/d/);
   assert.doesNotMatch(html, /anomalia top1/i);
-  assert.match(html, /nowy Excel zostal zablokowany/);
+  assert.match(html, /nowy Excel zablokowała kontrola jakości/);
 });
 
 runTest("quality banner shows blocking causes instead of missing MM warnings", () => {
@@ -665,18 +675,35 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   assert.match(html, /value="all">Wszystkie oddziały/);
   assert.match(html, /class="multi-filter" id="filter-location"/);
   assert.match(html, /class="multi-filter" id="filter-duration"/);
+  assert.match(html, /id="filter-date-from"/);
+  assert.match(html, /id="filter-date-to"/);
+  assert.match(html, /id="reset-filters"/);
+  assert.match(html, /id="copy-view"[^>]*aria-live="polite"/);
+  assert.match(html, /id="toggle-filters"[^>]*aria-controls="report-filters"/);
+  assert.match(html, /id="results-status"[^>]*aria-live="polite"/);
+  assert.match(html, /id="empty-state" hidden/);
+  assert.match(html, /id="load-more"/);
   assert.match(html, /type="checkbox" value="2"/);
   assert.match(html, /selectedDurations\.has\(section\.dataset\.duration\)/);
-  assert.match(html, /summary\.textContent = checked\.length \+ " wybrane"/);
+  assert.match(html, /text = checked\.length \+ " wybrane"/);
+  assert.match(html, /visibleScenarioLimit = scenarioPageSize/);
+  assert.match(html, /compactViewport\.matches \? 5 : 20/);
+  assert.match(html, /matchingSections\.slice\(0, shownSections\)/);
+  assert.match(html, /\.filter-field:nth-of-type\(even\) \.multi-options/);
+  assert.match(html, /new URLSearchParams\(location\.search\)/);
+  assert.match(html, /\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
+  assert.match(html, /navigator\.clipboard\.writeText\(window\.location\.href\)/);
   assert.match(html, /data-location-type="branch"/);
   assert.match(html, /locationType === "all" \|\| row\.dataset\.locationType === locationType/);
-  assert.match(html, /applyFilters\(\);/);
+  assert.match(html, /syncCompactLayout\(\);/);
   assert.match(html, /offer-view-automatic[^>]*>Auto One/);
   assert.match(html, /offer-view-all[^>]*>Manual One/);
   assert.match(html, /offer-view-automatic rank-cell">Top 2/);
   assert.match(html, /offer-view-all rank-cell">Top 3/);
   assert.match(html, /offer-view-automatic count-cell">1/);
   assert.match(html, /offer-view-all count-cell">4/);
+  assert.match(html, /<h2>12\.07\.2026 · 2 dni<\/h2>/);
+  assert.doesNotMatch(html, /12\.07\.2026 02:00/);
   assert.doesNotMatch(html, /API-DOM|API \/ DOM|source-badge/);
 
   const airportHtml = buildHtmlReport({
@@ -707,6 +734,174 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   });
   assert.match(multiDurationHtml, /type="checkbox" value="2"/);
   assert.match(multiDurationHtml, /type="checkbox" value="5"/);
+});
+
+runTest("generateReportFromFile explains a damaged JSON file", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-report-"));
+  const inputPath = path.join(tempDir, "broken.json");
+  const outputPath = path.join(tempDir, "report.html");
+  try {
+    fs.writeFileSync(inputPath, "{", "utf8");
+    assert.throws(
+      () => generateReportFromFile(inputPath, outputPath),
+      /plik JSON jest uszkodzony lub niepełny/
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+runTest("generateReportFromFile distinguishes a missing JSON file", () => {
+  const missingPath = path.join(os.tmpdir(), `discovercars-missing-${Date.now()}.json`);
+  assert.throws(
+    () => generateReportFromFile(missingPath, path.join(os.tmpdir(), "unused-report.html")),
+    /Nie znaleziono pliku danych raportu/
+  );
+});
+
+runTest("buildHtmlReport keeps an empty run empty", () => {
+  const html = buildHtmlReport({ locations: [], scenarios: [] });
+  assert.doesNotMatch(html, /<section class="scenario"/);
+  assert.match(html, /Brak wyników dla wybranych filtrów/);
+});
+
+runTest("Telegram summary keeps durations and elapsed time compact", () => {
+  assert.equal(summarizeNumberList("2,3,4,5,6,7,8,9,10,11,12,13,14"), "2-14");
+  assert.equal(summarizeNumberList("2,5,10"), "2, 5, 10");
+  assert.equal(formatDuration(15120), "4 h 12 min");
+});
+
+runTest("Telegram success summary contains only decision-ready details", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "45",
+      DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14",
+      RUN_STARTED_EPOCH: "1000",
+      SCRAPER_DURATION_SECONDS: "13800",
+      PAGE_URL: "https://example.test/report.html",
+      PAGES_EXCEL_URL: "https://example.test/import.xlsx",
+      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+    },
+    nowEpoch: 16120,
+    excelAvailable: true,
+    recommendations: {
+      recommendation_count: 2,
+      recommendations: [
+        { action: "increase" },
+        { action: "decrease" },
+        { action: "hold" }
+      ]
+    },
+    excelSummary: { change_count: 14 },
+    qualityAlerts: { alerts: [] }
+  });
+
+  assert.equal(message, [
+    "DiscoverCars | GOTOWE",
+    "",
+    "Zakres: rolling 45 dni · najem 2-14 dni",
+    "Rekomendacje: 2 (podwyżki 1, obniżki 1)",
+    "Excel: 14 zmian · gotowy do importu",
+    "Czas: 4 h 12 min (scraper 3 h 50 min)",
+    "",
+    "Raport: https://example.test/report.html",
+    "Excel importowy: https://example.test/import.xlsx",
+    "Excel z rekomendacjami: https://example.test/recommendations.xlsx"
+  ].join("\n"));
+  assert.doesNotMatch(message, /Scenariusze|sprawdzenia|GitHub Actions/);
+});
+
+runTest("Telegram failure summary leads with the blocking reason", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "failure",
+      START_DATES: "2026-08-16,2026-08-17",
+      START_DATE_COUNT: "2",
+      DURATIONS: "2,5,10",
+      RUN_STARTED_EPOCH: "1000",
+      SCRAPER_DURATION_SECONDS: "120",
+      ARTIFACT_URL: "https://example.test/artifact",
+      RUN_URL: "https://example.test/actions/1"
+    },
+    nowEpoch: 1300,
+    excelAvailable: false,
+    qualityAlerts: {
+      alerts: ["Ostrzeżenie dodatkowe."],
+      blocking_alerts: ["Brak obowiązkowego sanity checku.", "Drugi powód."]
+    }
+  });
+
+  assert.match(message, /^DiscoverCars \| BŁĄD/);
+  assert.match(message, /Excel nie został opublikowany\./);
+  assert.match(message, /Powód: Brak obowiązkowego sanity checku\./);
+  assert.match(message, /Zakres: 2 konkretnych dat · najem 2, 5, 10 dni/);
+  assert.match(message, /GitHub Actions: https:\/\/example\.test\/actions\/1/);
+  assert.doesNotMatch(message, /Drugi powód|Excel importowy|Rekomendacje:/);
+});
+
+runTest("Telegram degraded summary keeps the Excel link and warning count", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "degraded",
+      ROLLING_DAYS: "14",
+      DURATIONS: "2,3,4",
+      PAGE_URL: "https://example.test/report.html",
+      PAGES_EXCEL_URL: "https://example.test/import.xlsx",
+      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+    },
+    excelAvailable: true,
+    recommendations: [],
+    excelSummary: { change_count: 0 },
+    qualityAlerts: { alerts: ["Pierwsze.", "Drugie."] }
+  });
+
+  assert.match(message, /^DiscoverCars \| GOTOWE Z OSTRZEŻENIAMI/);
+  assert.match(message, /Ostrzeżenia: 2 · szczegóły w raporcie/);
+  assert.match(message, /Excel importowy: https:\/\/example\.test\/import\.xlsx/);
+});
+
+runTest("Telegram falls back to artifacts when GitHub Pages deployment fails", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "7",
+      DURATIONS: "2,3",
+      ARTIFACT_URL: "https://example.test/results-artifact",
+      EXCEL_ARTIFACT_URL: "https://example.test/excel-artifact"
+    },
+    reportAvailable: true,
+    excelAvailable: true,
+    recommendations: [],
+    excelSummary: { change_count: 0 },
+    qualityAlerts: { alerts: [] }
+  });
+
+  assert.match(message, /^DiscoverCars \| GOTOWE/);
+  assert.match(message, /Raport: https:\/\/example\.test\/results-artifact/);
+  assert.match(message, /Excel importowy: https:\/\/example\.test\/excel-artifact/);
+  assert.match(message, /Excel z rekomendacjami: https:\/\/example\.test\/excel-artifact/);
+});
+
+runTest("Telegram reports publication failure instead of false success", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "7",
+      DURATIONS: "2,3",
+      RUN_URL: "https://example.test/actions/2"
+    },
+    reportAvailable: true,
+    excelAvailable: true,
+    recommendations: [],
+    excelSummary: { change_count: 0 },
+    qualityAlerts: { alerts: [] }
+  });
+
+  assert.match(message, /^DiscoverCars \| BŁĄD PUBLIKACJI/);
+  assert.match(message, /Powód: raport nie został udostępniony\./);
+  assert.match(message, /GitHub Actions: https:\/\/example\.test\/actions\/2/);
+  assert.doesNotMatch(message, /gotowy do importu/);
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10 PLN per day", () => {

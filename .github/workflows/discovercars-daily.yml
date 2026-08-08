@@ -179,9 +179,7 @@ jobs:
 
       - name: Run regression tests
         if: steps.gate.outputs.should_run == 'true'
-        run: |
-          npm test
-          python tests/run-excel-rate-updater-tests.py
+        run: npm run test:all
 
       - name: Resolve run options
         if: steps.gate.outputs.should_run == 'true'
@@ -768,9 +766,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PAGE_URL: ${{ steps.pages-site.outputs.run_report_url || steps.pages-deployment.outputs.page_url }}
-          PAGES_EXCEL_URL: ${{ steps.pages-site.outputs.excel_url }}
-          PAGES_EXCEL_REPORT_URL: ${{ steps.pages-site.outputs.excel_report_url }}
+          PAGE_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.run_report_url || '' }}
+          PAGES_EXCEL_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_url || '' }}
+          PAGES_EXCEL_REPORT_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_report_url || '' }}
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -780,8 +778,6 @@ jobs:
           START_DATES: ${{ steps.options.outputs.start_dates }}
           START_DATE_COUNT: ${{ steps.options.outputs.start_date_count }}
           DURATIONS: ${{ steps.options.outputs.durations }}
-          SCENARIO_COUNT: ${{ steps.options.outputs.scenario_count }}
-          LOCATION_CHECK_COUNT: ${{ steps.options.outputs.location_check_count }}
           QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
@@ -789,81 +785,7 @@ jobs:
             exit 0
           fi
 
-          format_duration() {
-            local total="${1:-0}"
-            if [[ ! "$total" =~ ^[0-9]+$ ]]; then
-              printf 'brak danych'
-              return
-            fi
-            local hours=$((total / 3600))
-            local minutes=$(((total % 3600) / 60))
-            local seconds=$((total % 60))
-            if (( hours > 0 )); then
-              printf '%dh %02dm %02ds' "$hours" "$minutes" "$seconds"
-            elif (( minutes > 0 )); then
-              printf '%dm %02ds' "$minutes" "$seconds"
-            else
-              printf '%ds' "$seconds"
-            fi
-          }
-
-          recommendation_count="brak danych"
-          increase_count="brak danych"
-          decrease_count="brak danych"
-          if [[ -f output/final-pricing-recommendations.json ]]; then
-            recommendation_stats=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/final-pricing-recommendations.json','utf8')); const list=Array.isArray(data) ? data : (Array.isArray(data.recommendations) ? data.recommendations : []); const active=list.filter((item) => item && item.action !== 'hold'); const total=Number.isFinite(data.recommendation_count) ? data.recommendation_count : active.length; const increases=active.filter((item) => item.action === 'increase').length; const decreases=active.filter((item) => item.action === 'decrease').length; process.stdout.write([total,increases,decreases].join('|'));")
-            IFS='|' read -r recommendation_count increase_count decrease_count <<< "$recommendation_stats"
-          fi
-
-          excel_change_count="brak danych"
-          if [[ -f output/excel-rate-update-summary.json ]]; then
-            excel_change_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/excel-rate-update-summary.json','utf8')); process.stdout.write(String(data.change_count ?? 'brak danych'));")
-          fi
-
-          quality_alert_count="0"
-          blocking_alerts=""
-          if [[ -f output/quality-alerts.json ]]; then
-            quality_alert_count=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.alerts) ? data.alerts : []; process.stdout.write(String(alerts.length));")
-            blocking_alerts=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); const alerts=Array.isArray(data.blocking_alerts) ? data.blocking_alerts : []; process.stdout.write(alerts.slice(0,2).join(' '));")
-          fi
-
-          now_epoch="$(date +%s)"
-          run_duration_seconds=0
-          if [[ "$RUN_STARTED_EPOCH" =~ ^[0-9]+$ ]]; then
-            run_duration_seconds=$((now_epoch - RUN_STARTED_EPOCH))
-          fi
-
-          status_label="GOTOWE"
-          excel_ready="TAK"
-          if [[ "$QUALITY_STATUS" == "degraded" ]]; then
-            status_label="GOTOWE Z OSTRZEZENIAMI"
-          elif [[ "$QUALITY_STATUS" == "failure" ]]; then
-            status_label="BLAD"
-            excel_ready="NIE"
-          fi
-
-          scraper_time="$(format_duration "$SCRAPER_DURATION_SECONDS")"
-          run_time="$(format_duration "$run_duration_seconds")"
-          range_label="${ROLLING_DAYS} dni rolling, durations ${DURATIONS}"
-          if [[ -n "$START_DATES" ]]; then
-            range_label="konkretne daty (${START_DATE_COUNT}), durations ${DURATIONS}"
-          fi
-
-          report_url="${PAGE_URL:-$ARTIFACT_URL}"
-          excel_url="${PAGES_EXCEL_URL:-$EXCEL_ARTIFACT_URL}"
-
-          warning_section=""
-          if [[ "$QUALITY_STATUS" == "degraded" ]]; then
-            warning_section=$(printf '\nOstrzezenia: %s (szczegoly w raporcie)\n' "$quality_alert_count")
-          elif [[ "$QUALITY_STATUS" == "failure" ]]; then
-            warning_section=$(printf '\nPowod blokady: %s\n' "${blocking_alerts:-brak szczegolow - sprawdz GitHub Actions}")
-          fi
-
-          message=$(printf 'DiscoverCars | %s\n\nExcel do importu: %s\nZakres: %s\nScenariusze: %s | sprawdzenia: %s\nRekomendacje: %s | podwyzki: %s | obnizki: %s\nZmienione komorki: %s\nCzas: %s | scraper: %s\n%s\nRaport: %s\nExcel importowy: %s\nExcel z rekomendacjami: %s\nSzczegoly techniczne: %s\n' "$status_label" "$excel_ready" "$range_label" "$SCENARIO_COUNT" "$LOCATION_CHECK_COUNT" "$recommendation_count" "$increase_count" "$decrease_count" "$excel_change_count" "$run_time" "$scraper_time" "$warning_section" "${report_url:-brak}" "${excel_url:-niedostepny}" "${PAGES_EXCEL_REPORT_URL:-niedostepny}" "$RUN_URL")
-
-          if [[ "$QUALITY_STATUS" == "failure" ]]; then
-            message=$(printf 'DiscoverCars | %s\n\nExcel do importu: %s\nZakres: %s\nCzas: %s | scraper: %s\n%s\nRaport: %s\nSzczegoly techniczne: %s\n' "$status_label" "$excel_ready" "$range_label" "$run_time" "$scraper_time" "$warning_section" "${report_url:-brak}" "$RUN_URL")
-          fi
+          message="$(node src/telegramSummary.js)"
 
           if ! curl --fail --show-error --silent \
             --request POST \

@@ -1385,7 +1385,7 @@ async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs 
 
 function printHelp() {
   const help = `
-DiscoverCars weekend CLI
+DiscoverCars scraper CLI
 
 Usage:
   node src/index.js

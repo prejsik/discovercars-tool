@@ -8,6 +8,10 @@ const PRICING_RULES = loadPricingRules();
 const MM_TOP1_GAP_PRICE_PER_DAY_THRESHOLD_PLN = PRICING_RULES.top1GapThresholdPlnDay;
 const MM_TOP1_GAP_20_PRICE_PER_DAY_THRESHOLD_PLN = 20;
 const MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN = 30;
+const REPORT_TIME_ZONE = "Europe/Warsaw";
+const INITIAL_SCENARIO_LIMIT = 20;
+const COMPACT_SCENARIO_LIMIT = 5;
+const COMPACT_LAYOUT_MAX_WIDTH = 1220;
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -39,22 +43,66 @@ function formatProviderRating(rating) {
 
 function formatProviderName(offer) {
   if (!offer) {
-    return "Not available";
+    return "Brak oferty";
   }
 
-  const providerName = String(offer.provider_name || "Not available").trim() || "Not available";
+  const providerName = String(offer.provider_name || "Brak oferty").trim() || "Brak oferty";
   const rating = formatProviderRating(offer.provider_rating);
   return rating ? `${providerName} (${rating})` : providerName;
 }
 
 function formatOfferPrice(offer) {
   if (!offer || !Number.isFinite(Number(offer.total_price))) {
-    return "Not available";
+    return "Brak oferty";
   }
 
   const rentalDays = Number(offer.rental_days);
   const divisor = Number.isFinite(rentalDays) && rentalDays > 0 ? rentalDays : 1;
-  return `${(Number(offer.total_price) / divisor).toFixed(2)} ${offer.currency || ""}/day`.trim();
+  const dailyRate = new Intl.NumberFormat("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(offer.total_price) / divisor);
+  return `${dailyRate} ${offer.currency || ""}/d`.trim();
+}
+
+function polishPlural(value, one, few, many) {
+  const number = Math.abs(Number(value));
+  if (number === 1) {
+    return one;
+  }
+  const lastDigit = number % 10;
+  const lastTwoDigits = number % 100;
+  return lastDigit >= 2 && lastDigit <= 4 && !(lastTwoDigits >= 12 && lastTwoDigits <= 14)
+    ? few
+    : many;
+}
+
+function formatDaysLabel(value) {
+  const days = Number(value);
+  if (!Number.isFinite(days)) {
+    return "brak danych";
+  }
+  return `${days} ${polishPlural(days, "dzień", "dni", "dni")}`;
+}
+
+function formatDateTime(value, timeZone = REPORT_TIME_ZONE) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) {
+    const [year, month, day] = String(value).split("-");
+    return `${day}.${month}.${year}`;
+  }
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) {
+    return String(value || "Brak daty");
+  }
+  return new Intl.DateTimeFormat("pl-PL", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(date).replace(",", "");
 }
 
 function isSameCurrency(left, right) {
@@ -168,7 +216,7 @@ function buildProviderCell(offer, rankedOffers) {
 
 function buildMmPriceCell(mmOffer, rankedOffers) {
   if (!mmOffer) {
-    return "<td class=\"muted\">Not available</td>";
+    return "<td class=\"muted\">Brak oferty</td>";
   }
 
   return `<td class="${getMmClassName(mmOffer, rankedOffers)}">${escapeHtml(formatOfferPrice(mmOffer))}</td>`;
@@ -177,7 +225,7 @@ function buildMmPriceCell(mmOffer, rankedOffers) {
 function buildTop1PriceCell(offer, signal) {
   const classes = signal?.is_high_rate ? "top1-high" : "";
   const title = signal?.is_high_rate
-    ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.`
+    ? `Top1 powyżej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzień.`
     : "";
   return `<td${classes ? ` class="${classes}"` : ""}${title ? ` title="${escapeHtml(title)}"` : ""}>${escapeHtml(formatOfferPrice(offer))}</td>`;
 }
@@ -191,16 +239,13 @@ function scenarioLocations(rootPayload, scenarioPayload) {
   return Object.keys(scenarioPayload.top_3_plus_mm_by_location || {}).sort((a, b) => a.localeCompare(b));
 }
 
-function scenarioTitle(scenarioPayload, index, total) {
-  const label = scenarioPayload.start_day_label || scenarioPayload.start_date || scenarioPayload.scenario_id || "Scenario";
-  return `Scenario ${index + 1}/${total}: ${label} + ${scenarioPayload.rental_days} day(s)`;
-}
-
-function scenarioPeriod(scenarioPayload) {
-  const pickup = scenarioPayload.pickup_date || "";
+function scenarioTitle(scenarioPayload) {
+  const pickup = scenarioPayload.pickup_date || scenarioPayload.start_date || scenarioPayload.scenario_id || "";
   const dropoff = scenarioPayload.dropoff_date || "";
-  const rentalDays = scenarioPayload.rental_days || "";
-  return `${pickup} -> ${dropoff} (rental_days=${rentalDays})`;
+  const period = dropoff
+    ? `${formatDateTime(pickup)} → ${formatDateTime(dropoff)}`
+    : formatDateTime(pickup);
+  return `${period} · ${formatDaysLabel(scenarioPayload.rental_days)}`;
 }
 
 function getOfferView(scenarioPayload, location, mode) {
@@ -232,9 +277,33 @@ function isTop1High(view) {
   return Number.isFinite(total) && total / days > PRICING_RULES.top1HighRateThresholdPlnDay;
 }
 
+function statusTitleForClass(className) {
+  const classes = String(className || "").split(/\s+/);
+  if (classes.includes("mm-top1-gap-30")) {
+    return "MM Cars Rental jest Top1; kolejna firma jest droższa o co najmniej 30 PLN/d.";
+  }
+  if (classes.includes("mm-top1-gap-20")) {
+    return "MM Cars Rental jest Top1; kolejna firma jest droższa o 20-29,99 PLN/d.";
+  }
+  if (classes.includes("mm-top1-gap")) {
+    return "MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN/d.";
+  }
+  if (classes.includes("mm-close")) {
+    return "MM Cars Rental jest do 10 PLN/d od wyższej pozycji.";
+  }
+  if (classes.includes("mm")) {
+    return "Oferta MM Cars Rental.";
+  }
+  return "";
+}
+
 function viewSpan(mode, content, className = "", title = "") {
   const classes = [`offer-view`, `offer-view-${mode}`, className].filter(Boolean).join(" ");
-  return `<span class="${classes}"${title ? ` title="${escapeHtml(title)}"` : ""}>${content}</span>`;
+  const resolvedTitle = title || statusTitleForClass(className);
+  const titleAttributes = resolvedTitle
+    ? ` title="${escapeHtml(resolvedTitle)}" aria-label="${content}. ${escapeHtml(resolvedTitle)}"`
+    : "";
+  return `<span class="${classes}"${titleAttributes}>${content}</span>`;
 }
 
 function buildDualCell(automaticContent, allContent, automaticClass = "", allClass = "", automaticTitle = "", allTitle = "") {
@@ -285,11 +354,11 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
       const rowClass = index % 2 === 0 ? "even" : "odd";
       const automaticHigh = isTop1High(automatic);
       const allHigh = isTop1High(all);
-      const automaticTop1Title = automaticHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
-      const allTop1Title = allHigh ? `Top1 powyzej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzien.` : "";
+      const automaticTop1Title = automaticHigh ? `Top1 powyżej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzień.` : "";
+      const allTop1Title = allHigh ? `Top1 powyżej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzień.` : "";
 
       return `<tr class="${rowClass}" data-location="${escapeHtml(location)}" data-location-type="${isAirportLocation(location) ? "airport" : "branch"}" data-mm-state-automatic="${getMmState(automatic)}" data-mm-state-all="${getMmState(all)}" data-top1-high-automatic="${automaticHigh}" data-top1-high-all="${allHigh}">
-        <td class="index">${index}</td>
+        <td class="index">${index + 1}</td>
         <td class="location">${escapeHtml(location)}</td>
         ${buildDualCell(providerContent(automaticTop3[0]), providerContent(allTop3[0]), isMmCarsProvider(automaticTop3[0]?.provider_name) ? getMmClassName(automaticTop3[0], automaticTop3) : "", isMmCarsProvider(allTop3[0]?.provider_name) ? getMmClassName(allTop3[0], allTop3) : "")}
         ${buildDualCell(priceContent(automaticTop3[0]), priceContent(allTop3[0]), automaticHigh ? "top1-high" : "", allHigh ? "top1-high" : "", automaticTop1Title, allTop1Title)}
@@ -311,21 +380,21 @@ function buildErrorsHtml(errors) {
   }
 
   const items = errors
-    .map((error) => `<li><strong>${escapeHtml(error.location || "Unknown")}:</strong> ${escapeHtml(error.error || error.message || error)}</li>`)
+    .map((error) => `<li><strong>${escapeHtml(error.location || "Nieznana lokalizacja")}:</strong> ${escapeHtml(error.error || error.message || error)}</li>`)
     .join("\n");
 
-  return `<details class="errors"><summary>Errors (${errors.length})</summary><ul>${items}</ul></details>`;
+  return `<details class="errors"><summary>Błędy (${errors.length})</summary><ul>${items}</ul></details>`;
 }
 
 function normalizeScenarios(payload) {
-  return Array.isArray(payload.scenarios) && payload.scenarios.length ? payload.scenarios : [payload];
+  return Array.isArray(payload.scenarios) ? payload.scenarios : [payload];
 }
 
-function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
+function buildScenarioTable(rootPayload, scenarioPayload) {
+  const title = scenarioTitle(scenarioPayload);
   return `<section class="scenario" data-date="${escapeHtml(scenarioPayload.start_date || "")}" data-duration="${escapeHtml(scenarioPayload.rental_days || "")}">
-    <h2>${escapeHtml(scenarioTitle(scenarioPayload, index, total))}</h2>
-    <div class="period">${escapeHtml(scenarioPeriod(scenarioPayload))}</div>
-    <table>
+    <h2>${escapeHtml(title)}</h2>
+    <table aria-label="Porównanie cen: ${escapeHtml(title)}">
       <colgroup>
         <col class="col-index">
         <col class="col-location">
@@ -341,17 +410,17 @@ function buildScenarioTable(rootPayload, scenarioPayload, index, total) {
       </colgroup>
       <thead>
         <tr>
-          <th>#</th>
-          <th>Lokalizacja</th>
-          <th>Top 1 firma</th>
-          <th>Top 1 PLN/d</th>
-          <th>Top 2 firma</th>
-          <th>Top 2 PLN/d</th>
-          <th>Top 3 firma</th>
-          <th>Top 3 PLN/d</th>
-          <th>MM PLN/d</th>
-          <th>Pozycja MM</th>
-          <th>Tańsze oferty</th>
+          <th scope="col">#</th>
+          <th scope="col">Lokalizacja</th>
+          <th scope="col">Top 1 firma</th>
+          <th scope="col">Top 1 PLN/d</th>
+          <th scope="col">Top 2 firma</th>
+          <th scope="col">Top 2 PLN/d</th>
+          <th scope="col">Top 3 firma</th>
+          <th scope="col">Top 3 PLN/d</th>
+          <th scope="col">MM PLN/d</th>
+          <th scope="col" title="Pozycja MM Cars Rental w rankingu firm">Pozycja MM</th>
+          <th scope="col" title="Liczba pojedynczych ofert tańszych od oferty MM Cars Rental">Tańsze oferty</th>
         </tr>
       </thead>
       <tbody>
@@ -376,20 +445,27 @@ function buildQualityBanner(quality) {
       .join(" ")
     : "";
   const message = quality.status === "failure"
-    ? "Raport danych zostal opublikowany, ale nowy Excel zostal zablokowany przez kontrole jakosci."
-    : "Raport zawiera ostrzezenia kontroli jakosci.";
-  return `<div class="quality-banner quality-${escapeHtml(quality.status)}"><strong>${escapeHtml(message)}</strong>${alerts ? ` ${escapeHtml(alerts)}` : ""}</div>`;
+    ? "Raport danych został opublikowany, ale nowy Excel zablokowała kontrola jakości."
+    : "Raport zawiera ostrzeżenia kontroli jakości.";
+  return `<div class="quality-banner quality-${escapeHtml(quality.status)}" role="status"><strong>${escapeHtml(message)}</strong>${alerts ? ` ${escapeHtml(alerts)}` : ""}</div>`;
 }
 
 function buildMultiFilter(id, label, options, allLabel = "Wszystkie") {
   const optionHtml = options.map((option) => `<label class="multi-option"><input type="checkbox" value="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span></label>`).join("");
-  return `<div class="filter-field"><span class="filter-label">${escapeHtml(label)}</span><details class="multi-filter" id="${escapeHtml(id)}" data-all-label="${escapeHtml(allLabel)}"><summary>${escapeHtml(allLabel)}</summary><div class="multi-options">${optionHtml}</div></details></div>`;
+  return `<div class="filter-field"><span class="filter-label" id="${escapeHtml(id)}-label">${escapeHtml(label)}</span><details class="multi-filter" id="${escapeHtml(id)}" data-all-label="${escapeHtml(allLabel)}" aria-labelledby="${escapeHtml(id)}-label"><summary>${escapeHtml(allLabel)}</summary><div class="multi-options">${optionHtml}</div></details></div>`;
 }
 
 function buildHtmlReport(payload, options = {}) {
   const scenarios = normalizeScenarios(payload);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, PRICING_RULES);
   const generatedAt = payload.generated_at || new Date().toISOString();
+  const timeZone = payload.time_zone || REPORT_TIME_ZONE;
+  const scenarioDates = scenarios
+    .map((scenario) => scenario.start_date)
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")))
+    .sort();
+  const minStartDate = scenarioDates[0] || "";
+  const maxStartDate = scenarioDates[scenarioDates.length - 1] || "";
   const locations = [...new Set(scenarios.flatMap((scenario) => scenarioLocations(payload, scenario)))].sort();
   const durations = [...new Set(scenarios.map((scenario) => Number(scenario.rental_days)).filter(Number.isFinite))].sort((a, b) => a - b);
   const locationChecks = scenarios.reduce((sum, scenario) => sum + scenarioLocations(payload, scenario).length, 0);
@@ -400,13 +476,13 @@ function buildHtmlReport(payload, options = {}) {
   const top1Signals = [...top1SignalIndex.values()];
   const highTop1Count = top1Signals.filter((signal) => signal.is_high_rate).length;
   const locationOptions = locations.map((location) => ({ value: location, label: location }));
-  const durationOptions = durations.map((duration) => ({ value: String(duration), label: `${duration} dni` }));
+  const durationOptions = durations.map((duration) => ({ value: String(duration), label: formatDaysLabel(duration) }));
   const mmStateOptions = [
     { value: "missing", label: "Brak MM" },
     { value: "top1-gap", label: "Top1: różnica 10–19,99 PLN/d" },
     { value: "top1-gap-20", label: "Top1: różnica 20–29,99 PLN/d" },
     { value: "top1-gap-30", label: "Top1: różnica min. 30 PLN/d" },
-    { value: "close", label: "Blisko wyższej pozycji" },
+    { value: "close", label: "Do 10 PLN/d od wyższej pozycji" },
     { value: "normal", label: "Pozostałe" }
   ];
   const top1Options = [
@@ -418,15 +494,17 @@ function buildHtmlReport(payload, options = {}) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DiscoverCars report</title>
+  <title>Kontrola cen DiscoverCars</title>
+  <link rel="icon" href="data:,">
   <style>
     :root {
-      --bg: #0b0d10;
-      --panel: #11151b;
-      --line: #d7d7d7;
-      --text: #e9edf2;
-      --muted: #9aa4b2;
-      --green: #22e642;
+      --bg: #0c1015;
+      --panel: #121820;
+      --panel-raised: #18212b;
+      --line: #34404d;
+      --text: #edf2f7;
+      --muted: #a9b4c0;
+      --focus: #79b8ff;
       --yellow-bg: #caa300;
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
@@ -440,31 +518,48 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+      font-family: "Segoe UI", Arial, sans-serif;
       padding: 24px;
+      font-variant-numeric: tabular-nums;
     }
 
     h1 {
       margin: 0 0 6px;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
     }
 
     .meta {
       color: var(--muted);
-      margin-bottom: 24px;
+      margin-bottom: 18px;
       font-size: 13px;
+    }
+
+    .legend-panel {
+      margin: 0 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel);
+    }
+
+    .legend-panel > summary {
+      cursor: pointer;
+      padding: 9px 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
     }
 
     .legend {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-bottom: 24px;
+      padding: 0 12px 12px;
       color: var(--muted);
       font-size: 13px;
     }
@@ -475,28 +570,53 @@ function buildHtmlReport(payload, options = {}) {
       gap: 10px;
       align-items: end;
       margin: 0 0 18px;
-      padding: 12px 0;
-      border-top: 1px solid #2d333b;
-      border-bottom: 1px solid #2d333b;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: rgba(12, 16, 21, 0.94);
+      position: sticky;
+      top: 0;
+      z-index: 15;
+      backdrop-filter: blur(8px);
     }
 
     .toolbar > label, .filter-label { color: var(--muted); font-size: 12px; }
     .toolbar select, .toolbar input[type="date"], .multi-filter > summary {
       display: block;
       margin-top: 4px;
-      min-height: 34px;
+      min-height: 36px;
       border: 1px solid #596273;
       border-radius: 4px;
-      background: #11151b;
+      background: var(--panel);
       color: var(--text);
-      padding: 5px 8px;
+      padding: 6px 8px;
     }
 
-    .filter-field { min-width: 150px; }
+    button {
+      min-height: 36px;
+      border: 1px solid #667284;
+      border-radius: 4px;
+      background: var(--panel-raised);
+      color: var(--text);
+      padding: 7px 12px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover { background: #243140; }
+    button:disabled { cursor: default; opacity: 0.55; }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .filter-field { min-width: 130px; }
     .filter-label { display: block; }
     .multi-filter { position: relative; margin-top: 4px; }
     .multi-filter > summary {
-      min-width: 150px;
+      min-width: 130px;
       cursor: pointer;
       list-style: none;
       line-height: 22px;
@@ -515,7 +635,7 @@ function buildHtmlReport(payload, options = {}) {
       overflow-y: auto;
       border: 1px solid #596273;
       border-radius: 4px;
-      background: #11151b;
+      background: var(--panel);
       box-shadow: 0 8px 20px #00000066;
       padding: 6px;
     }
@@ -531,7 +651,26 @@ function buildHtmlReport(payload, options = {}) {
     .multi-option:hover { background: #242b35; }
     .multi-option input { flex: 0 0 auto; margin: 1px 0 0; }
 
-    .summary { color: var(--muted); margin-bottom: 14px; font-size: 13px; }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      color: var(--muted);
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+
+    .summary strong { color: var(--text); }
+
+    .results-status {
+      color: var(--muted);
+      font-size: 12px;
+      min-height: 16px;
+      margin: -8px 0 18px;
+    }
+
+    .compact-filter-toggle { display: none; }
+    .toolbar-actions { display: flex; gap: 8px; }
 
     .quality-banner {
       margin: 0 0 16px;
@@ -554,7 +693,7 @@ function buildHtmlReport(payload, options = {}) {
     .scenario {
       margin: 0 0 34px;
       padding-top: 8px;
-      border-top: 2px solid #2d333b;
+      border-top: 1px solid var(--line);
       overflow-x: visible;
     }
 
@@ -564,17 +703,11 @@ function buildHtmlReport(payload, options = {}) {
       font-weight: 700;
     }
 
-    .period {
-      color: var(--text);
-      margin-bottom: 8px;
-      font-size: 14px;
-    }
-
     table {
       width: 100%;
       border-collapse: collapse;
-      background: #0d0f12;
-      border: 2px solid var(--line);
+      background: var(--panel);
+      border: 1px solid var(--line);
       table-layout: fixed;
     }
 
@@ -587,7 +720,7 @@ function buildHtmlReport(payload, options = {}) {
     col.col-count { width: 11%; }
 
     th, td {
-      border: 2px solid var(--line);
+      border: 1px solid var(--line);
       padding: 6px 7px;
       text-align: left;
       white-space: normal;
@@ -599,15 +732,17 @@ function buildHtmlReport(payload, options = {}) {
     th {
       color: var(--text);
       font-weight: 700;
-      background: #111;
+      background: #171e27;
       font-size: 11px;
     }
 
     td {
-      color: var(--green);
-      font-weight: 700;
+      color: var(--text);
+      font-weight: 500;
       font-size: 12px;
     }
+
+    tbody tr:hover td:not(.view-cell) { background-color: #18212b; }
 
     th:nth-child(4), th:nth-child(6), th:nth-child(8), th:nth-child(9), th:nth-child(10), th:nth-child(11),
     td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
@@ -628,7 +763,8 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     td.location {
-      color: var(--green);
+      color: #d7e2ee;
+      font-weight: 650;
     }
 
     .mm {
@@ -670,20 +806,48 @@ function buildHtmlReport(payload, options = {}) {
       color: #ffb4a9;
     }
 
+    .empty-state {
+      margin: 24px 0;
+      padding: 24px;
+      border: 1px dashed #596273;
+      border-radius: 4px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .report-actions {
+      display: flex;
+      justify-content: center;
+      margin: 4px 0 40px;
+    }
+
     @media (max-width: 1100px) {
       body { padding: 14px; }
       th, td { padding: 5px; }
       td { font-size: 11px; }
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: ${COMPACT_LAYOUT_MAX_WIDTH}px) {
       body { padding: 10px; }
+      h1 { font-size: 21px; }
+      .compact-filter-toggle {
+        display: block;
+        width: 100%;
+        margin-bottom: 10px;
+        text-align: left;
+      }
+      .toolbar { position: static; padding: 10px; }
+      .toolbar > label, .filter-field { flex: 1 1 145px; min-width: 0; }
+      .toolbar select, .toolbar input[type="date"], .multi-filter > summary { width: 100%; }
+      .multi-options { max-width: calc(100vw - 20px); }
+      .filter-field:nth-of-type(even) .multi-options { left: auto; right: 0; }
+      .results-status { margin-top: 0; }
       .scenario { margin-bottom: 26px; }
       table, tbody, tr, td { display: block; width: 100%; }
       table { border: 0; background: transparent; }
       colgroup, thead { display: none; }
       tbody { display: grid; gap: 10px; }
-      tr { border: 1px solid var(--line); background: #0d0f12; }
+      tr { border: 1px solid var(--line); background: var(--panel); }
       td, td.index,
       td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
         display: grid;
@@ -712,59 +876,159 @@ function buildHtmlReport(payload, options = {}) {
   </style>
 </head>
 <body data-offer-view="all">
-  <h1>DiscoverCars report</h1>
-  <div class="meta">Generated at: ${escapeHtml(generatedAt)} | Time zone: ${escapeHtml(payload.time_zone || "Europe/Warsaw")}</div>
+  <h1>Kontrola cen DiscoverCars</h1>
+  <div class="meta">Wygenerowano: ${escapeHtml(formatDateTime(generatedAt, timeZone))} · strefa ${escapeHtml(timeZone)}</div>
   ${buildQualityBanner(options.quality)}
-  <div class="summary">Scenariusze: ${scenarios.length} | sprawdzenia lokalizacji: ${locationChecks} | brak MM Cars Rental: ${missingMm} | błędy: ${errorCount} | Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d: ${highTop1Count}</div>
-  <div class="legend">
-    <span><span class="badge mm">MM Cars Rental</span> MM Cars Rental in table</span>
-    <span><span class="badge mm mm-close">MM close</span> MM Cars Rental max 10 PLN/day more expensive than a higher-ranked competitor</span>
-    <span><span class="badge mm mm-top1-gap">Top1: +10 PLN/d</span> Top 2 jest droższy od MM o min. 10 PLN/dzień</span>
-    <span><span class="badge mm mm-top1-gap-20">Top1: +20 PLN/d</span> Top 2 jest droższy od MM o min. 20 PLN/dzień</span>
-    <span><span class="badge mm mm-top1-gap-30">Top1: +30 PLN/d</span> Top 2 jest droższy od MM o min. 30 PLN/dzień</span>
-    <span><span class="badge top1-high">Top1 &gt; 150</span> stawka Top1 przekracza 150 PLN/dzień</span>
+  <div class="summary" aria-label="Podsumowanie raportu">
+    <span><strong>${scenarios.length}</strong> ${polishPlural(scenarios.length, "scenariusz", "scenariusze", "scenariuszy")}</span>
+    <span><strong>${locationChecks}</strong> ${polishPlural(locationChecks, "sprawdzenie", "sprawdzenia", "sprawdzeń")} lokalizacji</span>
+    <span><strong>${missingMm}</strong> bez MM Cars Rental</span>
+    <span><strong>${errorCount}</strong> ${polishPlural(errorCount, "błąd", "błędy", "błędów")}</span>
+    <span><strong>${highTop1Count}</strong> ze stawką Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d</span>
   </div>
-  <div class="toolbar">
+  <details class="legend-panel">
+    <summary>Legenda oznaczeń</summary>
+    <div class="legend">
+      <span><span class="badge mm">MM Cars Rental</span> oferta MM Cars Rental</span>
+      <span><span class="badge mm mm-close">Blisko wyższej pozycji</span> do 10 PLN/d więcej od wyżej sklasyfikowanej firmy</span>
+      <span><span class="badge mm mm-top1-gap">Top1: +10 PLN/d</span> druga firma jest droższa o 10–19,99 PLN/d</span>
+      <span><span class="badge mm mm-top1-gap-20">Top1: +20 PLN/d</span> druga firma jest droższa o 20–29,99 PLN/d</span>
+      <span><span class="badge mm mm-top1-gap-30">Top1: +30 PLN/d</span> druga firma jest droższa o co najmniej 30 PLN/d</span>
+      <span><span class="badge top1-high">Top1 &gt; 150</span> stawka Top1 przekracza 150 PLN/d</span>
+    </div>
+  </details>
+  <button class="compact-filter-toggle" id="toggle-filters" type="button" aria-expanded="false" aria-controls="report-filters">Pokaż filtry: lotniska</button>
+  <div class="toolbar" id="report-filters" role="region" aria-label="Filtry raportu">
     <label>Skrzynia<select id="filter-transmission"><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
     <label>Oddziały<select id="filter-location-type"><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option></select></label>
-    <label>Data<input id="filter-date" type="date"></label>
+    <label>Start od<input id="filter-date-from" type="date"${minStartDate ? ` min="${escapeHtml(minStartDate)}"` : ""}${maxStartDate ? ` max="${escapeHtml(maxStartDate)}"` : ""}></label>
+    <label>Start do<input id="filter-date-to" type="date"${minStartDate ? ` min="${escapeHtml(minStartDate)}"` : ""}${maxStartDate ? ` max="${escapeHtml(maxStartDate)}"` : ""}></label>
     ${buildMultiFilter("filter-location", "Lokalizacja", locationOptions)}
-    ${buildMultiFilter("filter-duration", "Duration", durationOptions)}
+    ${buildMultiFilter("filter-duration", "Długość najmu", durationOptions)}
     ${buildMultiFilter("filter-state", "Stan MM", mmStateOptions)}
     ${buildMultiFilter("filter-top1", "Kontrola Top1", top1Options)}
+    <div class="toolbar-actions">
+      <button id="copy-view" type="button" aria-live="polite">Kopiuj widok</button>
+      <button id="reset-filters" type="button">Wyczyść filtry</button>
+    </div>
   </div>
-  ${scenarios.map((scenario, index) => buildScenarioTable(payload, scenario, index, scenarios.length)).join("\n")}
+  <div class="results-status" id="results-status" role="status" aria-live="polite"></div>
+  <div class="empty-state" id="empty-state" hidden>Brak wyników dla wybranych filtrów.</div>
+  <main id="report-results">
+    ${scenarios.map((scenario) => buildScenarioTable(payload, scenario)).join("\n")}
+  </main>
+  <div class="report-actions"><button id="load-more" type="button" hidden>Pokaż kolejne</button></div>
   <script>
     const transmissionControl = document.getElementById("filter-transmission");
     const locationTypeControl = document.getElementById("filter-location-type");
-    const dateControl = document.getElementById("filter-date");
+    const dateFromControl = document.getElementById("filter-date-from");
+    const dateToControl = document.getElementById("filter-date-to");
+    const resetControl = document.getElementById("reset-filters");
+    const copyViewControl = document.getElementById("copy-view");
+    const toolbar = document.getElementById("report-filters");
+    const filterToggle = document.getElementById("toggle-filters");
+    const resultsStatus = document.getElementById("results-status");
+    const emptyState = document.getElementById("empty-state");
+    const loadMoreControl = document.getElementById("load-more");
     const multiControls = ["filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
+    const scenarioSections = Array.from(document.querySelectorAll(".scenario"));
+    const compactViewport = window.matchMedia("(max-width: ${COMPACT_LAYOUT_MAX_WIDTH}px)");
+    const reportMinDate = ${JSON.stringify(minStartDate)};
+    const reportMaxDate = ${JSON.stringify(maxStartDate)};
+    let scenarioPageSize = compactViewport.matches ? ${COMPACT_SCENARIO_LIMIT} : ${INITIAL_SCENARIO_LIMIT};
+    let visibleScenarioLimit = scenarioPageSize;
+
+    function activeFilterSuffix() {
+      const count = Number(transmissionControl.value !== "all")
+        + Number(Boolean(dateFromControl.value || dateToControl.value))
+        + multiControls.filter((control) => selectedValues(control).size > 0).length;
+      if (!count) return "";
+      const noun = count === 1 ? "filtr" : count < 5 ? "filtry" : "filtrów";
+      return " · " + count + " " + noun;
+    }
+
+    function updateCompactFilterToggle(collapsed = toolbar.hidden) {
+      const locationLabel = locationTypeControl.value === "airport" ? "lotniska" : "wszystkie oddziały";
+      filterToggle.textContent = (collapsed ? "Pokaż filtry: " : "Ukryj filtry: ") + locationLabel + activeFilterSuffix();
+      filterToggle.setAttribute("aria-expanded", String(!collapsed));
+    }
+
+    function syncCompactLayout() {
+      scenarioPageSize = compactViewport.matches ? ${COMPACT_SCENARIO_LIMIT} : ${INITIAL_SCENARIO_LIMIT};
+      visibleScenarioLimit = scenarioPageSize;
+      toolbar.hidden = compactViewport.matches;
+      updateCompactFilterToggle(toolbar.hidden);
+      applyFilters(false);
+    }
+
     function selectedValues(control) {
       return new Set(Array.from(control.querySelectorAll("input:checked")).map((input) => input.value));
     }
+
     function updateMultiSummary(control) {
       const checked = Array.from(control.querySelectorAll("input:checked"));
       const summary = control.querySelector("summary");
+      let text;
       if (!checked.length) {
-        summary.textContent = control.dataset.allLabel;
+        text = control.dataset.allLabel;
       } else if (checked.length === 1) {
-        summary.textContent = checked[0].closest("label").querySelector("span").textContent;
+        text = checked[0].closest("label").querySelector("span").textContent;
       } else {
-        summary.textContent = checked.length + " wybrane";
+        text = checked.length + " wybrane";
       }
+      summary.textContent = text;
+      summary.setAttribute("aria-label", control.previousElementSibling.textContent + ": " + text);
     }
-    function applyFilters() {
+
+    function updateShareableUrl() {
+      const params = new URLSearchParams();
+      if (transmissionControl.value !== "all") params.set("view", transmissionControl.value);
+      if (locationTypeControl.value !== "airport") params.set("branches", locationTypeControl.value);
+      if (dateFromControl.value) params.set("from", dateFromControl.value);
+      if (dateToControl.value) params.set("to", dateToControl.value);
+      const parameterNames = ["location", "days", "mm", "top1"];
+      multiControls.forEach((control, index) => {
+        selectedValues(control).forEach((value) => params.append(parameterNames[index], value));
+      });
+      const query = params.toString();
+      history.replaceState(null, "", location.pathname + (query ? "?" + query : "") + location.hash);
+    }
+
+    function restoreFiltersFromUrl() {
+      const params = new URLSearchParams(location.search);
+      if (["all", "automatic"].includes(params.get("view"))) transmissionControl.value = params.get("view");
+      if (["airport", "all"].includes(params.get("branches"))) locationTypeControl.value = params.get("branches");
+      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(params.get("from") || "")) dateFromControl.value = params.get("from");
+      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(params.get("to") || "")) dateToControl.value = params.get("to");
+      const parameterNames = ["location", "days", "mm", "top1"];
+      multiControls.forEach((control, index) => {
+        const selected = new Set(params.getAll(parameterNames[index]));
+        control.querySelectorAll("input").forEach((input) => { input.checked = selected.has(input.value); });
+      });
+      dateToControl.min = dateFromControl.value || reportMinDate;
+      dateFromControl.max = dateToControl.value || reportMaxDate;
+    }
+
+    function applyFilters(resetLimit = true) {
+      if (resetLimit) {
+        visibleScenarioLimit = scenarioPageSize;
+      }
       const offerView = transmissionControl.value;
       const locationType = locationTypeControl.value;
       document.body.dataset.offerView = offerView;
-      const date = dateControl.value;
+      const dateFrom = dateFromControl.value;
+      const dateTo = dateToControl.value;
       const selectedLocations = selectedValues(multiControls[0]);
       const selectedDurations = selectedValues(multiControls[1]);
       const selectedStates = selectedValues(multiControls[2]);
       const selectedTop1States = selectedValues(multiControls[3]);
       multiControls.forEach(updateMultiSummary);
-      for (const section of document.querySelectorAll(".scenario")) {
-        const scenarioMatch = (!date || section.dataset.date === date)
+
+      const matchingSections = [];
+      let matchingRows = 0;
+      for (const section of scenarioSections) {
+        const scenarioMatch = (!dateFrom || section.dataset.date >= dateFrom)
+          && (!dateTo || section.dataset.date <= dateTo)
           && (!selectedDurations.size || selectedDurations.has(section.dataset.duration));
         let visibleRows = 0;
         for (const row of section.querySelectorAll("tbody tr")) {
@@ -779,14 +1043,100 @@ function buildHtmlReport(payload, options = {}) {
           row.hidden = !visible;
           if (visible) visibleRows += 1;
         }
-        section.hidden = visibleRows === 0;
+        if (visibleRows > 0) {
+          matchingSections.push(section);
+          matchingRows += visibleRows;
+        }
+        section.hidden = true;
+      }
+
+      const shownSections = Math.min(visibleScenarioLimit, matchingSections.length);
+      matchingSections.slice(0, shownSections).forEach((section) => { section.hidden = false; });
+      emptyState.hidden = matchingSections.length > 0;
+      loadMoreControl.hidden = shownSections >= matchingSections.length;
+      loadMoreControl.textContent = "Pokaż kolejne " + Math.min(scenarioPageSize, matchingSections.length - shownSections);
+      resultsStatus.textContent = matchingSections.length
+        ? "Scenariusze: " + shownSections + "/" + matchingSections.length + " · pasujące wiersze: " + matchingRows
+        : "Brak pasujących scenariuszy";
+      updateCompactFilterToggle(toolbar.hidden);
+      updateShareableUrl();
+    }
+
+    function resetDateBounds() {
+      if (reportMaxDate) {
+        dateFromControl.max = reportMaxDate;
+      } else {
+        dateFromControl.removeAttribute("max");
+      }
+      if (reportMinDate) {
+        dateToControl.min = reportMinDate;
+      } else {
+        dateToControl.removeAttribute("min");
       }
     }
-    transmissionControl.addEventListener("input", applyFilters);
-    locationTypeControl.addEventListener("input", applyFilters);
-    dateControl.addEventListener("input", applyFilters);
-    multiControls.forEach((control) => control.addEventListener("change", applyFilters));
-    applyFilters();
+
+    function resetFilters() {
+      transmissionControl.value = "all";
+      locationTypeControl.value = "airport";
+      dateFromControl.value = "";
+      dateToControl.value = "";
+      resetDateBounds();
+      multiControls.forEach((control) => {
+        control.open = false;
+        control.querySelectorAll("input:checked").forEach((input) => { input.checked = false; });
+      });
+      applyFilters(true);
+    }
+
+    transmissionControl.addEventListener("input", () => applyFilters(true));
+    locationTypeControl.addEventListener("input", () => applyFilters(true));
+    dateFromControl.addEventListener("input", () => {
+      dateToControl.min = dateFromControl.value || reportMinDate;
+      applyFilters(true);
+    });
+    dateToControl.addEventListener("input", () => {
+      dateFromControl.max = dateToControl.value || reportMaxDate;
+      applyFilters(true);
+    });
+    multiControls.forEach((control) => {
+      control.addEventListener("change", () => applyFilters(true));
+      control.addEventListener("toggle", () => {
+        if (control.open) {
+          multiControls.filter((other) => other !== control).forEach((other) => { other.open = false; });
+        }
+      });
+    });
+    resetControl.addEventListener("click", resetFilters);
+    copyViewControl.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        copyViewControl.textContent = "Link skopiowany";
+      } catch {
+        copyViewControl.textContent = "Nie udało się skopiować";
+      }
+      window.setTimeout(() => { copyViewControl.textContent = "Kopiuj widok"; }, 1800);
+    });
+    filterToggle.addEventListener("click", () => {
+      toolbar.hidden = !toolbar.hidden;
+      updateCompactFilterToggle(toolbar.hidden);
+    });
+    loadMoreControl.addEventListener("click", () => {
+      visibleScenarioLimit += scenarioPageSize;
+      applyFilters(false);
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".multi-filter")) {
+        multiControls.forEach((control) => { control.open = false; });
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        multiControls.forEach((control) => { control.open = false; });
+      }
+    });
+    compactViewport.addEventListener("change", syncCompactLayout);
+    restoreFiltersFromUrl();
+    syncCompactLayout();
   </script>
 </body>
 </html>`;
@@ -799,21 +1149,45 @@ function writeHtmlReport(payload, outputPath, options = {}) {
   return targetPath;
 }
 
+function readJsonFile(filePath, label) {
+  const resolvedPath = path.resolve(filePath);
+  let contents;
+  try {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      throw new Error(`Nie znaleziono pliku ${label} "${resolvedPath}".`);
+    }
+    throw new Error(`Nie można odczytać ${label} "${resolvedPath}". ${error.message}`);
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    throw new Error(`Nie można odczytać ${label} "${resolvedPath}": plik JSON jest uszkodzony lub niepełny. ${error.message}`);
+  }
+}
+
 function generateReportFromFile(inputPath, outputPath, options = {}) {
-  const payload = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+  const payload = readJsonFile(inputPath, "danych raportu");
   return writeHtmlReport(payload, outputPath, options);
 }
 
 if (require.main === module) {
-  const inputPath = process.argv[2] || "output/results-latest.json";
-  const outputPath = process.argv[3] || "output/report.html";
-  const qualityArg = process.argv.find((arg) => arg.startsWith("--quality="));
-  const qualityPath = qualityArg ? qualityArg.slice("--quality=".length) : null;
-  const quality = qualityPath && fs.existsSync(qualityPath)
-    ? JSON.parse(fs.readFileSync(qualityPath, "utf8"))
-    : null;
-  const writtenPath = generateReportFromFile(inputPath, outputPath, { quality });
-  console.log(`HTML report saved to ${writtenPath}`);
+  try {
+    const inputPath = process.argv[2] || "output/results-latest.json";
+    const outputPath = process.argv[3] || "output/report.html";
+    const qualityArg = process.argv.find((arg) => arg.startsWith("--quality="));
+    const qualityPath = qualityArg ? qualityArg.slice("--quality=".length) : null;
+    const quality = qualityPath && fs.existsSync(qualityPath)
+      ? readJsonFile(qualityPath, "kontroli jakości")
+      : null;
+    const writtenPath = generateReportFromFile(inputPath, outputPath, { quality });
+    console.log(`HTML report saved to ${writtenPath}`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
 
 module.exports = {

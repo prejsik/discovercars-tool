@@ -5,11 +5,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-ui.ps1"
 set "CODE=%ERRORLEVEL%"
 echo.
 if "%CODE%"=="0" (
-  echo Finished.
+  echo Zakonczono.
 ) else (
-  echo Finished with error code %CODE%.
+  echo Zakonczono z kodem bledu %CODE%.
 )
-echo Output files are in: "%~dp0output"
-echo You can scroll now. Press Q to close this window.
+echo Pliki wynikowe sa w: "%~dp0output"
+echo Mozesz przewinac wyniki. Nacisnij Q, aby zamknac okno.
 choice /c Q /n /m ""
 exit /b %CODE%

@@ -1,4 +1,4 @@
-# DiscoverCars Weekend Cheapest Offers CLI
+# DiscoverCars - scraper i kontrola cen
 
 Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 
@@ -115,11 +115,11 @@ Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Bu
 
 Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektorych planach GitHub. Wtedy workflow pominie publikacje Pages i zostawi link do artifactu jako backup.
 
-Powiadomienie Telegram po zakonczeniu:
+Powiadomienie Telegram po zakonczeniu jest celowo krotkie: pokazuje status, zakres, liczbe podwyzek i obnizek, liczbe zmian w Excelu, czas oraz bezposrednie linki do raportu i obu plikow Excel. Przy ostrzezeniu lub bledzie podaje najwazniejszy powod i link do GitHub Actions.
 
-Workflow moze wyslac wiadomosc Telegram z typem runa, startem i koncem automatu, czasem scrapera, zakresem, liczba scenariuszy, liczba rekomendacji, liczba zmian w Excelu, statusem baseline, informacja skad wzieto finalne rekomendacje, alertami jakosciowymi, linkiem do raportu danego runa, stalym linkiem `latest-full`, linkiem `latest-excel/rates-import-ready.xlsx` do pliku gotowego do importu, linkiem do pelnego raportu Excel, osobnym linkiem do artifactu Excela importowego, linkiem backupowym do artifactu i linkiem do runa GitHub Actions. Dla pelnego i recznego runu do 13 probek jest ponownie sprawdzanych live. Brak sanity checku, brak zweryfikowanej probki albo ostrzezenie przekraczajace prog blokuje publikacje nowego Excela. Link GitHub Pages jest najwygodniejszy do codziennego ogladania raportu; linki do artifactow dzialaja dla osob zalogowanych do GitHuba z dostepem do repozytorium.
+Workflow podaje linki GitHub Pages dopiero po udanym wdrozeniu strony. Gdy Pages zawiedzie, ale artefakty zostana przeslane, Telegram automatycznie poda linki do artefaktow. Brak raportu albo obu plikow Excel nie moze zostac pokazany jako sukces: komunikat otrzyma status `BLAD PUBLIKACJI`.
 
-Status `failure` blokuje publikacje nowego Excela i GitHub Pages, ale artifact diagnostyczny oraz Telegram nadal sa wysylane. Na koncu workflow bramka jakosci oznacza taki run jako nieudany, dzieki czemu kolejne zapasowe okno crona moze wykonac ponowna probe.
+Status `failure` blokuje publikacje nowego Excela. Raport diagnostyczny i artefakty sa nadal publikowane, jesli ich wygenerowanie bylo mozliwe, a bramka jakosci oznacza run jako nieudany, aby kolejne zapasowe okno crona moglo wykonac ponowna probe.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
@@ -563,27 +563,17 @@ Jak to dziala:
 
 1. Osoba uruchamia `setup.bat` (raz).
 2. Potem uruchamia `start.bat`.
-3. Pojawi sie okno z wyboru:
-   - **dlugosci wynajmu**,
-   - **dat startu** przez zakres `From-To` albo konkretne daty wpisane naraz,
-   - **trybu szybkosci**.
-4. Dla dlugosci:
-   - domyslnie zaznaczona jest opcja `2-10 (all)`,
-   - opcja `2-20 (all)`,
-   - opcja `2-10 (all)`,
-   - oraz pojedyncze opcje `2` ... `20`,
-   - mozna zaznaczyc kilka naraz.
-5. Dla start-date:
-   - domyslnie wybierasz zakres `From` i `To`, a narzedzie samo tworzy wszystkie daty z tego przedzialu,
-   - alternatywnie zaznaczasz `Specific dates` i klikasz konkretne dni w kalendarzu,
+3. W oknie wybiera:
+   - **dlugosci najmu**, pojedynczo albo zakresem `2-10` lub `2-20`,
+   - **daty rozpoczecia najmu** jako zakres `Od-Do` albo konkretne dni,
+   - **tryb dzialania** `fast`, `safe` lub `turbo`.
+4. Dla konkretnych dat:
+   - klikasz dni w kalendarzu albo wklejasz ich liste,
    - ponowne klikniecie tej samej daty usuwa ja z wyboru,
-   - nadal mozesz tez wkleic wiele dat naraz, np. `2026-05-05, 2026-05-07, 2026-05-10`,
-   - nie trzeba klikac `Add date` dla kazdej pojedynczej daty.
-6. Po kliknieciu `Run` narzedzie uruchamia sie automatycznie i pokazuje tabele.
+   - format listy to np. `2026-05-05, 2026-05-07, 2026-05-10`.
+5. Po kliknieciu `Uruchom` scraper zapisuje JSON, generuje `output\report.html` i otwiera raport w przegladarce.
 
 Uwagi:
 
-- UI pyta o dwa parametry: durations i start-dates.
-- Pozostale parametry sa stale:
-  - przekazuje wybrane daty przez `--start-dates=...`,
-  - miasta: `Warsaw,Krakow,Gdansk,Katowice,Wroclaw,Poznan,Lodz,Bydgoszcz,Torun`.
+- Lista lokalizacji pochodzi z `daily_locations` w `excel-rate-update.config.example.json`.
+- Przerwany run moze wznowic prace z `output\state.json`.
