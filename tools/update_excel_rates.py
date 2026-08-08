@@ -90,10 +90,16 @@ DEFAULT_CONFIG = {
         "increase": ["E2F0D9", "C6E0B4", "A9D18E", "70AD47", "00B050"],
         "decrease": ["F4CCCC", "F8B4B4", "EA9999", "E06666", "C00000"],
     },
+    "changed_rate_warning": {
+        "below_pln_day": None,
+        "color": "FFF2CC",
+    },
     "recommendation_colors": {
         "top1_gap": "9DC3E6",
         "top3_small_decrease": "FFC7CE",
         "top1_undercut": "F4B183",
+        "force_top1_maintain": "9DC3E6",
+        "force_top1_undercut": "F4B183",
     },
     "min_excel_change_pln_day": 0.01,
     "colors": {
@@ -455,6 +461,16 @@ def get_group_price_parity(config: dict[str, Any]) -> tuple[list[str], dict[str,
     return base_groups, premium_adjustments
 
 
+def get_force_top1_base_offset(target: dict[str, Any], config: dict[str, Any]) -> float:
+    if target.get("recommendation_type") not in {"force_top1_maintain", "force_top1_undercut"}:
+        return 0
+    parity = get_group_price_parity(config)
+    if parity is None:
+        return 0
+    _base_groups, premium_adjustments = parity
+    return max([0, *premium_adjustments.values()])
+
+
 def classify_actual_action(old_rate: float | None, new_rate: float, fallback_action: str) -> str:
     if old_rate is None:
         return fallback_action
@@ -538,6 +554,13 @@ def interpolate_color(light: Any, dark: Any, ratio: float) -> str:
 
 
 def get_delta_fill(change: dict[str, Any], config: dict[str, Any]) -> PatternFill:
+    warning = config.get("changed_rate_warning") or {}
+    warning_threshold = parse_number(warning.get("below_pln_day"))
+    new_rate = parse_number(change.get("new_rate"))
+    if warning_threshold is not None and new_rate is not None and new_rate < warning_threshold:
+        color = str(warning.get("color") or "FFF2CC").replace("#", "")
+        return PatternFill(fill_type="solid", fgColor=color)
+
     delta = parse_number(change.get("delta"))
     if delta is None or delta == 0:
         color = (config.get("colors") or {}).get("hold", "D9EAF7")
@@ -595,6 +618,16 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
             "zeby zostac top1. Cel jest ustawiony 1 PLN ponizej "
             f"benchmarku {benchmark_provider} ({benchmark_rate} PLN)."
         )
+    if recommendation_type == "force_top1_maintain":
+        return (
+            "MM Cars Rental jest top1. Cel utrzymuje top1 przy cenie 1 PLN ponizej "
+            f"top2: {benchmark_provider} ({benchmark_rate} PLN)."
+        )
+    if recommendation_type == "force_top1_undercut":
+        return (
+            "MM Cars Rental nie jest top1. Cel jest ustawiony 1 PLN ponizej "
+            f"aktualnego top1: {benchmark_provider} ({benchmark_rate} PLN)."
+        )
     return str(change.get("reason") or "")
 
 
@@ -611,6 +644,8 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
         return f"top{target_rank} przy cenie 1 PLN ponizej rywala z top{target_rank}."
     if recommendation_type == "top1_undercut":
         return "top1 przy cenie 1 PLN ponizej obecnego top1."
+    if recommendation_type in {"force_top1_maintain", "force_top1_undercut"}:
+        return "top1 przy cenie 1 PLN ponizej najblizszego benchmarku."
     return ""
 
 
@@ -980,6 +1015,10 @@ def get_recommendation_label_pl(change: dict[str, Any]) -> str:
         return f"Male obnizenie do top{target_rank}"
     if recommendation_type == "top1_undercut":
         return "Przebicie top1"
+    if recommendation_type == "force_top1_maintain":
+        return "Utrzymanie top1"
+    if recommendation_type == "force_top1_undercut":
+        return "Przebicie top1"
     return str(recommendation_type or "")
 
 
@@ -1012,10 +1051,19 @@ def write_changed_positions_sheet(
     undercut_limit = format_rate_for_comment(parse_number(pricing_rules.get("top1UndercutThresholdPlnDay")) or 10)
     top3_limit = format_rate_for_comment(parse_number(pricing_rules.get("top3SmallDecreaseThresholdPlnDay")) or 10)
     undercut_buffer = format_rate_for_comment(parse_number(pricing_rules.get("undercutBufferPlnDay")) or 1)
+    if pricing_rules.get("forceTop1"):
+        recommendation_legend_items = [
+            ("9DC3E6", "Utrzymanie top1", f"Gdy MM Cars Rental jest top1, stawka jest ustawiana {undercut_buffer} PLN/dzien ponizej top2."),
+            ("F4B183", "Przebicie top1", f"Gdy MM Cars Rental nie jest top1, stawka jest ustawiana {undercut_buffer} PLN/dzien ponizej aktualnego top1, niezaleznie od obecnej pozycji."),
+        ]
+    else:
+        recommendation_legend_items = [
+            ("9DC3E6", "Top1 gap", f"MM Cars Rental jest top1, a jego cena jest co najmniej {top1_gap} PLN/dzien nizsza niz top2; rekomendacja podnosi cene do {undercut_buffer} PLN ponizej top2."),
+            ("FFC7CE", "Male obnizenie top3", f"Obnizka ponizej {top3_limit} PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to {undercut_buffer} PLN ponizej tej oferty."),
+            ("F4B183", "Przebicie top1", f"MM Cars Rental jest top2 i brakuje mniej niz {undercut_limit} PLN/dzien, zeby zostac top1; rekomendacja ustawia cene {undercut_buffer} PLN ponizej obecnego top1."),
+        ]
     legend_items = [
-        ("9DC3E6", "Top1 gap", f"MM Cars Rental jest top1, a jego cena jest co najmniej {top1_gap} PLN/dzien nizsza niz top2; rekomendacja podnosi cene do {undercut_buffer} PLN ponizej top2."),
-        ("FFC7CE", "Male obnizenie top3", f"Obnizka ponizej {top3_limit} PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to {undercut_buffer} PLN ponizej tej oferty."),
-        ("F4B183", "Przebicie top1", f"MM Cars Rental jest top2 i brakuje mniej niz {undercut_limit} PLN/dzien, zeby zostac top1; rekomendacja ustawia cene {undercut_buffer} PLN ponizej obecnego top1."),
+        *recommendation_legend_items,
         ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
         ("FFF2CC", "Kontrola celu", "Po zastosowaniu finalnej stawki narzedzie ponownie przelicza prognoze na stronie. Cel nieosiagalny jest oznaczany jako wymagajacy kontroli i nie jest opisywany jako gwarantowane top1/top2/top3."),
         ("D9EAF7", "Grupy zmieniane", get_group_rules_legend_text(config)),
@@ -1023,6 +1071,16 @@ def write_changed_positions_sheet(
         ("FCE4D6", "Floor cenowy", get_floor_legend_text(config)),
         ("FFFFFF", "Kolory w Sheet1", "Zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien. Komentarze sa tylko w kolumnie O tego arkusza."),
     ]
+    warning = config.get("changed_rate_warning") or {}
+    warning_threshold = parse_number(warning.get("below_pln_day"))
+    if warning_threshold is not None:
+        legend_items.append(
+            (
+                str(warning.get("color") or "FFF2CC").replace("#", ""),
+                f"Stawka ponizej {format_rate_for_comment(warning_threshold)} PLN",
+                f"Zmieniona stawka ponizej {format_rate_for_comment(warning_threshold)} PLN/dzien jest oznaczona tym kolorem.",
+            )
+        )
     legend_rows = len(legend_items) + 2
     header_start_row = legend_rows + 1
     changed_groups = group_changes_for_changed_positions(changes)
@@ -2222,7 +2280,10 @@ def apply_updates(
             old_rate = parse_number(cell.value)
             group_adjustment = get_group_rate_adjustment(group, config)
             minimum_rate, minimum_reason = get_minimum_rate(target, config)
-            suggested_rate = float(target["suggested_rate_pln_day"])
+            suggested_rate = (
+                float(target["suggested_rate_pln_day"])
+                - get_force_top1_base_offset(target, config)
+            )
             base_rate = max(suggested_rate, minimum_rate)
             current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
             if (

@@ -15,6 +15,7 @@ from tools.update_excel_rates import (  # noqa: E402
     apply_updates,
     build_validation_rows,
     get_duration_columns,
+    get_delta_fill,
     load_baseline_confirmation,
     load_config,
     merge_config,
@@ -155,6 +156,12 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
+    warning_fill = get_delta_fill(
+        {"new_rate": 59, "delta": -10},
+        merge_config({"changed_rate_warning": {"below_pln_day": 60, "color": "FFF2CC"}}),
+    )
+    assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
+
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
     baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
     baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
@@ -821,6 +828,53 @@ def main():
         assert_equal(partial_ws["M5"].value, 100, "incomplete duration band does not raise the current rate")
         assert_equal(partial_summary["change_count"], 0, "incomplete duration band increase is skipped")
         assert_equal(partial_summary["skipped_target_count"], 1, "incomplete duration band is reported")
+
+        force_top1_workbook_path = tmpdir / "force-top1-rates.xlsx"
+        force_top1_recommendations_path = tmpdir / "force-top1-recommendations.json"
+        force_top1_output_path = tmpdir / "force-top1-updated.xlsx"
+        build_minimal_workbook(
+            force_top1_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 100, 100, 100, 100, 120],
+                ["EDAH", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 101, 100, 100, 100, 120],
+                ["EDMV", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 101, 100, 100, 100, 120],
+            ],
+        )
+        force_top1_recommendations_path.write_text(
+            json.dumps(
+                {
+                    "decisions": [{
+                        "action": "decrease",
+                        "recommendation_type": "force_top1_undercut",
+                        "location": "Warsaw",
+                        "start_date": "2026-09-15",
+                        "rental_days": 2,
+                        "suggested_rate_pln_day": 80,
+                        "site_cap_rate_pln_day": 80,
+                        "broker_markup_multiplier": 1,
+                        "data_quality_status": "ok",
+                    }]
+                }
+            ),
+            encoding="utf-8",
+        )
+        force_top1_summary = apply_updates(
+            workbook_path=force_top1_workbook_path,
+            recommendations_path=force_top1_recommendations_path,
+            output_path=force_top1_output_path,
+            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            cli_groups=None,
+            dry_run=False,
+        )
+        force_top1_ws = openpyxl.load_workbook(force_top1_output_path)["Sheet1"]
+        assert_equal(force_top1_ws["J5"].value, 79, "force top1 reserves premium adjustment in base rate")
+        assert_equal(force_top1_ws["J6"].value, 80, "force top1 keeps EDAH below the site cap")
+        assert_equal(force_top1_ws["J7"].value, 80, "force top1 keeps EDMV below the site cap")
+        assert all(
+            change["target_achievable"]
+            for change in force_top1_summary["changes"]
+            if change["recommendation_type"] != "group_parity"
+        )
 
         expired_config = merge_config(
             {

@@ -9,6 +9,7 @@ const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSig
 
 const DEFAULT_OPTIONS = {
   ...DEFAULT_PRICING_RULES,
+  forceTop1: false,
   brokerMarkupCalibration: {
     enabled: false,
     defaultMultiplier: 1
@@ -198,6 +199,42 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       null,
       "invalid_currency"
     );
+  }
+
+  if (options.forceTop1) {
+    const benchmarkOffer = mmRank === 1 ? top2 : top1;
+    const benchmarkRate = toDailyRate(benchmarkOffer);
+    if (!benchmarkOffer || benchmarkRate == null) {
+      return buildNoopRecommendation(
+        base,
+        mmRank === 1
+          ? "MM Cars Rental jest top1, ale oferta top2 nie jest dostepna."
+          : "Brak dostepnego benchmarku pozwalajacego wyliczyc cel top1.",
+        options,
+        mmRate,
+        "missing_top1_benchmark"
+      );
+    }
+
+    const target = roundRate(benchmarkRate - options.undercutBufferPlnDay, options);
+    const change = target - mmRate;
+    if (Math.abs(change) < options.minChangePlnDay) {
+      return buildNoopRecommendation(base, "MM Cars Rental jest juz w wymaganym przedziale top1.", options, target);
+    }
+
+    const alreadyTop1 = mmRank === 1;
+    return buildActiveRecommendation({
+      base,
+      options,
+      action: change > 0 ? "increase" : "decrease",
+      recommendationType: alreadyTop1 ? "force_top1_maintain" : "force_top1_undercut",
+      targetRank: 1,
+      reason: alreadyTop1
+        ? `MM Cars Rental pozostaje top1 przy cenie ${options.undercutBufferPlnDay} PLN ponizej top2.`
+        : `Cena zostaje ustawiona ${options.undercutBufferPlnDay} PLN ponizej aktualnego top1, aby MM Cars Rental zostalo top1.`,
+      benchmarkOffer,
+      siteTarget: target
+    });
   }
 
   if (mmRank === 1) {

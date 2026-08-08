@@ -54,6 +54,14 @@ runTest("parseMoney handles common currency formats", () => {
   });
 });
 
+runTest("parseMoney ignores rental duration before a currency-tagged total", () => {
+  assert.deepEqual(parseMoney("Total for 3 days PLN 295.40"), {
+    value: 295.4,
+    currency: "PLN",
+    raw: "Total for 3 days PLN 295.40"
+  });
+});
+
 runTest("transmission helpers recognize automatic, manual, and ACRISS codes", () => {
   assert.equal(normalizeTransmission("Automatic Transmission"), "automatic");
   assert.equal(normalizeTransmission("Manual Transmission"), "manual");
@@ -731,6 +739,39 @@ runTest("buildPricingRecommendations raises MM top1 when top2 gap is at least 10
   assert.equal(output.recommendations[0].target_rank, 1);
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 81);
   assert.match(output.recommendations[0].reason, /top2 jest drozszy/);
+});
+
+runTest("buildPricingRecommendations forceTop1 undercuts top1 even when MM is outside top3", () => {
+  const payload = {
+    locations: ["Warsaw"],
+    scenarios: [{
+      scenario_id: "2026-08-16-3",
+      start_date: "2026-08-16",
+      rental_days: 3,
+      top_3_plus_mm_by_location: {
+        Warsaw: {
+          top_3: [
+            { provider_name: "Competitor A", total_price: 300, currency: "PLN", rental_days: 3 },
+            { provider_name: "Competitor B", total_price: 330, currency: "PLN", rental_days: 3 },
+            { provider_name: "Competitor C", total_price: 360, currency: "PLN", rental_days: 3 }
+          ],
+          mm_cars_rental: {
+            provider_name: "MM Cars Rental",
+            total_price: 450,
+            currency: "PLN",
+            rental_days: 3
+          }
+        }
+      }
+    }]
+  };
+
+  const output = buildPricingRecommendations(payload, { forceTop1: true });
+  assert.equal(output.recommendations[0].action, "decrease");
+  assert.equal(output.recommendations[0].recommendation_type, "force_top1_undercut");
+  assert.equal(output.recommendations[0].target_rank, 1);
+  assert.equal(output.recommendations[0].site_target_rate_pln_day, 99);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 10 PLN per day", () => {

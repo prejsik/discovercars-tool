@@ -128,7 +128,18 @@ function parseMoney(rawValue, fallbackCurrency = "") {
     raw.match(/zł|zl|€|\$|£/i);
   const currency = currencyMatch ? String(currencyMatch[0]).toUpperCase() : fallbackCurrency || "";
 
-  const numericMatch = raw.match(/(\d{1,3}(?:[\s.,]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2})|\d+)/);
+  const numericPattern = /(\d{1,3}(?:[\s.,]\d{3})*(?:[.,]\d{2})|\d+(?:[.,]\d{2})|\d+)/;
+  let numericMatch = null;
+  if (currencyMatch && Number.isInteger(currencyMatch.index)) {
+    numericMatch = raw.slice(currencyMatch.index + currencyMatch[0].length).match(numericPattern);
+    if (!numericMatch) {
+      const matchesBeforeCurrency = [
+        ...raw.slice(0, currencyMatch.index).matchAll(new RegExp(numericPattern.source, "g"))
+      ];
+      numericMatch = matchesBeforeCurrency.at(-1) || null;
+    }
+  }
+  numericMatch ||= raw.match(numericPattern);
   if (!numericMatch) {
     return null;
   }
