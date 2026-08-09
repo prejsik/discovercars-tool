@@ -312,6 +312,7 @@ Auto-tuning:
 - `location-concurrency` dobierane automatycznie do skali uruchomienia,
 - `timeout` dobierany automatycznie do ciezkosci batcha.
 - w trybach `fast`/`turbo` `max-pages` ogranicza liczbe jednoczesnych stron przegladarki, zeby komputer nie zostal zapchany.
+- runner chunkowy dodatkowo pilnuje jednego globalnego budzetu przez `--max-active-pages` i automatycznie obniza zagniezdzona rownoleglosc, gdy ich iloczyn przekroczylby limit.
 
 Wymuszenie wartosci recznie:
 
@@ -333,13 +334,14 @@ node src/index.js --speed-mode=fast --max-pages=6
 
 Dlaczego teraz jest szybciej:
 
-- jeden przebieg przegladarki na scenariusz (zamiast wielu uruchomien per miasto),
+- jedna instancja Chromium jest wspoldzielona w ramach procesu/chunka, a kazda lokalizacja nadal dostaje swiezy, izolowany kontekst,
 - w trybie `fast`/`turbo` brak wejscia na homepage przed direct search,
 - w trybie `fast`/`turbo` blokada obrazkow, fontow i mediow,
 - adres Galerii Krakowskiej korzysta bezposrednio z geo-search API strony zamiast powtarzac pelny formularz w przegladarce,
 - odpowiedzi API z okresem innym niz zadany sa odrzucane zamiast trafiac do raportu,
 - zapytania API maja osobny limit `20 s`, po ktorym nadal dzialaja retry i fallback przegladarkowy,
-- w trybie `fast`/`turbo` krotsze, nadal kontrolowane czekanie na wyniki,
+- gotowy wynik DOM jest wykrywany zdarzeniowo; poprzednie pelne czekanie pozostaje automatycznym fallbackiem,
+- po przerwanym lub zdegradowanym chunku checkpoint zachowuje sukcesy i ponawiane sa tylko scenariusze z bledem,
 - brak logow debugowych w standardowym uruchomieniu.
 
 Aby przyspieszyc jeszcze bardziej:
@@ -370,7 +372,7 @@ Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowy
 npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
 ```
 
-Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 13 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i po scaleniu zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 13 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
 
 Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
 

@@ -13,6 +13,8 @@ const {
   zonedLocalDateTimeToUtcDate
 } = require("./dateUtils");
 const { searchCheapestOffers } = require("./discoverCars");
+const { createSharedBrowserProvider } = require("./discovercars/scraper");
+const { isScenarioCheckpointComplete } = require("./executionPolicy");
 const {
   buildOutputPayload,
   printCompactScenarioTable,
@@ -906,6 +908,8 @@ function buildApiDomMonitoringSummary(scenarios) {
     drift_count: 0,
     browser_preferred_count: 0,
     fallback_count: 0,
+    quick_result_signal_count: 0,
+    full_result_wait_count: 0,
     adaptive_validation_triggered: false,
     reason_counts: {},
     by_location: {}
@@ -1125,7 +1129,7 @@ function createCheckpointController({ enabled, checkpointPath, runSignature, cli
   const resumedPayloadsByScenarioId = new Map();
   for (const scenario of scenarios) {
     const payload = state.completed?.[scenario.scenario_id];
-    if (payload && typeof payload === "object") {
+    if (isScenarioCheckpointComplete(payload, cli.locations)) {
       resumedPayloadsByScenarioId.set(scenario.scenario_id, payload);
     }
   }
@@ -1241,7 +1245,7 @@ function mergeScenarioSearchOutputs({ requestedLocations, primary, fallback }) {
   };
 }
 
-async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs }) {
+async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs, browserProvider }) {
   const baseSearchOptions = {
     weekend: scenario.weekend,
     headful: cli.headful,
@@ -1256,6 +1260,7 @@ async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs 
     apiFirst: cli.apiFirst,
     apiDomSanityRate: cli.apiDomSanityRate,
     speedMode: cli.speedMode,
+    browserProvider,
     quietLegacyLogs,
     logger
   };
@@ -1564,6 +1569,7 @@ async function main() {
   const scenarioPayloads = [];
   const payloadBuffer = new Array(scenarios.length).fill(null);
   const pendingScenarioIndices = [];
+  const browserProvider = createSharedBrowserProvider();
 
   for (let index = 0; index < scenarios.length; index += 1) {
     const scenario = scenarios[index];
@@ -1589,7 +1595,8 @@ async function main() {
         scenario,
         cli,
         logger,
-        quietLegacyLogs: cli.jsonOnly || !cli.verbose
+        quietLegacyLogs: cli.jsonOnly || !cli.verbose,
+        browserProvider
       });
 
       const scenarioPayload = buildOutputPayload({
@@ -1611,7 +1618,9 @@ async function main() {
       payloadBuffer[scenarioIndex] = scenarioPayload;
 
       try {
-        await checkpointController.markScenarioCompleted(scenarioPayload);
+        if (isScenarioCheckpointComplete(scenarioPayload, cli.locations)) {
+          await checkpointController.markScenarioCompleted(scenarioPayload);
+        }
       } catch (stateError) {
         logger.warn(
           `[checkpoint] Unable to save scenario ${scenario.scenario_id}: ${
@@ -1647,11 +1656,6 @@ async function main() {
       };
       payloadBuffer[scenarioIndex] = scenarioPayload;
 
-      try {
-        await checkpointController.markScenarioCompleted(scenarioPayload);
-      } catch {
-        // ignore checkpoint write error for failed scenario
-      }
     }
   };
 
@@ -1668,8 +1672,12 @@ async function main() {
     }
   });
 
-  await Promise.all(workers);
-  await checkpointController.flush();
+  try {
+    await Promise.all(workers);
+    await checkpointController.flush();
+  } finally {
+    await browserProvider.close();
+  }
 
   scenarioPayloads.push(...payloadBuffer.filter(Boolean));
 
@@ -1754,7 +1762,7 @@ async function main() {
     }
   }
 
-  const completedAllScenarios = payloadBuffer.every(Boolean);
+  const completedAllScenarios = payloadBuffer.every((payload) => isScenarioCheckpointComplete(payload, cli.locations));
   if (completedAllScenarios && checkpointController.enabled) {
     await checkpointController.clear();
   }

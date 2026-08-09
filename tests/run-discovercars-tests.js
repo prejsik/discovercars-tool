@@ -7,6 +7,7 @@ const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
 const {
   buildGeoSearchPayload,
+  createSharedBrowserProvider,
   DiscoverCarsScraper,
   extractOffersFromSearchApiPayload,
   resolveGeoLocationOverride,
@@ -26,6 +27,12 @@ const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration
 const { buildQualityAlerts, buildQualityReport, buildScrapeQualityReport } = require("../src/workflowQualityAlerts");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
 const { parseArgs: parseChunkedArgs } = require("../src/runDiscovercarsChunked");
+const {
+  isChunkPayloadComplete,
+  isRunPayloadComplete,
+  isScenarioCheckpointComplete,
+  resolveGlobalConcurrency
+} = require("../src/executionPolicy");
 const { buildGeoLocationOverrides, buildLocationZones, getDailyLocations } = require("../src/locationRegistry");
 const {
   filterOffersByTransmission,
@@ -549,6 +556,65 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
   assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>MM Cars Rental \(8\.8\)<\/span>/);
   assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>50,00 PLN\/d<\/span>/);
   assert.match(html, /aria-label="MM Cars Rental \(8\.8\)\. MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN\/d\."/);
+});
+
+runTest("global concurrency budget caps nested chunk, scenario, and location workers", () => {
+  assert.deepEqual(resolveGlobalConcurrency({
+    maxActivePages: 8,
+    chunkConcurrency: 2,
+    scenarioConcurrency: 2,
+    locationConcurrency: 3
+  }), {
+    maxActivePages: 8,
+    chunkConcurrency: 2,
+    scenarioConcurrency: 2,
+    locationConcurrency: 2,
+    activePageLimit: 8
+  });
+});
+
+runTest("checkpoint resumes only complete scenarios without location errors", () => {
+  const complete = {
+    results: [{ location: "Warsaw" }, { location: "Krakow" }],
+    errors: [],
+    top_3_by_location: { Warsaw: [{ total_price: 100 }], Krakow: [{ total_price: 110 }] }
+  };
+  assert.equal(isScenarioCheckpointComplete(complete, ["Warsaw", "Krakow"]), true);
+  assert.equal(isScenarioCheckpointComplete(complete, ["Warsaw", "Krakow", "Gdansk"]), false);
+  assert.equal(isScenarioCheckpointComplete({ ...complete, errors: [{ location: "Krakow" }] }, ["Warsaw", "Krakow"]), false);
+  assert.equal(isScenarioCheckpointComplete({ results: [], errors: [{ location: "Warsaw" }] }, ["Warsaw"]), false);
+  assert.equal(isRunPayloadComplete({ locations: ["Warsaw", "Krakow"], scenarios: [complete] }), true);
+  assert.equal(isRunPayloadComplete({ locations: ["Warsaw", "Krakow", "Gdansk"], scenarios: [complete] }), false);
+
+  const chunkPayload = {
+    locations: ["Warsaw", "Krakow"],
+    scenarios: [
+      { ...complete, start_date: "2026-08-16", rental_days: 2 },
+      { ...complete, start_date: "2026-08-16", rental_days: 3 }
+    ]
+  };
+  assert.equal(isChunkPayloadComplete(chunkPayload, {
+    startDates: ["2026-08-16"],
+    durations: [2, 3],
+    locations: ["Krakow", "Warsaw"]
+  }), true);
+  assert.equal(isChunkPayloadComplete(chunkPayload, {
+    startDates: ["2026-08-16", "2026-08-17"],
+    durations: [2, 3],
+    locations: ["Krakow", "Warsaw"]
+  }), false);
+  assert.equal(isChunkPayloadComplete(chunkPayload, {
+    startDates: ["2026-08-16"],
+    durations: [2, 3],
+    locations: ["Krakow", "Warsaw", "Gdansk"]
+  }), false);
+
+  const flatChunkPayload = { ...complete, pickup_date: "2026-08-16T11:00:00+02:00", rental_days: 2 };
+  assert.equal(isChunkPayloadComplete(flatChunkPayload, {
+    startDates: ["2026-08-16"],
+    durations: [2],
+    locations: ["Krakow", "Warsaw"]
+  }), true);
 });
 
 runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per day", () => {
@@ -1689,6 +1755,103 @@ runTest("buildScrapeQualityReport exposes API DOM drift monitoring", () => {
   assert.equal(report.api_dom_monitoring.adaptive_validation_triggered, true);
 });
 
-if (!process.exitCode) {
-  console.log("All DiscoverCars tests passed.");
+async function runAsyncTests() {
+  let launchCount = 0;
+  let closeCount = 0;
+  const fakeBrowser = {
+    isConnected: () => true,
+    close: async () => {
+      closeCount += 1;
+    }
+  };
+  const provider = createSharedBrowserProvider(async () => {
+    launchCount += 1;
+    return fakeBrowser;
+  });
+
+  const [first, second] = await Promise.all([
+    provider.getBrowser({ headless: true }),
+    provider.getBrowser({ headless: true })
+  ]);
+  assert.equal(first, fakeBrowser);
+  assert.equal(second, fakeBrowser);
+  assert.equal(launchCount, 1);
+  await provider.close();
+  assert.equal(closeCount, 1);
+  console.log("PASS shared browser provider reuses and closes one browser");
+
+  let reconnectLaunchCount = 0;
+  let reconnectedCloseCount = 0;
+  const disconnectedBrowser = { isConnected: () => false, close: async () => {} };
+  const reconnectedBrowser = {
+    isConnected: () => true,
+    close: async () => {
+      reconnectedCloseCount += 1;
+    }
+  };
+  const reconnectingProvider = createSharedBrowserProvider(async () => {
+    reconnectLaunchCount += 1;
+    return reconnectLaunchCount === 1 ? disconnectedBrowser : reconnectedBrowser;
+  });
+  const reconnected = await Promise.all(Array.from({ length: 4 }, () => reconnectingProvider.getBrowser()));
+  assert.equal(reconnectLaunchCount, 2);
+  assert.ok(reconnected.every((browser) => browser === reconnectedBrowser));
+  await reconnectingProvider.close();
+  assert.equal(reconnectedCloseCount, 1);
+  console.log("PASS shared browser provider serializes concurrent reconnects");
+
+  let networkIdleCalls = 0;
+  const visibleSignal = {
+    first: () => visibleSignal,
+    waitFor: async () => {},
+    isVisible: async () => true
+  };
+  const quickPage = {
+    getByText: () => visibleSignal,
+    locator: () => visibleSignal,
+    waitForLoadState: async (state) => {
+      if (state === "networkidle") networkIdleCalls += 1;
+    },
+    waitForTimeout: async () => {}
+  };
+  const quickScraper = new DiscoverCarsScraper({ timeoutMs: 1000, speedMode: "fast" });
+  await quickScraper.waitForResults(quickPage, {
+    collector: { waitForOffers: async () => true },
+    quickSignalTimeoutMs: 5
+  });
+  assert.equal(networkIdleCalls, 0);
+  console.log("PASS ready DOM signal skips networkidle wait");
+
+  let fallbackNetworkIdleCalls = 0;
+  const hiddenSignal = {
+    first: () => hiddenSignal,
+    waitFor: async () => {
+      throw new Error("not visible");
+    },
+    isVisible: async () => false
+  };
+  const fallbackPage = {
+    getByText: () => hiddenSignal,
+    locator: () => hiddenSignal,
+    waitForLoadState: async (state) => {
+      if (state === "networkidle") fallbackNetworkIdleCalls += 1;
+    },
+    waitForTimeout: async () => {}
+  };
+  await quickScraper.waitForResults(fallbackPage, {
+    collector: { waitForOffers: async () => false },
+    quickSignalTimeoutMs: 1
+  });
+  assert.equal(fallbackNetworkIdleCalls, 1);
+  console.log("PASS missing quick DOM signal preserves networkidle fallback");
 }
+
+runAsyncTests().then(() => {
+  if (!process.exitCode) {
+    console.log("All DiscoverCars tests passed.");
+  }
+}).catch((error) => {
+  console.error("FAIL shared browser provider reuses and closes one browser");
+  console.error(error instanceof Error ? error.stack : String(error));
+  process.exitCode = 1;
+});

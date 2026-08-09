@@ -288,6 +288,7 @@ jobs:
             --speed-mode="${{ steps.options.outputs.speed_mode }}" \
             --scenario-concurrency=2 \
             --location-concurrency=3 \
+            --max-active-pages=8 \
             --timeout=auto \
             --retries=1 \
             --chunk-retries=1 \

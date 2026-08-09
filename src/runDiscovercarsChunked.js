@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { isChunkPayloadComplete, resolveGlobalConcurrency } = require("./executionPolicy");
 const { mergePayloads } = require("./mergeDiscovercarsResults");
 const { WARSAW_TIME_ZONE, addDaysToDateParts, getZonedDateParts } = require("./dateUtils");
 const { getDailyLocations } = require("./locationRegistry");
@@ -125,6 +126,7 @@ function parseArgs(argv) {
     chunkRetries: 1,
     scenarioConcurrency: 2,
     locationConcurrency: 3,
+    maxActivePages: 8,
     timeout: "auto",
     directCandidateLimit: 2,
     directOffersWait: 1000,
@@ -220,6 +222,10 @@ function parseArgs(argv) {
     }
     if (arg.startsWith("--location-concurrency=")) {
       options.locationConcurrency = parseInteger(arg.slice("--location-concurrency=".length), options.locationConcurrency, 1, 6);
+      continue;
+    }
+    if (arg.startsWith("--max-active-pages=")) {
+      options.maxActivePages = parseInteger(arg.slice("--max-active-pages=".length), options.maxActivePages, 1, 24);
       continue;
     }
     if (arg.startsWith("--timeout=")) {
@@ -396,6 +402,21 @@ function readExistingChunkResults(chunks) {
     .filter((resultPath) => fs.existsSync(resultPath));
 }
 
+function hasCompleteChunkResults(resultsPath, chunk, options) {
+  if (!fs.existsSync(resultsPath)) {
+    return false;
+  }
+  try {
+    return isChunkPayloadComplete(JSON.parse(fs.readFileSync(resultsPath, "utf8")), {
+      startDates: chunk.dates,
+      durations: options.durations,
+      locations: options.locations
+    });
+  } catch {
+    return false;
+  }
+}
+
 async function runOptionalPipeline(options, mergedPath) {
   const reportPath = path.join(options.outputDir, "report.html");
   const pricingPath = path.join(options.outputDir, "pricing-recommendations.json");
@@ -460,29 +481,40 @@ async function runOptionalPipeline(options, mergedPath) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const concurrencyProfile = resolveGlobalConcurrency(options);
+  const runOptions = {
+    ...options,
+    chunkConcurrency: concurrencyProfile.chunkConcurrency,
+    scenarioConcurrency: concurrencyProfile.scenarioConcurrency,
+    locationConcurrency: concurrencyProfile.locationConcurrency
+  };
   const dateChunks = chunkDates(options.startDates, options.chunkDays);
   const chunks = dateChunks.map((dates, index) => buildChunk(index, dates, options.outputDir));
 
   if (options.dryRun) {
-    console.log(JSON.stringify({ outputDir: options.outputDir, chunks }, null, 2));
+    console.log(JSON.stringify({ outputDir: options.outputDir, chunks, concurrencyProfile }, null, 2));
     return;
   }
 
   fs.mkdirSync(options.outputDir, { recursive: true });
-  console.log(`Running ${chunks.length} chunks with chunk concurrency ${options.chunkConcurrency}.`);
+  console.log(
+    `Running ${chunks.length} chunks with concurrency `
+    + `${concurrencyProfile.chunkConcurrency} chunks x ${concurrencyProfile.scenarioConcurrency} scenarios x `
+    + `${concurrencyProfile.locationConcurrency} locations = ${concurrencyProfile.activePageLimit}/${concurrencyProfile.maxActivePages} active pages.`
+  );
   for (const chunk of chunks) {
     console.log(`- ${chunk.label}: ${chunk.dates.join(",")}`);
   }
 
   const failed = [];
-  await runPool(chunks, options.chunkConcurrency, async (chunk) => {
-    if (fs.existsSync(chunk.resultsPath) && !options.resetState) {
+  await runPool(chunks, concurrencyProfile.chunkConcurrency, async (chunk) => {
+    if (hasCompleteChunkResults(chunk.resultsPath, chunk, options) && !options.resetState) {
       console.log(`Skipping completed ${chunk.label}`);
       return chunk.resultsPath;
     }
     try {
       console.log(`Starting ${chunk.label}`);
-      await runChunk(chunk, options);
+      await runChunk(chunk, runOptions);
       console.log(`Completed ${chunk.label}`);
       return chunk.resultsPath;
     } catch (error) {
@@ -538,5 +570,6 @@ module.exports = {
   buildRollingStartDates,
   chunkDates,
   expandDateRange,
-  parseArgs
+  parseArgs,
+  resolveGlobalConcurrency
 };

@@ -83,6 +83,8 @@ The CSV contains:
 - A location is capped at 50 sampled DOM validations per process; API failures still use DOM fallback.
 - Active price recommendations without prior DOM confirmation are verified in DOM before Excel generation.
 - The HTML report hides implementation details such as API/DOM and focuses on prices, MM Cars Rental position, and the number of cheaper offers.
+- A single Chromium process is reused within a scraper process, while every location still runs in a fresh isolated browser context.
+- DOM readiness uses a fast result signal first and automatically falls back to the previous full loading and network-idle checks.
 
 ## Notes
 

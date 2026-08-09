@@ -56,6 +56,44 @@ const SHARED_API_DOM_DRIFT_STATE = {
   by_location: {}
 };
 
+function createSharedBrowserProvider(launchBrowser = (options) => chromium.launch(options)) {
+  let browserPromise = null;
+  const provider = {
+    async getBrowser(launchOptions = {}) {
+      if (!browserPromise) {
+        browserPromise = Promise.resolve()
+          .then(() => launchBrowser(launchOptions))
+          .catch((error) => {
+            browserPromise = null;
+            throw error;
+          });
+      }
+
+      const currentPromise = browserPromise;
+      const browser = await currentPromise;
+      if (typeof browser.isConnected === "function" && !browser.isConnected()) {
+        if (browserPromise === currentPromise) {
+          browserPromise = null;
+        }
+        return await provider.getBrowser(launchOptions);
+      }
+      return browser;
+    },
+    async close() {
+      const current = browserPromise;
+      browserPromise = null;
+      if (!current) {
+        return;
+      }
+      const browser = await current.catch(() => null);
+      if (browser) {
+        await browser.close();
+      }
+    }
+  };
+  return provider;
+}
+
 function clampPositiveInteger(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) {
@@ -90,6 +128,8 @@ class DiscoverCarsScraper {
       drift_count: 0,
       browser_preferred_count: 0,
       fallback_count: 0,
+      quick_result_signal_count: 0,
+      full_result_wait_count: 0,
       adaptive_validation_triggered: false,
       reason_counts: {},
       by_location: {}
@@ -98,12 +138,16 @@ class DiscoverCarsScraper {
 
   async run() {
     ensureDir(this.config.artifactsDir);
-    let browserPromise = null;
+    const sharedBrowserProvider = this.config.browserProvider || null;
+    let ownedBrowserPromise = null;
     const getBrowser = async () => {
-      if (!browserPromise) {
-        browserPromise = chromium.launch(this.resolveLaunchOptions());
+      if (sharedBrowserProvider) {
+        return await sharedBrowserProvider.getBrowser(this.resolveLaunchOptions());
       }
-      return await browserPromise;
+      if (!ownedBrowserPromise) {
+        ownedBrowserPromise = chromium.launch(this.resolveLaunchOptions());
+      }
+      return await ownedBrowserPromise;
     };
 
     const results = [];
@@ -155,8 +199,8 @@ class DiscoverCarsScraper {
         console.log(`ERR ${location} -> ${outcome.error.message}`);
       }
     } finally {
-      if (browserPromise) {
-        await (await browserPromise).close();
+      if (ownedBrowserPromise) {
+        await (await ownedBrowserPromise).close();
       }
     }
 
@@ -241,23 +285,25 @@ class DiscoverCarsScraper {
   }
 
   async runSingleLocationWithBrowser(browser, location) {
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 1200 },
-      locale: "en-US"
-    });
-
-    await this.configureContext(context);
-
-    const page = await context.newPage();
-    page.setDefaultTimeout(this.config.timeoutMs);
-    page.setDefaultNavigationTimeout(this.config.timeoutMs);
-
-    const responseCollector = this.createResponseCollector();
-    page.on("response", async (response) => {
-      await this.captureResponseOffers(responseCollector, response, location);
-    });
+    let context = null;
+    let page = null;
 
     try {
+      context = await browser.newContext({
+        viewport: { width: 1440, height: 1200 },
+        locale: "en-US"
+      });
+      await this.configureContext(context);
+
+      page = await context.newPage();
+      page.setDefaultTimeout(this.config.timeoutMs);
+      page.setDefaultNavigationTimeout(this.config.timeoutMs);
+
+      const responseCollector = this.createResponseCollector();
+      page.on("response", async (response) => {
+        await this.captureResponseOffers(responseCollector, response, location);
+      });
+
       let homepagePrepared = false;
       if (!this.isFastMode()) {
         await page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
@@ -278,7 +324,7 @@ class DiscoverCarsScraper {
         await this.fillSearchForm(page, location);
         await this.submitSearch(page);
         await this.ensureConfiguredSearchPeriod(page);
-        await this.waitForResults(page);
+        await this.waitForResults(page, { collector: responseCollector });
         const fallbackCollectorWaitMs = normalizeTransmissionFilter(this.config.transmissionFilter) ? 1000 : 20000;
         await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
 
@@ -328,10 +374,14 @@ class DiscoverCarsScraper {
         offerViews: this.buildOfferViews(allOffers, location)
       };
     } catch (error) {
-      await this.captureFailureArtifacts(page, location);
+      if (page) {
+        await this.captureFailureArtifacts(page, location);
+      }
       return { ok: false, error };
     } finally {
-      await context.close();
+      if (context) {
+        await context.close().catch(() => {});
+      }
     }
   }
 
@@ -679,7 +729,7 @@ class DiscoverCarsScraper {
       collector.clear();
       const searchUrl = this.buildDirectSearchUrl(baseUrl.origin, candidate.placeID);
       await page.goto(searchUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
-      await this.waitForResults(page);
+      await this.waitForResults(page, { collector });
       await this.waitForCollectorOffers(collector, collectorWaitMs);
 
       const domOffers = await this.extractOffersFromDomWithScroll(page, location);
@@ -710,7 +760,7 @@ class DiscoverCarsScraper {
     collector.clear();
     const search = await this.createGeoSearch(geoLocation);
     await page.goto(search.pageUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForResults(page);
+    await this.waitForResults(page, { collector });
     await this.waitForCollectorOffers(collector, 1000);
 
     const domOffers = await this.extractOffersFromDomWithScroll(page, location);
@@ -820,6 +870,17 @@ class DiscoverCarsScraper {
   createResponseCollector() {
     const offers = [];
     const seenKeys = new Set();
+    const waiters = new Set();
+
+    const notifyWaiters = () => {
+      if (!offers.length) {
+        return;
+      }
+      for (const resolve of waiters) {
+        resolve(true);
+      }
+      waiters.clear();
+    };
 
     return {
       add: (entries) => {
@@ -831,12 +892,27 @@ class DiscoverCarsScraper {
           seenKeys.add(key);
           offers.push(entry);
         }
+        notifyWaiters();
       },
       clear: () => {
         offers.length = 0;
         seenKeys.clear();
       },
-      getOffers: () => [...offers]
+      getOffers: () => [...offers],
+      waitForOffers: async (timeoutMs) => {
+        if (offers.length) {
+          return true;
+        }
+        return await new Promise((resolve) => {
+          const finish = (value) => {
+            clearTimeout(timer);
+            waiters.delete(finish);
+            resolve(value);
+          };
+          const timer = setTimeout(() => finish(false), Math.max(0, timeoutMs));
+          waiters.add(finish);
+        });
+      }
     };
   }
 
@@ -1339,7 +1415,28 @@ class DiscoverCarsScraper {
     throw new Error("Could not find the DiscoverCars search button.");
   }
 
-  async waitForResults(page) {
+  async waitForQuickResultSignal(page, collector, timeoutMs) {
+    if (!collector || typeof collector.waitForOffers !== "function") {
+      return false;
+    }
+
+    const signals = [
+      page.getByText(/sort by/i).first(),
+      page.getByText(/free cancellation/i).first(),
+      page.locator("[data-testid*='offer']").first()
+    ];
+    const pageReady = Promise.any(signals.map((signal) => signal
+      .waitFor({ state: "visible", timeout: timeoutMs })
+      .then(() => true)))
+      .catch(() => false);
+    const [offersReady, visible] = await Promise.all([
+      collector.waitForOffers(timeoutMs),
+      pageReady
+    ]);
+    return offersReady && visible;
+  }
+
+  async waitForResults(page, options = {}) {
     await page.waitForLoadState("domcontentloaded", { timeout: this.config.timeoutMs }).catch(() => {});
     const speedMode = normalizeSpeedMode(this.config.speedMode);
     const networkIdleTimeoutMs = speedMode === "turbo" ? 2_500 : speedMode === "fast" ? 5_000 : 15_000;
@@ -1347,7 +1444,17 @@ class DiscoverCarsScraper {
     const visibleSettleMs = speedMode === "turbo" ? 250 : speedMode === "fast" ? 600 : 1500;
     const pollMs = speedMode === "turbo" ? 250 : speedMode === "fast" ? 400 : 750;
     const finalSettleMs = speedMode === "turbo" ? 500 : speedMode === "fast" ? 1000 : 3000;
+    const quickSignalTimeoutMs = Number.isFinite(options.quickSignalTimeoutMs)
+      ? Math.max(1, options.quickSignalTimeoutMs)
+      : speedMode === "turbo" ? 1_500 : speedMode === "fast" ? 2_500 : 4_000;
 
+    if (await this.waitForQuickResultSignal(page, options.collector, quickSignalTimeoutMs)) {
+      this.apiDomTelemetry.quick_result_signal_count += 1;
+      await page.waitForTimeout(visibleSettleMs);
+      return;
+    }
+
+    this.apiDomTelemetry.full_result_wait_count += 1;
     await page.waitForLoadState("networkidle", { timeout: networkIdleTimeoutMs }).catch(() => {});
     await this.waitForLoadingScreenToFinish(page);
 
@@ -1374,6 +1481,10 @@ class DiscoverCarsScraper {
   }
 
   async waitForCollectorOffers(collector, timeoutMs) {
+    if (typeof collector.waitForOffers === "function") {
+      await collector.waitForOffers(timeoutMs);
+      return;
+    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (collector.getOffers().length > 0) {
@@ -2442,6 +2553,7 @@ function normalizeCountryCode(value) {
 
 module.exports = {
   buildGeoSearchPayload,
+  createSharedBrowserProvider,
   DiscoverCarsScraper,
   extractOffersFromSearchApiPayload,
   resolveGeoLocationOverride,

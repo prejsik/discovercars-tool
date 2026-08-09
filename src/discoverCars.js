@@ -230,9 +230,10 @@ async function searchCheapestOffers(options) {
     return await runLegacyFallbackBatch(options);
   }
 
-  const browser = await chromium.launch({
-    headless: !options.headful
-  });
+  const browserProvider = options.browserProvider || null;
+  const browser = browserProvider
+    ? await browserProvider.getBrowser({ headless: !options.headful })
+    : await chromium.launch({ headless: !options.headful });
 
   const results = [];
   const errors = [];
@@ -274,7 +275,9 @@ async function searchCheapestOffers(options) {
       }
     }
   } finally {
-    await browser.close();
+    if (!browserProvider) {
+      await browser.close();
+    }
   }
 
   return {
@@ -327,6 +330,7 @@ async function runLegacyFallbackBatch(options) {
     apiDomSanityRate: options.apiDomSanityRate,
     speedMode: options.speedMode || "safe",
     transmissionFilter: options.transmissionFilter || "automatic",
+    browserProvider: options.browserProvider || null,
     browserExecutablePath: null,
     outputCsv: path.resolve("output", `discovercars-fallback-batch-${Date.now()}.csv`),
     artifactsDir: path.resolve("artifacts", "discovercars")
@@ -443,6 +447,7 @@ async function runLegacyFallbackForLocation(location, options) {
     apiDomSanityRate: options.apiDomSanityRate,
     speedMode: options.speedMode || "safe",
     transmissionFilter: options.transmissionFilter || "automatic",
+    browserProvider: options.browserProvider || null,
     browserExecutablePath: null,
     outputCsv: path.resolve("output", `discovercars-fallback-${Date.now()}.csv`),
     artifactsDir: path.resolve("artifacts", "discovercars")
@@ -524,37 +529,39 @@ async function runLocationWithRetry(browser, location, options) {
 }
 
 async function scrapeLocationOnce(browser, location, options) {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1100 },
-    locale: "en-GB",
-    timezoneId: options.weekend.timeZone
-  });
-
-  if (isFastMode(options)) {
-    await blockHeavyResources(context);
-  }
-
-  await context
-    .addCookies([
-      {
-        name: "currency",
-        value: options.currency || "PLN",
-        url: "https://www.discovercars.com"
-      }
-    ])
-    .catch(() => {});
-
-  const page = await context.newPage();
-  page.setDefaultTimeout(options.timeoutMs);
-  page.setDefaultNavigationTimeout(options.timeoutMs);
-
+  let context = null;
+  let page = null;
   const collectedOffers = [];
   const responseHandler = async (response) => {
     await tryExtractOffersFromResponse(response, collectedOffers, location, options);
   };
-  page.on("response", responseHandler);
 
   try {
+    context = await browser.newContext({
+      viewport: { width: 1440, height: 1100 },
+      locale: "en-GB",
+      timezoneId: options.weekend.timeZone
+    });
+
+    if (isFastMode(options)) {
+      await blockHeavyResources(context);
+    }
+
+    await context
+      .addCookies([
+        {
+          name: "currency",
+          value: options.currency || "PLN",
+          url: "https://www.discovercars.com"
+        }
+      ])
+      .catch(() => {});
+
+    page = await context.newPage();
+    page.setDefaultTimeout(options.timeoutMs);
+    page.setDefaultNavigationTimeout(options.timeoutMs);
+    page.on("response", responseHandler);
+
     const baseOrigin = "https://www.discovercars.com";
     if (!isFastMode(options)) {
       await page.goto(baseOrigin, { waitUntil: "domcontentloaded" });
@@ -608,8 +615,12 @@ async function scrapeLocationOnce(browser, location, options) {
 
     throw new Error("No offers extracted from direct search flow (network and DOM fallback failed).");
   } finally {
-    page.off("response", responseHandler);
-    await context.close();
+    if (page) {
+      page.off("response", responseHandler);
+    }
+    if (context) {
+      await context.close().catch(() => {});
+    }
   }
 }
 
