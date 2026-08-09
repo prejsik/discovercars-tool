@@ -66,7 +66,7 @@ It uploads a separate artifact named `rentcars-results-<run number>` with:
 - `output/rentcars-run-error.txt`
 - `artifacts/rentcars/**`
 
-The default GitHub profile is intentionally quick:
+The default manual GitHub profile is intentionally quick:
 
 - all DiscoverCars cities mapped to RentCars.pl: `Warszawa,Krakow,Gdansk,Katowice,Wroclaw,Poznan`
 - `rolling_days: 1`
@@ -102,7 +102,7 @@ node .\src\rentcars\cli.js --config .\rentcars.config.example.json --headed
 
 - RentCars.pl uses a different Polish UI and search flow than DiscoverCars, so this module is intentionally separate under `src/rentcars`.
 - A city such as `Warszawa` is expanded to all matching pickup options, for example `Warszawa, Centrum`, `Warszawa, Lotnisko-Modlin`, and `Warszawa, Lotnisko-Okęcie`.
-- The scheduled GitHub Actions workflow is separate too: `.github/workflows/rentcars-daily.yml`.
+- The manual GitHub Actions workflow is separate too: `.github/workflows/rentcars-daily.yml`; it has no automatic schedule and sends Telegram only after a manual run.
 - GitHub runs that workflow in the cloud, so the local laptop does not need to be turned on.
 - The RentCars.pl workflow uploads `rentcars-results-latest.json`, `rentcars-report.html`, `rentcars-run-log.txt`, `rentcars-run-error.txt`, and failure artifacts.
 - If RentCars.pl changes the form, the main places to adjust are:

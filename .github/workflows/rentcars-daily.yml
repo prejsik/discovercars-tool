@@ -1,20 +1,6 @@
-name: RentCars daily run
+name: RentCars manual run
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/rentcars-daily.yml"
-      - "src/rentcars/**"
-      - "rentcars.config.example.json"
-      - "package.json"
-      - "package-lock.json"
-  # GitHub cron uses UTC. These two entries plus the Warsaw-hour gate below
-  # keep the real run at 06:00 Europe/Warsaw during both summer and winter time.
-  schedule:
-    - cron: "0 4 * * *"
-    - cron: "0 5 * * *"
   workflow_dispatch:
     inputs:
       locations:
