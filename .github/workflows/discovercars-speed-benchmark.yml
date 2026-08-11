@@ -53,8 +53,8 @@ jobs:
           }
           const locations = getDailyLocations();
           const shards = [
-            { shard: 0, start_dates: dates.slice(0, 2).join(",") },
-            { shard: 1, start_dates: dates.slice(2, 4).join(",") }
+            { shard: 0, start_dates: dates.filter((_, index) => index % 2 === 0).join(",") },
+            { shard: 1, start_dates: dates.filter((_, index) => index % 2 === 1).join(",") }
           ];
           fs.appendFileSync(process.env.GITHUB_OUTPUT, [
             `locations=${locations.join(",")}`,
