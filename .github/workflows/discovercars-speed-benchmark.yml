@@ -1,0 +1,227 @@
+name: DiscoverCars speed benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_dates:
+        description: "Four comma-separated pickup dates (YYYY-MM-DD)"
+        required: true
+        default: "2026-08-14,2026-08-15,2026-08-16,2026-08-17"
+permissions:
+  contents: read
+
+concurrency:
+  group: discovercars-pages-site
+  cancel-in-progress: false
+
+env:
+  BENCHMARK_DURATIONS: "2,3,4,5,6,7"
+
+jobs:
+  prepare:
+    name: Prepare identical benchmark scopes
+    runs-on: ubuntu-latest
+    outputs:
+      locations: ${{ steps.scope.outputs.locations }}
+      scenario_count: ${{ steps.scope.outputs.scenario_count }}
+      shards: ${{ steps.scope.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: scope
+        name: Build scope and two date shards
+        shell: bash
+        env:
+          START_DATES: ${{ inputs.start_dates }}
+          DURATIONS: ${{ env.BENCHMARK_DURATIONS }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const { getDailyLocations } = require("./src/locationRegistry");
+
+          const split = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+          const dates = split(process.env.START_DATES);
+          const durations = split(process.env.DURATIONS);
+          if (dates.length !== 4) {
+            throw new Error(`Benchmark requires exactly four start dates; received ${dates.length}.`);
+          }
+          if (new Set(dates).size !== dates.length || dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+            throw new Error("Benchmark dates must be four unique values in YYYY-MM-DD format.");
+          }
+          if (!durations.length) {
+            throw new Error("Benchmark requires at least one duration.");
+          }
+          const locations = getDailyLocations();
+          const shards = [
+            { shard: 0, start_dates: dates.slice(0, 2).join(",") },
+            { shard: 1, start_dates: dates.slice(2, 4).join(",") }
+          ];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, [
+            `locations=${locations.join(",")}`,
+            `scenario_count=${dates.length * durations.length}`,
+            `shards=${JSON.stringify(shards)}`
+          ].join("\n") + "\n");
+          NODE
+
+  baseline:
+    name: Baseline - one runner, eight pages
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run baseline scraper
+        shell: bash
+        run: |
+          mkdir -p benchmark/baseline
+          started_epoch="$(date +%s)"
+          node src/runDiscovercarsChunked.js \
+            --output-dir=benchmark/baseline \
+            --locations="${{ needs.prepare.outputs.locations }}" \
+            --start-dates="${{ inputs.start_dates }}" \
+            --durations="${{ env.BENCHMARK_DURATIONS }}" \
+            --strategy=legacy-batch \
+            --speed-mode=fast \
+            --scenario-concurrency=2 \
+            --location-concurrency=3 \
+            --max-active-pages=8 \
+            --timeout=auto \
+            --retries=1 \
+            --chunk-retries=2 \
+            --chunk-stall-timeout=600000 \
+            --chunk-days=2 \
+            --chunk-concurrency=2 \
+            --direct-candidate-limit=2 \
+            --direct-offers-wait=1000 \
+            --reset-state \
+            --continue-on-error \
+            --skip-postprocess \
+            | tee benchmark/baseline/run-log.txt
+          completed_epoch="$(date +%s)"
+          node -e 'const fs=require("node:fs"); const [start,end]=process.argv.slice(1).map(Number); fs.writeFileSync("benchmark/baseline/timing.json", JSON.stringify({started_epoch:start,completed_epoch:end,duration_seconds:end-start}, null, 2)+"\n");' "$started_epoch" "$completed_epoch"
+
+      - name: Validate baseline coverage
+        run: |
+          node src/workflowQualityAlerts.js \
+            --scrape-only \
+            --results=benchmark/baseline/results-latest.json \
+            --locations="${{ needs.prepare.outputs.locations }}" \
+            --output=benchmark/baseline/quality.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: discovercars-benchmark-baseline
+          path: benchmark/baseline
+          retention-days: 1
+
+  parallel:
+    name: Parallel shard ${{ matrix.shard }} - four pages
+    needs: [prepare, baseline]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.shards) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run date shard
+        shell: bash
+        run: |
+          mkdir -p benchmark/shard-${{ matrix.shard }}
+          started_epoch="$(date +%s)"
+          node src/runDiscovercarsChunked.js \
+            --output-dir=benchmark/shard-${{ matrix.shard }} \
+            --locations="${{ needs.prepare.outputs.locations }}" \
+            --start-dates="${{ matrix.start_dates }}" \
+            --durations="${{ env.BENCHMARK_DURATIONS }}" \
+            --strategy=legacy-batch \
+            --speed-mode=fast \
+            --scenario-concurrency=2 \
+            --location-concurrency=2 \
+            --max-active-pages=4 \
+            --timeout=auto \
+            --retries=1 \
+            --chunk-retries=2 \
+            --chunk-stall-timeout=600000 \
+            --chunk-days=2 \
+            --chunk-concurrency=1 \
+            --direct-candidate-limit=2 \
+            --direct-offers-wait=1000 \
+            --reset-state \
+            --continue-on-error \
+            --skip-postprocess \
+            | tee benchmark/shard-${{ matrix.shard }}/run-log.txt
+          completed_epoch="$(date +%s)"
+          node -e 'const fs=require("node:fs"); const [start,end,file]=process.argv.slice(1); fs.writeFileSync(file, JSON.stringify({started_epoch:Number(start),completed_epoch:Number(end),duration_seconds:Number(end)-Number(start)}, null, 2)+"\n");' "$started_epoch" "$completed_epoch" "benchmark/shard-${{ matrix.shard }}/timing.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: discovercars-benchmark-parallel-${{ matrix.shard }}
+          path: benchmark/shard-${{ matrix.shard }}
+          retention-days: 1
+
+  compare:
+    name: Merge and compare benchmark results
+    needs: [prepare, baseline, parallel]
+    if: always() && needs.prepare.result == 'success' && needs.baseline.result == 'success' && needs.parallel.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: discovercars-benchmark-baseline
+          path: benchmark/baseline
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: discovercars-benchmark-parallel-*
+          path: benchmark/parallel
+
+      - name: Merge parallel shards
+        run: |
+          node src/mergeDiscovercarsResults.js \
+            --input-dir=benchmark/parallel \
+            --output=benchmark/parallel-results.json
+
+      - name: Compare speed and quality
+        shell: bash
+        run: |
+          mkdir -p benchmark/comparison
+          node tools/compare_discovercars_benchmark.js \
+            --baseline-results=benchmark/baseline/results-latest.json \
+            --parallel-results=benchmark/parallel-results.json \
+            --baseline-timing=benchmark/baseline/timing.json \
+            --parallel-timings-dir=benchmark/parallel \
+            --locations="${{ needs.prepare.outputs.locations }}" \
+            --start-dates="${{ inputs.start_dates }}" \
+            --durations="${{ env.BENCHMARK_DURATIONS }}" \
+            --scenario-count="${{ needs.prepare.outputs.scenario_count }}" \
+            --minimum-speedup-percent=20 \
+            --output=benchmark/comparison/benchmark-report.json \
+            | tee benchmark/comparison/benchmark-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: discovercars-speed-benchmark-report
+          path: |
+            benchmark/comparison
+            benchmark/parallel-results.json
+            benchmark/baseline/quality.json
+          retention-days: 1

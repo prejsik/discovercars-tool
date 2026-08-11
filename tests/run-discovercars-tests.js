@@ -26,6 +26,7 @@ const {
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts, buildQualityReport, buildScrapeQualityReport } = require("../src/workflowQualityAlerts");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
+const { compareBenchmark } = require("../tools/compare_discovercars_benchmark");
 const { parseArgs: parseChunkedArgs, runCommand } = require("../src/runDiscovercarsChunked");
 const {
   isChunkPayloadComplete,
@@ -558,6 +559,49 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
   assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>MM Cars Rental \(8\.8\)<\/span>/);
   assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>50,00 PLN\/d<\/span>/);
   assert.match(html, /aria-label="MM Cars Rental \(8\.8\)\. MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN\/d\."/);
+});
+
+runTest("compareBenchmark recommends parallel execution only when speed and quality are preserved", () => {
+  const buildResults = () => ({
+    locations: ["Airport"],
+    scenarios: [
+      {
+        scenario_id: "2026-08-14__2",
+        start_date: "2026-08-14",
+        rental_days: 2,
+        results: [{ location: "Airport", total_price: 100 }],
+        errors: [],
+        top_3_plus_mm_by_location: {
+          Airport: {
+            top_3: [{ supplier: "Competitor", total_price: 100, currency: "PLN" }],
+            mm_cars_rental: { supplier: "MM Cars Rental", total_price: 110, currency: "PLN" }
+          }
+        }
+      }
+    ]
+  });
+
+  const report = compareBenchmark({
+    baselineResults: buildResults(),
+    parallelResults: buildResults(),
+    baselineTiming: { duration_seconds: 100 },
+    parallelTimings: [
+      { started_epoch: 10, completed_epoch: 45, duration_seconds: 35 },
+      { started_epoch: 12, completed_epoch: 50, duration_seconds: 38 }
+    ],
+    parallelShardResults: [buildResults(), buildResults()],
+    expectedLocations: "Airport",
+    expectedStartDates: "2026-08-14",
+    expectedDurations: "2",
+    expectedScenarioCount: 1,
+    minimumSpeedupPercent: 20
+  });
+
+  assert.equal(report.parallel.duration_seconds, 40);
+  assert.equal(report.comparison.speedup_percent, 60);
+  assert.equal(report.comparison.scenario_parity, true);
+  assert.equal(report.comparison.quality_preserved, true);
+  assert.equal(report.comparison.production_change_recommended, true);
 });
 
 runTest("global concurrency budget caps nested chunk, scenario, and location workers", () => {
