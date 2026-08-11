@@ -291,7 +291,8 @@ jobs:
             --max-active-pages=8 \
             --timeout=auto \
             --retries=1 \
-            --chunk-retries=1 \
+            --chunk-retries=2 \
+            --chunk-stall-timeout=600000 \
             --chunk-days=7 \
             --chunk-concurrency=2 \
             --direct-candidate-limit=2 \

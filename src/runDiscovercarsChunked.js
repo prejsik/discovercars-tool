@@ -9,6 +9,7 @@ const { getDailyLocations } = require("./locationRegistry");
 const DEFAULT_LOCATIONS = getDailyLocations();
 
 const DEFAULT_DURATIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+const DEFAULT_CHUNK_STALL_TIMEOUT_MS = 10 * 60 * 1000;
 
 function timestampForPath() {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -124,6 +125,7 @@ function parseArgs(argv) {
     strategy: "legacy-batch",
     retries: 0,
     chunkRetries: 1,
+    chunkStallTimeoutMs: DEFAULT_CHUNK_STALL_TIMEOUT_MS,
     scenarioConcurrency: 2,
     locationConcurrency: 3,
     maxActivePages: 8,
@@ -216,6 +218,15 @@ function parseArgs(argv) {
       options.chunkRetries = parseInteger(arg.slice("--chunk-retries=".length), options.chunkRetries, 0, 3);
       continue;
     }
+    if (arg.startsWith("--chunk-stall-timeout=")) {
+      options.chunkStallTimeoutMs = parseInteger(
+        arg.slice("--chunk-stall-timeout=".length),
+        options.chunkStallTimeoutMs,
+        30_000,
+        2 * 60 * 60 * 1000
+      );
+      continue;
+    }
     if (arg.startsWith("--scenario-concurrency=")) {
       options.scenarioConcurrency = parseInteger(arg.slice("--scenario-concurrency=".length), options.scenarioConcurrency, 1, 16);
       continue;
@@ -291,31 +302,128 @@ function parseArgs(argv) {
   return options;
 }
 
-function runCommand(command, args, { cwd, logPath, label }) {
+function getModifiedTimeMs(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return 0;
+  }
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function terminateProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    killer.on("error", () => child.kill("SIGKILL"));
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
+
+  const forceTimer = setTimeout(() => {
+    if (child.exitCode !== null) {
+      return;
+    }
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
+  }, 5_000);
+  forceTimer.unref();
+}
+
+function runCommand(command, args, {
+  cwd,
+  logPath,
+  label,
+  progressPath,
+  stallTimeoutMs = 0,
+  progressCheckIntervalMs = 30_000
+}) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
     const logStream = fs.createWriteStream(logPath, { flags: "a" });
     logStream.write(`\n[${new Date().toISOString()}] ${label}: ${command} ${args.join(" ")}\n`);
 
+    let finished = false;
+    let forcedError = null;
+    let lastProgressAt = Date.now();
+    let lastProgressMtime = getModifiedTimeMs(progressPath);
+
     const child = spawn(command, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      shell: false
+      shell: false,
+      detached: Boolean(stallTimeoutMs) && process.platform !== "win32"
     });
 
-    child.stdout.on("data", (chunk) => logStream.write(chunk));
-    child.stderr.on("data", (chunk) => logStream.write(chunk));
-    child.on("error", (error) => {
+    const recordOutput = (chunk) => {
+      lastProgressAt = Date.now();
+      logStream.write(chunk);
+    };
+    child.stdout.on("data", recordOutput);
+    child.stderr.on("data", recordOutput);
+
+    const watchdog = stallTimeoutMs > 0
+      ? setInterval(() => {
+          const currentMtime = getModifiedTimeMs(progressPath);
+          if (currentMtime > lastProgressMtime) {
+            lastProgressMtime = currentMtime;
+            lastProgressAt = Date.now();
+          }
+          if (forcedError || Date.now() - lastProgressAt < stallTimeoutMs) {
+            return;
+          }
+
+          forcedError = new Error(`${label} made no progress for ${Math.round(stallTimeoutMs / 1000)} seconds`);
+          logStream.write(`[${new Date().toISOString()}] ${forcedError.message}; terminating process tree\n`);
+          terminateProcessTree(child);
+        }, Math.max(25, progressCheckIntervalMs))
+      : null;
+    watchdog?.unref();
+
+    const finish = (error) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (watchdog) {
+        clearInterval(watchdog);
+      }
       logStream.end();
-      reject(error);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
+    child.on("error", (error) => {
+      finish(error);
     });
     child.on("close", (code) => {
+      if (finished) {
+        return;
+      }
       logStream.write(`[${new Date().toISOString()}] ${label} exited with code ${code}\n`);
-      logStream.end();
       if (code === 0) {
-        resolve();
+        finish();
       } else {
-        reject(new Error(`${label} failed with exit code ${code}`));
+        finish(forcedError || new Error(`${label} failed with exit code ${code}`));
       }
     });
   });
@@ -369,7 +477,9 @@ async function runChunk(chunk, options) {
       await runCommand(process.execPath, buildScraperArgs(chunk, options, attempt), {
         cwd: process.cwd(),
         logPath: chunk.logPath,
-        label: attempt === 0 ? chunk.label : `${chunk.label}-resume-${attempt}`
+        label: attempt === 0 ? chunk.label : `${chunk.label}-resume-${attempt}`,
+        progressPath: chunk.checkpointPath,
+        stallTimeoutMs: options.chunkStallTimeoutMs
       });
       break;
     } catch (error) {
@@ -571,5 +681,6 @@ module.exports = {
   chunkDates,
   expandDateRange,
   parseArgs,
+  runCommand,
   resolveGlobalConcurrency
 };

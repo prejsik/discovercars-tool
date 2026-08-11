@@ -26,7 +26,7 @@ const {
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts, buildQualityReport, buildScrapeQualityReport } = require("../src/workflowQualityAlerts");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
-const { parseArgs: parseChunkedArgs } = require("../src/runDiscovercarsChunked");
+const { parseArgs: parseChunkedArgs, runCommand } = require("../src/runDiscovercarsChunked");
 const {
   isChunkPayloadComplete,
   isRunPayloadComplete,
@@ -409,6 +409,7 @@ runTest("chunked runner expands rolling days into ISO start dates", () => {
     "--rolling-days=3",
     "--durations=2",
     "--locations=Warsaw",
+    "--chunk-stall-timeout=120000",
     "--skip-postprocess"
   ]);
 
@@ -416,6 +417,7 @@ runTest("chunked runner expands rolling days into ISO start dates", () => {
   assert.deepEqual(options.durations, [2]);
   assert.deepEqual(options.locations, ["Warsaw"]);
   assert.equal(options.locationConcurrency, 3);
+  assert.equal(options.chunkStallTimeoutMs, 120000);
   for (const startDate of options.startDates) {
     assert.match(startDate, /^\d{4}-\d{2}-\d{2}$/);
   }
@@ -1756,6 +1758,43 @@ runTest("buildScrapeQualityReport exposes API DOM drift monitoring", () => {
 });
 
 async function runAsyncTests() {
+  const watchdogDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-watchdog-"));
+  const watchdogLog = path.join(watchdogDir, "run.log");
+  try {
+    await assert.rejects(
+      runCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        cwd: process.cwd(),
+        logPath: watchdogLog,
+        label: "stalled-test",
+        stallTimeoutMs: 100,
+        progressCheckIntervalMs: 25
+      }),
+      /made no progress/
+    );
+    assert.match(fs.readFileSync(watchdogLog, "utf8"), /terminating process tree/);
+    console.log("PASS chunk watchdog terminates a stalled child process");
+
+    const progressPath = path.join(watchdogDir, "state.json");
+    const progressScript = [
+      "const fs=require('fs')",
+      "const p=process.argv[1]",
+      "let count=0",
+      "const timer=setInterval(()=>fs.writeFileSync(p,String(++count)),60)",
+      "setTimeout(()=>{clearInterval(timer);process.exit(0)},360)"
+    ].join(";");
+    await runCommand(process.execPath, ["-e", progressScript, progressPath], {
+      cwd: process.cwd(),
+      logPath: watchdogLog,
+      label: "progress-test",
+      progressPath,
+      stallTimeoutMs: 150,
+      progressCheckIntervalMs: 25
+    });
+    console.log("PASS chunk watchdog preserves a child with checkpoint progress");
+  } finally {
+    fs.rmSync(watchdogDir, { recursive: true, force: true });
+  }
+
   let launchCount = 0;
   let closeCount = 0;
   const fakeBrowser = {
