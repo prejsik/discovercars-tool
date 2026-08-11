@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "f1135523119ff62aae070c9648f4a55e82b32e7191d496fd85a5a357608626fe",
-  "confirmed_at": "2026-07-10T00:00:00+02:00",
+  "workbook_sha256": "cb21659eaa799590ce23d64fcb233aa6489e88d1a44c848a7d5270dd9089e7dc",
+  "confirmed_at": "2026-08-11T17:01:26+02:00",
   "confirmed_by": "user",
-  "note": "Migrated from the existing confirmed baseline_workbook_sha256 guard. Live verification is produced by the mandatory daily sanity check."
+  "note": "User supplied this workbook as the latest imported DiscoverCars rates on 2026-08-11. Live verification is produced by the mandatory daily sanity check."
 }
