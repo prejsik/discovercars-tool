@@ -68,7 +68,7 @@ Jak dziala:
 Domyslny zakres w chmurze:
 
 - `locations`: profil `daily` z `locations.config.json`; zawiera osobno Krakow Train Station, Galeria Krakowska Shopping Mall i Krakow Airport (KRK), a pozostale miasta maja punkt miejski i lotnisko,
-- `rolling_days`: `45`
+- `rolling_days`: `60`
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
 
