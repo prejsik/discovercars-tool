@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { loadPricingRules } = require("./pricingRules");
-const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
+const { buildPublicResultsPayload } = require("./publicResults");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
 const PRICING_RULES = loadPricingRules();
@@ -10,7 +10,6 @@ const MM_TOP1_GAP_20_PRICE_PER_DAY_THRESHOLD_PLN = 20;
 const MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN = 30;
 const REPORT_TIME_ZONE = "Europe/Warsaw";
 const INITIAL_SCENARIO_LIMIT = 20;
-const COMPACT_SCENARIO_LIMIT = 5;
 const COMPACT_LAYOUT_MAX_WIDTH = 1220;
 
 function normalizeProviderName(value) {
@@ -374,6 +373,56 @@ function buildScenarioRows(rootPayload, scenarioPayload) {
     .join("\n");
 }
 
+function buildReportView(view) {
+  const top3 = Array.isArray(view?.top_3) ? view.top_3 : [];
+  const mmOffer = view?.mm_cars_rental || null;
+  const top1High = isTop1High(view);
+  const top1Title = top1High ? `Top1 powyżej ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/dzień.` : "";
+
+  return [
+    formatProviderName(top3[0]),
+    isMmCarsProvider(top3[0]?.provider_name) ? getMmClassName(top3[0], top3) : "",
+    formatOfferPrice(top3[0]),
+    top1High ? "top1-high" : "",
+    top1Title,
+    formatProviderName(top3[1]),
+    isMmCarsProvider(top3[1]?.provider_name) ? getMmClassName(top3[1], top3) : "",
+    formatOfferPrice(top3[1]),
+    formatProviderName(top3[2]),
+    isMmCarsProvider(top3[2]?.provider_name) ? getMmClassName(top3[2], top3) : "",
+    formatOfferPrice(top3[2]),
+    formatOfferPrice(mmOffer),
+    mmOffer ? getMmClassName(mmOffer, top3) : "muted",
+    mmRankLabel(view),
+    cheaperOffersLabel(view),
+    getMmState(view),
+    top1High
+  ];
+}
+
+function buildReportData(payload) {
+  const publicPayload = buildPublicResultsPayload(payload);
+  return {
+    locations: publicPayload.locations,
+    scenarios: publicPayload.scenarios.map((scenario) => ({
+      date: scenario.start_date || "",
+      duration: String(scenario.rental_days ?? ""),
+      title: scenarioTitle(scenario),
+      rows: scenarioLocations(publicPayload, scenario).map((location) => [
+        location,
+        isAirportLocation(location) ? "airport" : "branch",
+        buildReportView(getOfferView(scenario, location, "automatic")),
+        buildReportView(getOfferView(scenario, location, "all"))
+      ]),
+      errors: scenario.errors || []
+    }))
+  };
+}
+
+function serializeInlineJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function buildErrorsHtml(errors) {
   if (!Array.isArray(errors) || !errors.length) {
     return "";
@@ -456,25 +505,22 @@ function buildMultiFilter(id, label, options, allLabel = "Wszystkie") {
 }
 
 function buildHtmlReport(payload, options = {}) {
-  const scenarios = normalizeScenarios(payload);
-  const top1SignalIndex = buildTop1RateSignalIndex(payload, PRICING_RULES);
+  const reportData = buildReportData(payload);
+  const scenarios = reportData.scenarios;
   const generatedAt = payload.generated_at || new Date().toISOString();
   const timeZone = payload.time_zone || REPORT_TIME_ZONE;
   const scenarioDates = scenarios
-    .map((scenario) => scenario.start_date)
+    .map((scenario) => scenario.date)
     .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")))
     .sort();
   const minStartDate = scenarioDates[0] || "";
   const maxStartDate = scenarioDates[scenarioDates.length - 1] || "";
-  const locations = [...new Set(scenarios.flatMap((scenario) => scenarioLocations(payload, scenario)))].sort();
-  const durations = [...new Set(scenarios.map((scenario) => Number(scenario.rental_days)).filter(Number.isFinite))].sort((a, b) => a - b);
-  const locationChecks = scenarios.reduce((sum, scenario) => sum + scenarioLocations(payload, scenario).length, 0);
-  const missingMm = scenarios.reduce((sum, scenario) => sum + scenarioLocations(payload, scenario).filter(
-    (location) => !scenario?.top_3_plus_mm_by_location?.[location]?.mm_cars_rental
-  ).length, 0);
+  const locations = [...reportData.locations].sort();
+  const durations = [...new Set(scenarios.map((scenario) => Number(scenario.duration)).filter(Number.isFinite))].sort((a, b) => a - b);
+  const locationChecks = scenarios.reduce((sum, scenario) => sum + scenario.rows.length, 0);
+  const missingMm = scenarios.reduce((sum, scenario) => sum + scenario.rows.filter((row) => row[2][15] === "missing").length, 0);
   const errorCount = scenarios.reduce((sum, scenario) => sum + (scenario.errors || []).length, 0);
-  const top1Signals = [...top1SignalIndex.values()];
-  const highTop1Count = top1Signals.filter((signal) => signal.is_high_rate).length;
+  const highTop1Count = scenarios.reduce((sum, scenario) => sum + scenario.rows.filter((row) => row[2][16]).length, 0);
   const locationOptions = locations.map((location) => ({ value: location, label: location }));
   const durationOptions = durations.map((duration) => ({ value: String(duration), label: formatDaysLabel(duration) }));
   const mmStateOptions = [
@@ -914,11 +960,11 @@ function buildHtmlReport(payload, options = {}) {
   </div>
   <div class="results-status" id="results-status" role="status" aria-live="polite"></div>
   <div class="empty-state" id="empty-state" hidden>Brak wyników dla wybranych filtrów.</div>
-  <main id="report-results">
-    ${scenarios.map((scenario) => buildScenarioTable(payload, scenario)).join("\n")}
-  </main>
+  <main id="report-results"></main>
   <div class="report-actions"><button id="load-more" type="button" hidden>Pokaż kolejne</button></div>
+  <script type="application/json" id="report-data">${serializeInlineJson(reportData)}</script>
   <script>
+    const reportData = JSON.parse(document.getElementById("report-data").textContent);
     const transmissionControl = document.getElementById("filter-transmission");
     const locationTypeControl = document.getElementById("filter-location-type");
     const dateFromControl = document.getElementById("filter-date-from");
@@ -930,13 +976,88 @@ function buildHtmlReport(payload, options = {}) {
     const resultsStatus = document.getElementById("results-status");
     const emptyState = document.getElementById("empty-state");
     const loadMoreControl = document.getElementById("load-more");
+    const reportResults = document.getElementById("report-results");
     const multiControls = ["filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
-    const scenarioSections = Array.from(document.querySelectorAll(".scenario"));
     const compactViewport = window.matchMedia("(max-width: ${COMPACT_LAYOUT_MAX_WIDTH}px)");
     const reportMinDate = ${JSON.stringify(minStartDate)};
     const reportMaxDate = ${JSON.stringify(maxStartDate)};
-    let scenarioPageSize = compactViewport.matches ? ${COMPACT_SCENARIO_LIMIT} : ${INITIAL_SCENARIO_LIMIT};
+    const scenarioPageSize = ${INITIAL_SCENARIO_LIMIT};
     let visibleScenarioLimit = scenarioPageSize;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function statusTitleForClass(className) {
+      const classes = String(className || "").split(/\\s+/);
+      if (classes.includes("mm-top1-gap-30")) return "MM Cars Rental jest Top1; kolejna firma jest droższa o co najmniej 30 PLN/d.";
+      if (classes.includes("mm-top1-gap-20")) return "MM Cars Rental jest Top1; kolejna firma jest droższa o 20-29,99 PLN/d.";
+      if (classes.includes("mm-top1-gap")) return "MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN/d.";
+      if (classes.includes("mm-close")) return "MM Cars Rental jest do 10 PLN/d od wyższej pozycji.";
+      if (classes.includes("mm")) return "Oferta MM Cars Rental.";
+      return "";
+    }
+
+    function viewSpan(mode, content, className = "", title = "") {
+      const classes = ["offer-view", "offer-view-" + mode, className].filter(Boolean).join(" ");
+      const resolvedTitle = title || statusTitleForClass(className);
+      const safeContent = escapeHtml(content);
+      const titleAttributes = resolvedTitle
+        ? ' title="' + escapeHtml(resolvedTitle) + '" aria-label="' + safeContent + ". " + escapeHtml(resolvedTitle) + '"'
+        : "";
+      return '<span class="' + classes + '"' + titleAttributes + ">" + safeContent + "</span>";
+    }
+
+    function dualCell(automaticContent, allContent, automaticClass = "", allClass = "", automaticTitle = "", allTitle = "") {
+      return '<td class="view-cell">'
+        + viewSpan("automatic", automaticContent, automaticClass, automaticTitle)
+        + viewSpan("all", allContent, allClass, allTitle)
+        + "</td>";
+    }
+
+    function buildRow(row, index) {
+      const automatic = row[2];
+      const all = row[3];
+      return '<tr class="' + (index % 2 === 0 ? "even" : "odd")
+        + '" data-location="' + escapeHtml(row[0])
+        + '" data-location-type="' + row[1]
+        + '" data-mm-state-automatic="' + automatic[15]
+        + '" data-mm-state-all="' + all[15]
+        + '" data-top1-high-automatic="' + automatic[16]
+        + '" data-top1-high-all="' + all[16] + '">'
+        + '<td class="index">' + (index + 1) + "</td>"
+        + '<td class="location">' + escapeHtml(row[0]) + "</td>"
+        + dualCell(automatic[0], all[0], automatic[1], all[1])
+        + dualCell(automatic[2], all[2], automatic[3], all[3], automatic[4], all[4])
+        + dualCell(automatic[5], all[5], automatic[6], all[6])
+        + dualCell(automatic[7], all[7])
+        + dualCell(automatic[8], all[8], automatic[9], all[9])
+        + dualCell(automatic[10], all[10])
+        + dualCell(automatic[11], all[11], automatic[12], all[12])
+        + dualCell(automatic[13], all[13], "rank-cell", "rank-cell")
+        + dualCell(automatic[14], all[14], "count-cell", "count-cell")
+        + "</tr>";
+    }
+
+    function buildErrors(errors) {
+      if (!Array.isArray(errors) || !errors.length) return "";
+      const items = errors.map((error) => '<li><strong>' + escapeHtml(error.location || "Nieznana lokalizacja") + ":</strong> " + escapeHtml(error.error || error.message || error) + "</li>").join("");
+      return '<details class="errors"><summary>Błędy (' + errors.length + ")</summary><ul>" + items + "</ul></details>";
+    }
+
+    function buildScenarioTable(scenario, rows) {
+      const safeTitle = escapeHtml(scenario.title);
+      return '<section class="scenario" data-date="' + escapeHtml(scenario.date) + '" data-duration="' + escapeHtml(scenario.duration) + '">'
+        + "<h2>" + safeTitle + "</h2>"
+        + '<table aria-label="Porównanie cen: ' + safeTitle + '"><colgroup><col class="col-index"><col class="col-location"><col class="col-company"><col class="col-rate"><col class="col-company"><col class="col-rate"><col class="col-company"><col class="col-rate"><col class="col-mm-rate"><col class="col-rank"><col class="col-count"></colgroup>'
+        + '<thead><tr><th scope="col">#</th><th scope="col">Lokalizacja</th><th scope="col">Top 1 firma</th><th scope="col">Top 1 PLN/d</th><th scope="col">Top 2 firma</th><th scope="col">Top 2 PLN/d</th><th scope="col">Top 3 firma</th><th scope="col">Top 3 PLN/d</th><th scope="col">MM PLN/d</th><th scope="col" title="Pozycja MM Cars Rental w rankingu firm">Pozycja MM</th><th scope="col" title="Liczba pojedynczych ofert tańszych od oferty MM Cars Rental">Tańsze oferty</th></tr></thead>'
+        + "<tbody>" + rows.map(buildRow).join("") + "</tbody></table>"
+        + buildErrors(scenario.errors) + "</section>";
+    }
 
     function activeFilterSuffix() {
       const count = Number(transmissionControl.value !== "all")
@@ -954,7 +1075,6 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     function syncCompactLayout() {
-      scenarioPageSize = compactViewport.matches ? ${COMPACT_SCENARIO_LIMIT} : ${INITIAL_SCENARIO_LIMIT};
       visibleScenarioLimit = scenarioPageSize;
       toolbar.hidden = compactViewport.matches;
       updateCompactFilterToggle(toolbar.hidden);
@@ -1024,39 +1144,40 @@ function buildHtmlReport(payload, options = {}) {
       const selectedTop1States = selectedValues(multiControls[3]);
       multiControls.forEach(updateMultiSummary);
 
-      const matchingSections = [];
+      const matchingScenarios = [];
       let matchingRows = 0;
-      for (const section of scenarioSections) {
-        const scenarioMatch = (!dateFrom || section.dataset.date >= dateFrom)
-          && (!dateTo || section.dataset.date <= dateTo)
-          && (!selectedDurations.size || selectedDurations.has(section.dataset.duration));
-        let visibleRows = 0;
-        for (const row of section.querySelectorAll("tbody tr")) {
-          const mmState = offerView === "all" ? row.dataset.mmStateAll : row.dataset.mmStateAutomatic;
-          const top1High = offerView === "all" ? row.dataset.top1HighAll : row.dataset.top1HighAutomatic;
-          const top1State = top1High === "true" ? "high" : "normal";
+      for (const scenario of reportData.scenarios) {
+        const scenarioMatch = (!dateFrom || scenario.date >= dateFrom)
+          && (!dateTo || scenario.date <= dateTo)
+          && (!selectedDurations.size || selectedDurations.has(scenario.duration));
+        if (!scenarioMatch) continue;
+
+        const rows = scenario.rows.filter((row) => {
+          const view = offerView === "all" ? row[3] : row[2];
+          const mmState = view[15];
+          const top1State = view[16] ? "high" : "normal";
           const top1Match = !selectedTop1States.size || selectedTop1States.has(top1State);
-          const locationTypeMatch = locationType === "all" || row.dataset.locationType === locationType;
-          const locationMatch = !selectedLocations.size || selectedLocations.has(row.dataset.location);
+          const locationTypeMatch = locationType === "all" || row[1] === locationType;
+          const locationMatch = !selectedLocations.size || selectedLocations.has(row[0]);
           const stateMatch = !selectedStates.size || selectedStates.has(mmState);
-          const visible = scenarioMatch && locationTypeMatch && locationMatch && stateMatch && top1Match;
-          row.hidden = !visible;
-          if (visible) visibleRows += 1;
+          return locationTypeMatch && locationMatch && stateMatch && top1Match;
+        });
+        if (rows.length > 0) {
+          matchingScenarios.push({ scenario, rows });
+          matchingRows += rows.length;
         }
-        if (visibleRows > 0) {
-          matchingSections.push(section);
-          matchingRows += visibleRows;
-        }
-        section.hidden = true;
       }
 
-      const shownSections = Math.min(visibleScenarioLimit, matchingSections.length);
-      matchingSections.slice(0, shownSections).forEach((section) => { section.hidden = false; });
-      emptyState.hidden = matchingSections.length > 0;
-      loadMoreControl.hidden = shownSections >= matchingSections.length;
-      loadMoreControl.textContent = "Pokaż kolejne " + Math.min(scenarioPageSize, matchingSections.length - shownSections);
-      resultsStatus.textContent = matchingSections.length
-        ? "Scenariusze: " + shownSections + "/" + matchingSections.length + " · pasujące wiersze: " + matchingRows
+      const shownSections = Math.min(visibleScenarioLimit, matchingScenarios.length);
+      reportResults.innerHTML = matchingScenarios
+        .slice(0, shownSections)
+        .map(({ scenario, rows }) => buildScenarioTable(scenario, rows))
+        .join("");
+      emptyState.hidden = matchingScenarios.length > 0;
+      loadMoreControl.hidden = shownSections >= matchingScenarios.length;
+      loadMoreControl.textContent = "Pokaż kolejne " + Math.min(scenarioPageSize, matchingScenarios.length - shownSections);
+      resultsStatus.textContent = matchingScenarios.length
+        ? "Scenariusze: " + shownSections + "/" + matchingScenarios.length + " · pasujące wiersze: " + matchingRows
         : "Brak pasujących scenariuszy";
       updateCompactFilterToggle(toolbar.hidden);
       updateShareableUrl();
@@ -1192,6 +1313,7 @@ if (require.main === module) {
 
 module.exports = {
   buildHtmlReport,
+  buildReportData,
   generateReportFromFile,
   writeHtmlReport
 };

@@ -16,7 +16,8 @@ const {
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
 const { buildLocationBreakdown } = require("../src/discoverCars");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
-const { buildHtmlReport, generateReportFromFile } = require("../src/reportHtml");
+const { buildHtmlReport, buildReportData, generateReportFromFile } = require("../src/reportHtml");
+const { buildPublicResultsPayload } = require("../src/publicResults");
 const { buildTelegramSummary, formatDuration, summarizeNumberList } = require("../src/telegramSummary");
 const {
   buildSanityComparison,
@@ -373,7 +374,7 @@ runTest("API DOM sanity increases DOM validation after repeated drift", () => {
   assert.equal(scraper.buildApiDomTelemetrySummary().drift_rate_percent, 30);
 });
 
-runTest("active pricing candidates always require DOM validation", () => {
+runTest("pricing candidates wait for final recommendation DOM validation", () => {
   const scraper = new DiscoverCarsScraper({
     pickupDate: "2026-07-10",
     dropoffDate: "2026-07-12",
@@ -387,9 +388,8 @@ runTest("active pricing candidates always require DOM validation", () => {
   ];
   const inactiveTop1Gap = activeTop1Gap.map((item) => ({ ...item }));
   inactiveTop1Gap[1].totalPrice = 218;
-  assert.equal(scraper.shouldValidateApiOutcome("Warsaw", activeTop1Gap), true);
+  assert.equal(scraper.shouldValidateApiOutcome("Warsaw", activeTop1Gap), false);
   assert.equal(scraper.shouldValidateApiOutcome("Krakow", inactiveTop1Gap), false);
-  assert.equal(scraper.apiDomTelemetry.mandatory_recommendation_validation_count, 1);
 });
 
 runTest("sparse API results respect the per-location DOM validation cap", () => {
@@ -477,7 +477,7 @@ runTest("toCsv writes stable header and row data", () => {
 });
 
 runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", () => {
-  const html = buildHtmlReport({
+  const payload = {
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
     locations: ["Warsaw"],
@@ -505,20 +505,24 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
         }
       }
     ]
-  });
+  };
+  const html = buildHtmlReport(payload);
+  const automatic = buildReportData(payload).scenarios[0].rows[0][2];
 
   assert.match(html, /<table aria-label="Porównanie cen:/);
   assert.match(html, /Top 1 firma/);
   assert.match(html, /Top 1 PLN\/d/);
-  assert.match(html, /MM Cars Rental \(8\.8\)/);
-  assert.match(html, /mm-close/);
-  assert.match(html, /50,00 PLN\/d/);
+  assert.equal(automatic[0], "Alamo (8.7)");
+  assert.equal(automatic[2], "50,00 PLN/d");
+  assert.equal(automatic[5], "MM Cars Rental (8.8)");
+  assert.equal(automatic[6], "mm mm-close");
   assert.match(html, /filter-location/);
   assert.match(html, /bez MM Cars Rental/);
   assert.match(html, /Kontrola cen DiscoverCars/);
   assert.match(html, /Wygenerowano:/);
   assert.match(html, /Legenda oznaczeń/);
-  assert.match(html, /<td class="index">1<\/td>/);
+  assert.match(html, /<main id="report-results"><\/main>/);
+  assert.match(html, /<script type="application\/json" id="report-data">/);
   assert.doesNotMatch(html, /source \/ car/i);
   assert.doesNotMatch(html, /evidence-cell/);
   assert.doesNotMatch(html, /Not available|Scenario \d|rental_days|\/day/);
@@ -526,7 +530,7 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
 });
 
 runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per day above MM top1", () => {
-  const html = buildHtmlReport({
+  const payload = {
     generated_at: "2026-05-04T15:00:00.000Z",
     time_zone: "Europe/Warsaw",
     locations: ["Warsaw"],
@@ -554,11 +558,66 @@ runTest("buildHtmlReport marks MM Cars Rental when top2 is at least 10 PLN per d
         }
       }
     ]
+  };
+  const automatic = buildReportData(payload).scenarios[0].rows[0][2];
+
+  assert.equal(automatic[0], "MM Cars Rental (8.8)");
+  assert.equal(automatic[1], "mm mm-top1-gap");
+  assert.equal(automatic[2], "50,00 PLN/d");
+  assert.equal(automatic[12], "mm mm-top1-gap");
+  assert.match(buildHtmlReport(payload), /MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN\/d/);
+});
+
+runTest("public results keep report views while removing duplicated technical payload", () => {
+  const automaticMm = {
+    provider_name: "MM Cars Rental",
+    provider_rating: 8.8,
+    total_price: 220,
+    currency: "PLN",
+    rental_days: 2,
+    car_name: "Kia Rio",
+    source: "api",
+    source_url: "https://example.test/private-search"
+  };
+  const compact = buildPublicResultsPayload({
+    generated_at: "2026-08-19T05:00:00.000Z",
+    locations: ["Warsaw Chopin Airport (WAW)"],
+    scenarios: [{
+      scenario_id: "2026-08-20__2",
+      start_date: "2026-08-20",
+      rental_days: 2,
+      results: [automaticMm],
+      top_3_by_location: { "Warsaw Chopin Airport (WAW)": [automaticMm] },
+      top_3_plus_mm_by_location: {
+        "Warsaw Chopin Airport (WAW)": { top_3: [automaticMm], mm_cars_rental: automaticMm }
+      },
+      offer_views_by_location: {
+        "Warsaw Chopin Airport (WAW)": {
+          automatic: { top_3: [automaticMm], mm_cars_rental: automaticMm, mm_provider_rank: 1, cheaper_offer_count: 0 },
+          all: { top_3: [{ ...automaticMm, total_price: 200 }], mm_cars_rental: automaticMm, mm_provider_rank: 2, cheaper_offer_count: 3 }
+        }
+      }
+    }]
   });
 
-  assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>MM Cars Rental \(8\.8\)<\/span>/);
-  assert.match(html, /offer-view-automatic mm mm-top1-gap"[^>]*>50,00 PLN\/d<\/span>/);
-  assert.match(html, /aria-label="MM Cars Rental \(8\.8\)\. MM Cars Rental jest Top1; kolejna firma jest droższa o 10-19,99 PLN\/d\."/);
+  const scenario = compact.scenarios[0];
+  const views = scenario.offer_views_by_location["Warsaw Chopin Airport (WAW)"];
+  assert.equal(compact.schema_version, 2);
+  assert.equal(views.automatic.mm_provider_rank, 1);
+  assert.equal(views.all.cheaper_offer_count, 3);
+  assert.equal(views.all.top_3[0].total_price, 200);
+  assert.equal(views.automatic.mm_cars_rental.provider_rating, 8.8);
+  assert.equal("results" in scenario, false);
+  assert.equal("top_3_by_location" in scenario, false);
+  assert.equal("top_3_plus_mm_by_location" in scenario, false);
+  assert.doesNotMatch(JSON.stringify(compact), /source_url|private-search|car_name/);
+});
+
+runTest("GitHub Pages publishes compact results while Actions keeps the full artifact", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  assert.match(workflow, /node src\/publicResults\.js output\/results-latest\.json output\/results-public\.json/);
+  assert.match(workflow, /cp output\/results-public\.json "pages\/\$run_dir\/results-latest\.json"/);
+  assert.match(workflow, /name: Upload scraper results[\s\S]*output\/results-latest\.json/);
 });
 
 runTest("compareBenchmark recommends parallel execution only when speed and quality are preserved", () => {
@@ -683,14 +742,18 @@ runTest("buildHtmlReport separates MM top1 gaps of at least 20 and 30 PLN per da
     }]
   });
 
-  const gap20Html = buildHtmlReport(buildPayload(140));
-  assert.match(gap20Html, /data-mm-state-automatic="top1-gap-20"/);
-  assert.match(gap20Html, /offer-view-automatic mm mm-top1-gap-20/);
+  const gap20Payload = buildPayload(140);
+  const gap20Html = buildHtmlReport(gap20Payload);
+  const gap20View = buildReportData(gap20Payload).scenarios[0].rows[0][2];
+  assert.equal(gap20View[15], "top1-gap-20");
+  assert.equal(gap20View[1], "mm mm-top1-gap-20");
   assert.match(gap20Html, /type="checkbox" value="top1-gap-20"/);
 
-  const gap30Html = buildHtmlReport(buildPayload(160));
-  assert.match(gap30Html, /data-mm-state-automatic="top1-gap-30"/);
-  assert.match(gap30Html, /offer-view-automatic mm mm-top1-gap-30/);
+  const gap30Payload = buildPayload(160);
+  const gap30Html = buildHtmlReport(gap30Payload);
+  const gap30View = buildReportData(gap30Payload).scenarios[0].rows[0][2];
+  assert.equal(gap30View[15], "top1-gap-30");
+  assert.equal(gap30View[1], "mm mm-top1-gap-30");
   assert.match(gap30Html, /type="checkbox" value="top1-gap-30"/);
 });
 
@@ -719,8 +782,9 @@ runTest("top1 above 150 PLN per day is highlighted without blocking recommendati
   const html = buildHtmlReport(payload, {
     quality: { status: "failure", alerts: ["Testowa blokada Excela."] }
   });
-  assert.match(html, /data-top1-high-automatic="true"/);
-  assert.match(html, /offer-view-automatic top1-high/);
+  const automatic = buildReportData(payload).scenarios[0].rows[0][2];
+  assert.equal(automatic[16], true);
+  assert.equal(automatic[3], "top1-high");
   assert.match(html, /type="checkbox" value="high"><span>Powyżej 150 PLN\/d/);
   assert.doesNotMatch(html, /anomalia top1/i);
   assert.match(html, /nowy Excel zablokowała kontrola jakości/);
@@ -744,7 +808,7 @@ runTest("quality banner shows blocking causes instead of missing MM warnings", (
 
 runTest("buildHtmlReport defaults to all cars and airports with optional automatic and branch filters", () => {
   const automaticMm = { provider_name: "MM Cars Rental", total_price: 220, currency: "PLN", rental_days: 2 };
-  const html = buildHtmlReport({
+  const payload = {
     locations: ["Warsaw"],
     scenarios: [{
       scenario_id: "2026-07-12-2",
@@ -777,7 +841,11 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
         }
       }
     }]
-  });
+  };
+  const html = buildHtmlReport(payload);
+  const row = buildReportData(payload).scenarios[0].rows[0];
+  const automatic = row[2];
+  const all = row[3];
 
   assert.match(html, /id="filter-transmission"/);
   assert.match(html, /<body data-offer-view="all">/);
@@ -796,29 +864,29 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   assert.match(html, /id="empty-state" hidden/);
   assert.match(html, /id="load-more"/);
   assert.match(html, /type="checkbox" value="2"/);
-  assert.match(html, /selectedDurations\.has\(section\.dataset\.duration\)/);
+  assert.match(html, /selectedDurations\.has\(scenario\.duration\)/);
   assert.match(html, /text = checked\.length \+ " wybrane"/);
   assert.match(html, /visibleScenarioLimit = scenarioPageSize/);
-  assert.match(html, /compactViewport\.matches \? 5 : 20/);
-  assert.match(html, /matchingSections\.slice\(0, shownSections\)/);
+  assert.match(html, /const scenarioPageSize = 20/);
+  assert.match(html, /matchingScenarios[\s\S]*\.slice\(0, shownSections\)/);
   assert.match(html, /\.filter-field:nth-of-type\(even\) \.multi-options/);
   assert.match(html, /new URLSearchParams\(location\.search\)/);
   assert.match(html, /\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
   assert.match(html, /navigator\.clipboard\.writeText\(window\.location\.href\)/);
-  assert.match(html, /data-location-type="branch"/);
-  assert.match(html, /locationType === "all" \|\| row\.dataset\.locationType === locationType/);
+  assert.equal(row[1], "branch");
+  assert.match(html, /locationType === "all" \|\| row\[1\] === locationType/);
   assert.match(html, /syncCompactLayout\(\);/);
-  assert.match(html, /offer-view-automatic[^>]*>Auto One/);
-  assert.match(html, /offer-view-all[^>]*>Manual One/);
-  assert.match(html, /offer-view-automatic rank-cell">Top 2/);
-  assert.match(html, /offer-view-all rank-cell">Top 3/);
-  assert.match(html, /offer-view-automatic count-cell">1/);
-  assert.match(html, /offer-view-all count-cell">4/);
-  assert.match(html, /<h2>12\.07\.2026 · 2 dni<\/h2>/);
+  assert.equal(automatic[0], "Auto One");
+  assert.equal(all[0], "Manual One");
+  assert.equal(automatic[13], "Top 2");
+  assert.equal(all[13], "Top 3");
+  assert.equal(automatic[14], "1");
+  assert.equal(all[14], "4");
+  assert.equal(buildReportData(payload).scenarios[0].title, "12.07.2026 · 2 dni");
   assert.doesNotMatch(html, /12\.07\.2026 02:00/);
   assert.doesNotMatch(html, /API-DOM|API \/ DOM|source-badge/);
 
-  const airportHtml = buildHtmlReport({
+  const airportPayload = {
     locations: ["Warsaw Chopin Airport (WAW)"],
     scenarios: [{
       start_date: "2026-07-12",
@@ -829,8 +897,8 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
         }
       }
     }]
-  });
-  assert.match(airportHtml, /data-location-type="airport"/);
+  };
+  assert.equal(buildReportData(airportPayload).scenarios[0].rows[0][1], "airport");
 
   const multiDurationHtml = buildHtmlReport({
     locations: ["Warsaw Chopin Airport (WAW)"],
@@ -873,7 +941,8 @@ runTest("generateReportFromFile distinguishes a missing JSON file", () => {
 
 runTest("buildHtmlReport keeps an empty run empty", () => {
   const html = buildHtmlReport({ locations: [], scenarios: [] });
-  assert.doesNotMatch(html, /<section class="scenario"/);
+  assert.match(html, /<main id="report-results"><\/main>/);
+  assert.match(html, /"scenarios":\[\]/);
   assert.match(html, /Brak wyników dla wybranych filtrów/);
 });
 
@@ -922,6 +991,36 @@ runTest("Telegram success summary contains only decision-ready details", () => {
     "Excel z rekomendacjami: https://example.test/recommendations.xlsx"
   ].join("\n"));
   assert.doesNotMatch(message, /Scenariusze|sprawdzenia|GitHub Actions/);
+});
+
+runTest("Telegram alerts only when MM is absent everywhere for a start date", () => {
+  const mm = { provider_name: "MM Cars Rental", total_price: 200, currency: "PLN", rental_days: 2 };
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "3",
+      DURATIONS: "2,3",
+      PAGE_URL: "https://example.test/report.html",
+      PAGES_EXCEL_URL: "https://example.test/import.xlsx",
+      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+    },
+    excelAvailable: true,
+    recommendations: [],
+    excelSummary: { change_count: 0 },
+    qualityAlerts: { alerts: [] },
+    results: {
+      scenarios: [
+        { start_date: "2026-08-20", rental_days: 2, offer_views_by_location: { Airport: { automatic: { mm_cars_rental: null }, all: { mm_cars_rental: null } } } },
+        { start_date: "2026-08-20", rental_days: 3, top_3_plus_mm_by_location: { City: { mm_cars_rental: null } } },
+        { start_date: "2026-08-21", rental_days: 2, offer_views_by_location: { Airport: { automatic: { mm_cars_rental: null }, all: { mm_cars_rental: mm } } } },
+        { start_date: "2026-08-21", rental_days: 3, top_3_plus_mm_by_location: { City: { mm_cars_rental: null } } },
+        { start_date: "2026-08-22", rental_days: 2, top_3_plus_mm_by_location: { Airport: { mm_cars_rental: mm } } }
+      ]
+    }
+  });
+
+  assert.match(message, /ALERT: MM Cars Rental niewidoczne nigdzie dla start date: 20\.08\.2026/);
+  assert.doesNotMatch(message, /21\.08\.2026|22\.08\.2026/);
 });
 
 runTest("Telegram failure summary leads with the blocking reason", () => {

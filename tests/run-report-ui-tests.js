@@ -20,16 +20,29 @@ function buildFixture() {
     const startDate = start.toISOString().slice(0, 10);
     const rentalDays = durations[index % durations.length];
     const byLocation = Object.fromEntries(locations.map((location, locationIndex) => {
-      const top1 = { provider_name: "Competitor", total_price: (90 + locationIndex) * rentalDays, currency: "PLN", rental_days: rentalDays };
-      const mm = { provider_name: "MM Cars Rental", total_price: (100 + locationIndex) * rentalDays, currency: "PLN", rental_days: rentalDays };
+      const top1 = { provider_name: "Competitor", total_price: (90 + locationIndex) * rentalDays, currency: "PLN", rental_days: rentalDays, source_url: "https://example.test/technical-source" };
+      const mm = { provider_name: "MM Cars Rental", total_price: (100 + locationIndex) * rentalDays, currency: "PLN", rental_days: rentalDays, source_url: "https://example.test/technical-source" };
       return [location, { top_3: [top1, mm], mm_cars_rental: mm }];
     }));
+    const offerViews = Object.fromEntries(Object.entries(byLocation).map(([location, legacy]) => [location, {
+      automatic: { ...legacy, mm_provider_rank: 2, cheaper_offer_count: 1 },
+      all: {
+        top_3: [
+          { provider_name: "Manual Competitor", total_price: 80 * rentalDays, currency: "PLN", rental_days: rentalDays },
+          ...legacy.top_3
+        ],
+        mm_cars_rental: legacy.mm_cars_rental,
+        mm_provider_rank: 3,
+        cheaper_offer_count: 2
+      }
+    }]));
     return {
       start_date: startDate,
       pickup_date: `${startDate}T09:00:00.000Z`,
       dropoff_date: addDays(startDate, rentalDays),
       rental_days: rentalDays,
-      top_3_plus_mm_by_location: byLocation
+      top_3_plus_mm_by_location: byLocation,
+      offer_views_by_location: offerViews
     };
   });
 
@@ -44,7 +57,11 @@ function buildFixture() {
 async function run() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-report-ui-"));
   const reportPath = path.join(tempDir, "report.html");
-  fs.writeFileSync(reportPath, buildHtmlReport(buildFixture()), "utf8");
+  const html = buildHtmlReport(buildFixture());
+  assert.match(html, /<main id="report-results"><\/main>/);
+  assert.match(html, /<script type="application\/json" id="report-data">/);
+  assert.doesNotMatch(html, /technical-source|source_url/);
+  fs.writeFileSync(reportPath, html, "utf8");
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -57,9 +74,10 @@ async function run() {
   try {
     await page.goto(pathToFileURL(reportPath).href);
 
-    assert.equal(await page.locator(".scenario:visible").count(), 5);
+    assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
+    assert.match(await page.locator("tbody tr").first().innerText(), /Manual Competitor/);
 
     await page.locator("#toggle-filters").click();
     for (const id of ["filter-location", "filter-duration", "filter-state", "filter-top1"]) {
@@ -71,6 +89,7 @@ async function run() {
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
 
     await page.selectOption("#filter-transmission", "automatic");
+    assert.doesNotMatch(await page.locator("tbody tr").first().innerText(), /Manual Competitor/);
     await page.fill("#filter-date-from", "2026-08-20");
     await page.locator("#filter-duration input").evaluateAll((inputs) => {
       const input = inputs.find((item) => item.value === "5");
@@ -89,7 +108,7 @@ async function run() {
 
     await page.locator("#toggle-filters").click();
     await page.locator("#reset-filters").click();
-    assert.equal(await page.locator(".scenario:visible").count(), 5);
+    assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(new URL(page.url()).search, "");
 
     await page.locator("#filter-date-from").evaluate((input) => {
@@ -102,7 +121,7 @@ async function run() {
     await page.locator("#reset-filters").click();
     await page.setViewportSize({ width: 1100, height: 900 });
     await page.reload();
-    assert.equal(await page.locator(".scenario:visible").count(), 5);
+    assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
     assert.equal(await page.locator("tbody tr").first().evaluate((row) => getComputedStyle(row).display), "block");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);

@@ -12,6 +12,7 @@
     "rentcars:json": "node src/rentcars/run.js --config rentcars.config.example.json --save=output/rentcars-results-latest.json",
     "rentcars:report": "node src/rentcars/reportHtml.js output/rentcars-results-latest.json output/rentcars-report.html",
     "report": "node src/reportHtml.js output/results-latest.json output/report.html",
+    "public-results": "node src/publicResults.js output/results-latest.json output/results-public.json",
     "test": "node tests/run-discovercars-tests.js && node tests/run-rentcars-tests.js",
     "test:report-ui": "node tests/run-report-ui-tests.js",
     "test:excel": "python tests/run-excel-rate-updater-tests.py",

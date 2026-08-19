@@ -555,6 +555,7 @@ jobs:
           QUALITY_STATUS: ${{ steps.quality.outputs.status || 'failure' }}
         run: |
           mkdir -p pages
+          node src/publicResults.js output/results-latest.json output/results-public.json
 
           page_base="${PAGE_URL%/}"
           preserve_file() {
@@ -621,7 +622,7 @@ jobs:
               "pages/$run_dir/broker-markup-calibration.json"
           fi
           cp output/report.html "pages/$run_dir/report.html"
-          cp output/results-latest.json "pages/$run_dir/results-latest.json"
+          cp output/results-public.json "pages/$run_dir/results-latest.json"
           cp output/run-log.txt "pages/$run_dir/run-log.txt"
           if [[ "$QUALITY_STATUS" != "failure" ]]; then
             if [[ -f output/pricing-recommendations.json ]]; then

@@ -903,7 +903,6 @@ function buildApiDomMonitoringSummary(scenarios) {
     dom_validation_count: 0,
     dom_success_count: 0,
     dom_failure_count: 0,
-    mandatory_recommendation_validation_count: 0,
     comparison_count: 0,
     drift_count: 0,
     browser_preferred_count: 0,

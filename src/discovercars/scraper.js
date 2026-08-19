@@ -123,7 +123,6 @@ class DiscoverCarsScraper {
       dom_validation_count: 0,
       dom_success_count: 0,
       dom_failure_count: 0,
-      mandatory_recommendation_validation_count: 0,
       comparison_count: 0,
       drift_count: 0,
       browser_preferred_count: 0,
@@ -394,10 +393,6 @@ class DiscoverCarsScraper {
     if (!selectedOffers.length) {
       return true;
     }
-    if (this.isPotentialPricingRecommendation(selectedOffers)) {
-      this.apiDomTelemetry.mandatory_recommendation_validation_count += 1;
-      return true;
-    }
     const locationState = this.getLocationDriftState(location);
     const maxValidations = clampPositiveInteger(
       this.config.apiDomMaxValidationsPerLocation,
@@ -416,24 +411,6 @@ class DiscoverCarsScraper {
       return false;
     }
     return deterministicSample(location, this.config.pickupDate, this.config.dropoffDate, sanityRate);
-  }
-
-  isPotentialPricingRecommendation(offers) {
-    const sorted = [...(offers || [])].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
-    const mmIndex = sorted.findIndex((offer) => isMmCarsRentalProvider(offer.provider));
-    if (mmIndex < 0) return false;
-    const days = daysBetweenIso(this.config.pickupDate, this.config.dropoffDate);
-    const daily = (offer) => Number(offer?.totalPrice) / days;
-    const mmRate = daily(sorted[mmIndex]);
-    if (!Number.isFinite(mmRate)) return false;
-    if (mmIndex === 0) {
-      const top2Rate = daily(sorted[1]);
-      return Number.isFinite(top2Rate) && top2Rate - mmRate >= 10;
-    }
-    const competitorIndex = mmIndex === 1 ? 0 : Math.min(mmIndex - 1, 2);
-    const competitorRate = daily(sorted[competitorIndex]);
-    const decrease = mmRate - competitorRate + 1;
-    return Number.isFinite(decrease) && decrease >= 0.5 && decrease < 10;
   }
 
   shouldPreferBrowserOutcome(apiOffers, browserOffers) {

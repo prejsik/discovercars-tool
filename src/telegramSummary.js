@@ -62,6 +62,40 @@ function rangeLabel(env) {
   return `rolling ${env.ROLLING_DAYS || "?"} dni · najem ${durations} dni`;
 }
 
+function scenarioHasMmAnywhere(scenario) {
+  const offerViews = Object.values(scenario?.offer_views_by_location || {});
+  if (offerViews.some((views) => views?.automatic?.mm_cars_rental || views?.all?.mm_cars_rental)) {
+    return true;
+  }
+
+  if (Object.values(scenario?.top_3_plus_mm_by_location || {}).some((entry) => entry?.mm_cars_rental)) {
+    return true;
+  }
+
+  return Object.values(scenario?.mm_cars_rental_by_location || {}).some(Boolean);
+}
+
+function listStartDatesWithoutMm(results) {
+  const scenarios = Array.isArray(results?.scenarios) ? results.scenarios : results ? [results] : [];
+  const coverage = new Map();
+  for (const scenario of scenarios) {
+    const startDate = String(scenario?.start_date || scenario?.pickup_date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      continue;
+    }
+    coverage.set(startDate, Boolean(coverage.get(startDate)) || scenarioHasMmAnywhere(scenario));
+  }
+  return [...coverage.entries()]
+    .filter(([, hasMm]) => !hasMm)
+    .map(([startDate]) => startDate)
+    .sort();
+}
+
+function formatIsoDate(isoDate) {
+  const [year, month, day] = String(isoDate).split("-");
+  return `${day}.${month}.${year}`;
+}
+
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
   const qualityStatus = env.QUALITY_STATUS || "failure";
@@ -94,6 +128,10 @@ function buildTelegramSummary(options = {}) {
       ? "GOTOWE Z OSTRZEŻENIAMI"
       : "GOTOWE";
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
+  const missingMmStartDates = listStartDatesWithoutMm(options.results);
+  const missingMmAlert = missingMmStartDates.length
+    ? `ALERT: MM Cars Rental niewidoczne nigdzie dla start date: ${missingMmStartDates.map(formatIsoDate).join(", ")}`
+    : "";
 
   if (qualityStatus === "failure") {
     const reason = blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
@@ -103,6 +141,7 @@ function buildTelegramSummary(options = {}) {
       "Excel nie został opublikowany.",
       `Powód: ${reason}`,
       `Zakres: ${rangeLabel(env)}`,
+      ...(missingMmAlert ? [missingMmAlert] : []),
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
@@ -123,6 +162,7 @@ function buildTelegramSummary(options = {}) {
       "",
       `Powód: ${reason}.`,
       `Zakres: ${rangeLabel(env)}`,
+      ...(missingMmAlert ? [missingMmAlert] : []),
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
@@ -134,6 +174,7 @@ function buildTelegramSummary(options = {}) {
     `DiscoverCars | ${statusLabel}`,
     "",
     `Zakres: ${rangeLabel(env)}`,
+    ...(missingMmAlert ? [missingMmAlert] : []),
     `Rekomendacje: ${recommendations.total} (podwyżki ${recommendations.increases}, obniżki ${recommendations.decreases})`,
     `Excel: ${Number.isFinite(excelChangeCount) ? excelChangeCount : "brak danych"} zmian · ${excelReady ? "gotowy do importu" : "niedostępny"}`,
     `Czas: ${timeLabel}`
@@ -155,6 +196,7 @@ function buildTelegramSummaryFromFiles(env = process.env) {
     recommendations: safeReadJson(path.join(outputDir, "final-pricing-recommendations.json")),
     excelSummary: safeReadJson(path.join(outputDir, "excel-rate-update-summary.json")),
     qualityAlerts: safeReadJson(path.join(outputDir, "quality-alerts.json")),
+    results: safeReadJson(path.join(outputDir, "results-latest.json")),
     reportAvailable: fs.existsSync(path.join(outputDir, "report.html")),
     excelAvailable: fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx"))
       && fs.existsSync(path.join(outputDir, "rates-updated.xlsx"))
@@ -169,6 +211,7 @@ module.exports = {
   buildTelegramSummary,
   buildTelegramSummaryFromFiles,
   formatDuration,
+  listStartDatesWithoutMm,
   recommendationStats,
   summarizeNumberList
 };
