@@ -2213,9 +2213,11 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     pickup_end_col = int(columns["pickup_end_date"])
     max_col = ws.max_column
     source_rows: list[tuple[dict[str, Any], date, date, str, str]] = []
+    row_segments: list[tuple[str, Any]] = []
     template_rows_by_group_zone: dict[tuple[str, str], dict[str, Any]] = {}
     template_dates_by_group_zone: dict[tuple[str, str], date] = {}
     included_group_zones: set[tuple[str, str]] = set()
+    preserved_out_of_range_row_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
         group = ws.cell(row, group_col).value
@@ -2237,29 +2239,45 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             template_rows_by_group_zone[group_zone_key] = row_snapshot
             template_dates_by_group_zone[group_zone_key] = pickup_start
 
+        if pickup_end < start_date or pickup_start > end_date:
+            row_segments.append(("preserve", row_snapshot))
+            preserved_out_of_range_row_count += 1
+            continue
+
         clipped_start = max(pickup_start, start_date)
         clipped_end = min(pickup_end, end_date)
         if clipped_start > clipped_end:
             continue
-        source_rows.append((row_snapshot, clipped_start, clipped_end, normalized_group, normalized_zone))
+        source_row = (row_snapshot, clipped_start, clipped_end, normalized_group, normalized_zone)
+        source_rows.append(source_row)
+        row_segments.append(("expand", source_row))
         included_group_zones.add(group_zone_key)
 
     restored_group_zones: list[str] = []
     for (group, zone), row_snapshot in sorted(template_rows_by_group_zone.items()):
         if (group, zone) in included_group_zones:
             continue
-        source_rows.append((row_snapshot, start_date, end_date, group, zone))
+        source_row = (row_snapshot, start_date, end_date, group, zone)
+        source_rows.append(source_row)
+        row_segments.append(("expand", source_row))
         included_group_zones.add((group, zone))
         restored_group_zones.append(f"{group}/{zone}")
 
     expanded_rows: list[tuple[dict[str, Any], date, str, str]] = []
+    output_rows: list[tuple[dict[str, Any], date | None]] = []
     expanded_groups: set[str] = set()
     expanded_group_zones: set[tuple[str, str]] = set()
-    for row_snapshot, clipped_start, clipped_end, group, zone in source_rows:
+    for segment_type, segment in row_segments:
+        if segment_type == "preserve":
+            output_rows.append((segment, None))
+            continue
+
+        row_snapshot, clipped_start, clipped_end, group, zone = segment
         expanded_groups.add(group)
         expanded_group_zones.add((group, zone))
         for pickup_date in iter_dates_inclusive(clipped_start, clipped_end):
             expanded_rows.append((row_snapshot, pickup_date, group, zone))
+            output_rows.append((row_snapshot, pickup_date))
 
     if not template_rows_by_group_zone:
         raise ValueError("Pickup date expansion found no valid Group + Zone source rows; Sheet1 was not modified.")
@@ -2269,8 +2287,10 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     if ws.max_row >= data_start_row:
         ws.delete_rows(data_start_row, ws.max_row - data_start_row + 1)
 
-    for row_index, (row_snapshot, pickup_date, _group, _zone) in enumerate(expanded_rows, start=data_start_row):
+    for row_index, (row_snapshot, pickup_date) in enumerate(output_rows, start=data_start_row):
         write_row_snapshot(ws, row_index, row_snapshot)
+        if pickup_date is None:
+            continue
         start_template = row_snapshot["cells"][pickup_start_col - 1]["value"]
         end_template = row_snapshot["cells"][pickup_end_col - 1]["value"]
         ws.cell(row_index, pickup_start_col).value = format_pickup_date_like_template(pickup_date, start_template)
@@ -2282,6 +2302,8 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         "end_date": end_date.isoformat(),
         "source_row_count": len(source_rows),
         "expanded_row_count": len(expanded_rows),
+        "preserved_out_of_range_row_count": preserved_out_of_range_row_count,
+        "output_row_count": len(output_rows),
         "source_groups": sorted({group for group, _zone in template_rows_by_group_zone}),
         "expanded_groups": sorted(expanded_groups),
         "missing_source_groups_after_expansion": sorted(

@@ -694,6 +694,7 @@ def main():
         build_minimal_workbook(
             expansion_workbook_path,
             [
+                ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "10-06-26", 155, 65, 75, 85, 95, 115],
                 ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "12-06-26", 160, 70, 80, 90, 100, 120],
             ],
         )
@@ -755,6 +756,8 @@ def main():
         )
         assert_equal(expansion_summary["pickup_date_expansion"]["source_row_count"], 1, "expanded source row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 2, "expanded row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["preserved_out_of_range_row_count"], 1, "preserved source row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["output_row_count"], 3, "full output row count")
         assert_equal(expansion_summary["normalized_pickup_end_count"], 0, "expansion disables pickup end normalization")
         assert_equal(expansion_summary["synced_booking_end_count"], 2, "expanded booking end sync count")
         assert_equal(expansion_summary["change_count"], 2, "expanded duration-specific change count")
@@ -762,17 +765,19 @@ def main():
         expansion_ws = expansion_updated["Sheet1"]
         expansion_after_snapshot = header_rows_snapshot(expansion_ws)
         assert_equal(expansion_after_snapshot, expansion_before_snapshot, "expanded Sheet1 rows 1-4 values and formatting")
-        assert_equal(expansion_ws.max_row, 6, "expanded Sheet1 row count")
-        assert_equal(expansion_ws["G5"].value, "11-06-26", "first expanded pickup date")
-        assert_equal(expansion_ws["H5"].value, "11-06-26", "first expanded pickup end")
-        assert_equal(expansion_ws["F5"].value, expansion_ws["H5"].value, "first expanded booking end")
-        assert_equal(expansion_ws["G6"].value, "12-06-26", "second expanded pickup date")
-        assert_equal(expansion_ws["H6"].value, "12-06-26", "second expanded pickup end")
-        assert_equal(expansion_ws["F6"].value, expansion_ws["H6"].value, "unchanged date booking end")
-        assert_equal(expansion_ws["I5"].value, 75, "duration 1 rate update")
-        assert_equal(expansion_ws["J5"].value, 81, "duration 2 rate update on the same pickup date row")
-        assert_equal(expansion_ws["I6"].value, 160, "duration 1 rate does not update a different pickup date")
-        assert_equal(expansion_ws["J6"].value, 70, "duration 2 rate does not update a different pickup date")
+        assert_equal(expansion_ws.max_row, 7, "expanded Sheet1 row count")
+        assert_equal(expansion_ws["G5"].value, "10-06-26", "out-of-range pickup date is preserved")
+        assert_equal(expansion_ws["J5"].value, 65, "out-of-range rate is preserved")
+        assert_equal(expansion_ws["G6"].value, "11-06-26", "first expanded pickup date")
+        assert_equal(expansion_ws["H6"].value, "11-06-26", "first expanded pickup end")
+        assert_equal(expansion_ws["F6"].value, expansion_ws["H6"].value, "first expanded booking end")
+        assert_equal(expansion_ws["G7"].value, "12-06-26", "second expanded pickup date")
+        assert_equal(expansion_ws["H7"].value, "12-06-26", "second expanded pickup end")
+        assert_equal(expansion_ws["F7"].value, expansion_ws["H7"].value, "unchanged date booking end")
+        assert_equal(expansion_ws["I6"].value, 75, "duration 1 rate update")
+        assert_equal(expansion_ws["J6"].value, 81, "duration 2 rate update on the same pickup date row")
+        assert_equal(expansion_ws["I7"].value, 160, "duration 1 rate does not update a different pickup date")
+        assert_equal(expansion_ws["J7"].value, 70, "duration 2 rate does not update a different pickup date")
 
         aggregate_workbook_path = tmpdir / "aggregate-duration-rates.xlsx"
         aggregate_recommendations_path = tmpdir / "aggregate-duration-recommendations.json"
