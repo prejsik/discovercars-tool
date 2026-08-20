@@ -620,6 +620,16 @@ runTest("GitHub Pages publishes compact results while Actions keeps the full art
   assert.match(workflow, /name: Upload scraper results[\s\S]*output\/results-latest\.json/);
 });
 
+runTest("Playwright installation avoids apt and cannot block the workflow for hours", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const installStep = workflow.match(/- name: Install Playwright Chromium[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+
+  assert.match(installStep, /timeout-minutes: 10/);
+  assert.match(installStep, /for attempt in 1 2 3/);
+  assert.match(installStep, /timeout --kill-after=15s 180s npx playwright install chromium/);
+  assert.doesNotMatch(installStep, /--with-deps/);
+});
+
 runTest("compareBenchmark recommends parallel execution only when speed and quality are preserved", () => {
   const buildResults = () => ({
     locations: ["Airport"],

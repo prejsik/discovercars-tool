@@ -165,7 +165,23 @@ jobs:
 
       - name: Install Playwright Chromium
         if: steps.gate.outputs.should_run == 'true'
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright Chromium install attempt $attempt of 3."
+            if timeout --kill-after=15s 180s npx playwright install chromium; then
+              exit 0
+            fi
+
+            if (( attempt < 3 )); then
+              echo "::warning::Playwright Chromium install attempt $attempt failed or timed out; retrying."
+              sleep $((attempt * 10))
+            fi
+          done
+
+          echo "::error::Playwright Chromium installation failed after 3 bounded attempts."
+          exit 1
 
       - name: Setup Python
         if: steps.gate.outputs.should_run == 'true'
