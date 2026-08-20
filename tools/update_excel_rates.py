@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
     },
     "city_top1_airport_cap": {
         "enabled": True,
-        "max_multiplier": 1.2,
+        "max_multiplier": 1.3,
         "recommendation_types": ["top1_gap", "force_top1_maintain"],
     },
     "normalize_pickup_end_to_start": True,
@@ -511,7 +511,7 @@ def get_city_top1_airport_cap(config: dict[str, Any]) -> tuple[float, set[str]] 
     if settings.get("enabled") is False:
         return None
 
-    multiplier = parse_number(settings.get("max_multiplier")) or 1.2
+    multiplier = parse_number(settings.get("max_multiplier")) or 1.3
     if multiplier < 1:
         raise ValueError("city_top1_airport_cap.max_multiplier must be at least 1.")
     recommendation_types = {
@@ -692,7 +692,7 @@ def get_recommendation_fill(change: dict[str, Any], config: dict[str, Any]) -> P
 def append_city_top1_airport_cap_reason(change: dict[str, Any], reason: str) -> str:
     if not change.get("city_top1_airport_cap_active"):
         return reason
-    multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+    multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.3
     airport_location = change.get("airport_reference_location") or change.get("airport_reference_zone") or "lotnisko"
     airport_rate = format_rate_for_comment(parse_number(change.get("airport_reference_rate")))
     maximum_rate = format_rate_for_comment(parse_number(change.get("city_top1_airport_max_rate")))
@@ -759,7 +759,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
     else:
         outcome = ""
     if change.get("city_top1_airport_cap_active"):
-        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.3
         suffix = (
             " Cena oddzialu miejskiego pozostaje nie wyzsza niz "
             f"{format_percent_for_comment(multiplier * 100)} odpowiadajacej stawki lotniskowej."
@@ -857,7 +857,7 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
     if broker_markup_percent is not None:
         lines.append(f"Szac. narzut brokera: {format_percent_for_comment(broker_markup_percent)}")
     if change.get("city_top1_airport_cap_active"):
-        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.3
         lines.append(
             "Limit oddzialu miejskiego: "
             f"max {format_percent_for_comment(multiplier * 100)} ceny lotniskowej "
@@ -1096,7 +1096,7 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
     if any(change.get("minimum_reason") for change in changes):
         notes.append("ochrona floor cenowego")
     if any(change.get("city_top1_airport_cap_applied") for change in changes):
-        multiplier = parse_number(changes[0].get("city_top1_airport_max_multiplier")) or 1.2
+        multiplier = parse_number(changes[0].get("city_top1_airport_max_multiplier")) or 1.3
         notes.append(f"limit oddzialu miejskiego do {format_percent_for_comment(multiplier * 100)} stawki lotniskowej")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
         notes.append("korekta grupy EDMV")
@@ -1668,7 +1668,7 @@ def build_validation_rows(
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
-        ["Stawki miejskie powyzej 120% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
+        ["Stawki miejskie powyzej 130% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
         ["Sprzeczne rekomendacje w przedziale duration", get_validation_status(len(aggregation_conflicts), warning=True), len(aggregation_conflicts), first_items(aggregation_conflicts)],
         ["Niepelne pokrycie przedzialu duration", get_validation_status(len(incomplete_duration_coverage), warning=True), len(incomplete_duration_coverage), first_items(incomplete_duration_coverage)],

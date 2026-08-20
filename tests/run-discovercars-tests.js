@@ -450,8 +450,16 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   const dailyLocations = getDailyLocations();
   const zones = buildLocationZones();
   const geoOverrides = buildGeoLocationOverrides();
-  assert.equal(dailyLocations.length, 13);
+  assert.equal(dailyLocations.length, 21);
   assert(dailyLocations.includes("Galeria Krakowska Shopping Mall"));
+  assert(dailyLocations.includes("Bydgoszcz Airport (BZG)"));
+  assert(dailyLocations.includes("Lodz Downtown"));
+  assert(dailyLocations.includes("Lodz Lublinek Airport (LCJ)"));
+  assert(dailyLocations.includes("Lubin Downtown"));
+  assert(dailyLocations.includes("Olsztyn Downtown"));
+  assert(dailyLocations.includes("Opole Downtown"));
+  assert(dailyLocations.includes("Torun Downtown"));
+  assert(dailyLocations.includes("Warsaw West Train Station"));
   assert.deepEqual(zones["Krakow Airport (KRK)"], ["KRLO", "KRTI"]);
   assert.deepEqual(zones["Warsaw"], ["WA1", "WA2", "WALO"]);
   assert.equal(geoOverrides["Galeria Krakowska Shopping Mall"].radiusMeters, 20000);

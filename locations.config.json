@@ -2,6 +2,7 @@
   "schema_version": 1,
   "profiles": {
     "daily": [
+      "bydgoszcz_airport",
       "gdansk_downtown",
       "gdansk_airport",
       "katowice_downtown",
@@ -9,8 +10,15 @@
       "krakow_train_station",
       "krakow_galeria",
       "krakow_airport",
+      "lodz_downtown",
+      "lodz_airport",
+      "lubin_downtown",
+      "olsztyn_downtown",
+      "opole_downtown",
       "poznan_downtown",
       "poznan_airport",
+      "torun_downtown",
+      "warsaw_west_station",
       "warsaw_train_station",
       "warsaw_airport",
       "wroclaw_downtown",

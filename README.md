@@ -67,7 +67,7 @@ Jak dziala:
 
 Domyslny zakres w chmurze:
 
-- `locations`: profil `daily` z `locations.config.json`; zawiera osobno Krakow Train Station, Galeria Krakowska Shopping Mall i Krakow Airport (KRK), a pozostale miasta maja punkt miejski i lotnisko,
+- `locations`: wszystkie 21 punktow z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
 - `rolling_days`: `60`
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
@@ -372,7 +372,7 @@ Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowy
 npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
 ```
 
-Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa standardowych 13 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa wszystkich 21 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
 
 Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
 
@@ -465,7 +465,7 @@ Kolory w Excelu:
 - arkusz `Changed Positions` ma u gory legende kolorow i kopiuje tylko zmienione pozycje,
 - podobne zmiany dla wielu grup sa laczone w jednym wierszu, a grupy sa wypisane razem w kolumnie `A`; identyczne kwoty w kolumnach stawek i komentarzu sa pokazywane tylko raz,
 - kolumna `O` w `Changed Positions` zawiera wyjasnienie proponowanej zmiany ceny, w tym efekt typu top1/top2/top3, bez lokalizacji, daty odbioru, duration i korekty grupy; pozostale komorki w tym arkuszu nie dostaja komentarzy.
-- w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o co najmniej `5 PLN/dzien`; cel jest `1 PLN` ponizej top2.
+- w `Changed Positions` niebieski oznacza rekomendacje `top1_gap`: MM Cars Rental jest top1, a top2 jest drozszy o co najmniej `10 PLN/dzien`; cel jest `1 PLN` ponizej top2.
 - w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: obnizka mniejsza niz `10 PLN/dzien` pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel jest `1 PLN` ponizej tej oferty.
 - w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental jest top2 i brakuje mniej niz `10 PLN/dzien`, zeby zostac top1; cel jest `1 PLN` ponizej obecnego top1.
 
@@ -474,11 +474,12 @@ Minimalne stawki przy aktualizacji Excela:
 - od `2026-07-01` do `2026-08-30` dla duration `1-7` stawka nie spada ponizej `70 PLN brutto/dzien`,
 - w tym samym okresie dla duration `8-20` stawka nie spada ponizej `115 PLN brutto/dzien`,
 - w tym samym okresie dla duration `21-35` stawka nie spada ponizej `100 PLN brutto/dzien`,
-- poza tym okresem nie jest stosowany globalny floor, chyba ze konfiguracja zostanie jawnie zmieniona.
+- od `2026-09-01` do `2027-01-31` dla duration `1-35` stawka nie spada ponizej `50 PLN brutto/dzien`,
+- dla `2026-08-31` nie jest stosowany dodatkowy floor okresowy.
 
 Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMD` i `SWAV`. Te grupy nie moga miec zmienianych stawek przez rekomendacje. `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `SWAV` ponizej `150 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` dostaje stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
 
-Przy aktywnej rekomendacji utrzymania top1 (`top1_gap` lub `force_top1_maintain`) stawka oddzialu miejskiego moze wynosic maksymalnie `120%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej albo konflikt z floorem blokuje zapis pliku importowego.
+Przy aktywnej rekomendacji utrzymania top1 (`top1_gap` lub `force_top1_maintain`) stawka oddzialu miejskiego moze wynosic maksymalnie `130%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej albo konflikt z floorem blokuje zapis pliku importowego.
 
 W trybie konsolowym:
 
@@ -579,5 +580,5 @@ Jak to dziala:
 
 Uwagi:
 
-- Lista lokalizacji pochodzi z `daily_locations` w `excel-rate-update.config.example.json`.
+- Lista lokalizacji pochodzi z profilu `daily` w `locations.config.json`.
 - Przerwany run moze wznowic prace z `output\state.json`.

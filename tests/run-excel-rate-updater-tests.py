@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import zipfile
+from datetime import date
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -16,6 +17,7 @@ from tools.update_excel_rates import (  # noqa: E402
     build_validation_rows,
     get_duration_columns,
     get_delta_fill,
+    get_minimum_rate,
     load_baseline_confirmation,
     load_config,
     merge_config,
@@ -180,6 +182,17 @@ def main():
         {"EDMV": 1},
         "current premium group",
     )
+    assert_equal(example_config["city_top1_airport_cap"]["max_multiplier"], 1.3, "city-airport cap")
+    september_floor, _ = get_minimum_rate(
+        {"target_date": date(2026, 9, 1), "duration_min_days": 1, "duration_max_days": 35},
+        example_config,
+    )
+    assert_equal(september_floor, 50, "floor from September 2026")
+    august_gap_floor, _ = get_minimum_rate(
+        {"target_date": date(2026, 8, 31), "duration_min_days": 1, "duration_max_days": 35},
+        example_config,
+    )
+    assert_equal(august_gap_floor, 0, "no period floor on 31 August 2026")
     baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
     baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
     assert_equal(baseline_confirmation["status"], "confirmed_imported", "confirmed baseline status")
@@ -959,7 +972,7 @@ def main():
         city_cap_workbook = openpyxl.load_workbook(city_cap_output_path)
         city_cap_ws = city_cap_workbook["Sheet1"]
         for offset, group in enumerate(parity_groups, start=5):
-            expected_rate = 121 if group == "EDMV" else 120
+            expected_rate = 131 if group == "EDMV" else 130
             assert_equal(city_cap_ws.cell(offset, 10).value, expected_rate, f"city cap rate for {group}")
         for offset, group in enumerate(parity_groups, start=5 + len(parity_groups)):
             expected_rate = 101 if group == "EDMV" else 100
@@ -967,9 +980,9 @@ def main():
         assert_equal(city_cap_summary["city_top1_airport_cap_scope_count"], 1, "city cap scope count")
         assert_equal(city_cap_summary["city_top1_airport_cap_applied_count"], 4, "city cap applied count")
         assert_equal(city_cap_summary["city_top1_airport_cap_violation_count"], 0, "city cap violations")
-        assert "max 120% ceny lotniskowej" in city_cap_ws["J5"].comment.text
+        assert "max 130% ceny lotniskowej" in city_cap_ws["J5"].comment.text
         assert_equal(city_cap_workbook["Changed Positions"]["A10"].value, "Limit miasto vs lotnisko", "city cap legend")
-        assert "maksymalnie 120%" in city_cap_workbook["Changed Positions"]["B10"].value
+        assert "maksymalnie 130%" in city_cap_workbook["Changed Positions"]["B10"].value
 
         try:
             apply_updates(
@@ -979,7 +992,7 @@ def main():
                 config=merge_config({
                     "location_zones": {"Warsaw Train Station": ["WA1"]},
                     "city_zone_airport_zones": {"WA1": ["WALO"]},
-                    "minimum_rates": {"global_min_pln_day": 121},
+                    "minimum_rates": {"global_min_pln_day": 131},
                 }),
                 cli_groups=None,
                 dry_run=False,

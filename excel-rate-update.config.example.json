@@ -32,7 +32,7 @@
   },
   "city_top1_airport_cap": {
     "enabled": true,
-    "max_multiplier": 1.2,
+    "max_multiplier": 1.3,
     "recommendation_types": ["top1_gap", "force_top1_maintain"]
   },
   "normalize_pickup_end_to_start": false,
@@ -52,7 +52,8 @@
     "bands": [
       { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 1, "max_days": 7, "min_pln_day": 70 },
       { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 8, "max_days": 20, "min_pln_day": 115 },
-      { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 21, "max_days": 35, "min_pln_day": 100 }
+      { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 21, "max_days": 35, "min_pln_day": 100 },
+      { "start_date": "2026-09-01", "end_date": "2027-01-31", "min_days": 1, "max_days": 35, "min_pln_day": 50 }
     ]
   },
   "broker_markup_learning": {

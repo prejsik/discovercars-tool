@@ -56,7 +56,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Scheduled run defaults: city + airport points for core locations, next 60 pickup dates, rental durations 2..14.
+  # Scheduled run defaults: all configured city and airport points, next 60 pickup dates, rental durations 2..14.
   SCHEDULE_ROLLING_DAYS: "60"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14"
   SCHEDULE_SPEED_MODE: "fast"
