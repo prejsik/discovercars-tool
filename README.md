@@ -476,7 +476,9 @@ Minimalne stawki przy aktualizacji Excela:
 - w tym samym okresie dla duration `21-35` stawka nie spada ponizej `100 PLN brutto/dzien`,
 - poza tym okresem nie jest stosowany globalny floor, chyba ze konfiguracja zostanie jawnie zmieniona.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMR`, `SFAV`, `IDAH` i `SWAV`. Te grupy nie moga miec zmienianych stawek przez rekomendacje; `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `IDAH` i `SWAV` ponizej `150 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV`, `CWMR`, `DDAV` i `IGMV` dostaja taka sama stawke bazowa, a `EDAH` oraz `EDMV` dostaja stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMD` i `SWAV`. Te grupy nie moga miec zmienianych stawek przez rekomendacje. `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `SWAV` ponizej `150 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` dostaje stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+
+Przy aktywnej rekomendacji utrzymania top1 (`top1_gap` lub `force_top1_maintain`) stawka oddzialu miejskiego moze wynosic maksymalnie `120%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej albo konflikt z floorem blokuje zapis pliku importowego.
 
 W trybie konsolowym:
 

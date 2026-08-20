@@ -40,23 +40,25 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
-    "excluded_groups": ["CGAV", "FVMR", "SFAV", "IDAH", "SWAV"],
+    "excluded_groups": ["CGAV", "FVMD", "SWAV"],
     "excluded_group_highlights": {
         "CGAV": 130,
-        "IDAH": 150,
         "SWAV": 150,
     },
     "group_rate_adjustments_pln_day": {
-        "EDAH": 1,
         "EDMV": 1,
     },
     "group_price_parity": {
         "enabled": True,
-        "base_groups": ["CDMV", "CWAV", "CWMR", "DDAV", "IGMV"],
+        "base_groups": ["CDMV", "CWAV", "CWMR"],
         "premium_adjustments_pln_day": {
-            "EDAH": 1,
             "EDMV": 1,
         },
+    },
+    "city_top1_airport_cap": {
+        "enabled": True,
+        "max_multiplier": 1.2,
+        "recommendation_types": ["top1_gap", "force_top1_maintain"],
     },
     "normalize_pickup_end_to_start": True,
     "pickup_date_expansion": {
@@ -158,16 +160,28 @@ def load_config(config_path: Path) -> dict[str, Any]:
 
     location_zones: dict[str, list[str]] = {}
     locations_by_id: dict[str, str] = {}
+    locations_by_city: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    zone_location_labels: dict[str, str] = {}
     for location in registry["locations"]:
         location_id = str(location.get("id") or "").strip()
         label = str(location.get("scraper_label") or "").strip()
+        city = normalize_key(location.get("city"))
+        kind = normalize_key(location.get("kind"))
         zones = sorted({normalize_code(zone) for zone in location.get("zones", []) if normalize_code(zone)})
-        if not location_id or not label or not zones:
-            raise ValueError("Every registry location requires id, scraper_label, and at least one zone.")
+        if not location_id or not label or not city or kind not in {"airport", "city"} or not zones:
+            raise ValueError(
+                "Every registry location requires id, scraper_label, city, kind (airport/city), and at least one zone."
+            )
         if location_id in locations_by_id or label in location_zones:
             raise ValueError(f"Duplicate location registry entry: {location_id or label}.")
         locations_by_id[location_id] = label
         location_zones[label] = zones
+        if city and kind in {"airport", "city"}:
+            locations_by_city[city][kind].append({"label": label, "zones": zones})
+        for zone in zones:
+            if zone in zone_location_labels and zone_location_labels[zone] != label:
+                raise ValueError(f"Zone {zone} belongs to more than one registry location.")
+            zone_location_labels[zone] = label
 
     for alias, zones in (registry.get("aliases") or {}).items():
         normalized_zones = sorted({normalize_code(zone) for zone in zones if normalize_code(zone)})
@@ -181,9 +195,40 @@ def load_config(config_path: Path) -> dict[str, Any]:
             raise ValueError(f"Daily location profile references unknown location id: {location_id}.")
         daily_locations.append(locations_by_id[location_id])
 
+    zone_mirrors = {
+        normalize_code(source): normalize_code(target)
+        for source, target in (registry.get("zone_mirrors") or {}).items()
+        if normalize_code(source) and normalize_code(target)
+    }
+
+    def canonical_zone(zone: str) -> str:
+        current = normalize_code(zone)
+        seen: set[str] = set()
+        while current in zone_mirrors:
+            if current in seen:
+                raise ValueError(f"Cycle detected in zone_mirrors at {current}.")
+            seen.add(current)
+            current = zone_mirrors[current]
+        return current
+
+    city_zone_airport_zones: dict[str, list[str]] = {}
+    for locations in locations_by_city.values():
+        airport_zones = sorted({
+            canonical_zone(zone)
+            for location in locations.get("airport", [])
+            for zone in location["zones"]
+        })
+        if not airport_zones:
+            continue
+        for location in locations.get("city", []):
+            for zone in location["zones"]:
+                city_zone_airport_zones[zone] = airport_zones
+
     config["location_zones"] = location_zones
     config["daily_locations"] = daily_locations
-    config["zone_mirrors"] = registry.get("zone_mirrors") or {}
+    config["zone_mirrors"] = zone_mirrors
+    config["city_zone_airport_zones"] = city_zone_airport_zones
+    config["zone_location_labels"] = zone_location_labels
     config["location_registry_path"] = str(registry_path)
     return config
 
@@ -461,6 +506,36 @@ def get_group_price_parity(config: dict[str, Any]) -> tuple[list[str], dict[str,
     return base_groups, premium_adjustments
 
 
+def get_city_top1_airport_cap(config: dict[str, Any]) -> tuple[float, set[str]] | None:
+    settings = config.get("city_top1_airport_cap") or {}
+    if settings.get("enabled") is False:
+        return None
+
+    multiplier = parse_number(settings.get("max_multiplier")) or 1.2
+    if multiplier < 1:
+        raise ValueError("city_top1_airport_cap.max_multiplier must be at least 1.")
+    recommendation_types = {
+        str(item).strip()
+        for item in settings.get("recommendation_types", [])
+        if str(item).strip()
+    }
+    if not recommendation_types:
+        return None
+    return float(multiplier), recommendation_types
+
+
+def target_matches_recommendation_types(target: dict[str, Any], recommendation_types: set[str]) -> bool:
+    source_types = {
+        str(item).strip()
+        for item in target.get("source_recommendation_types", [])
+        if str(item).strip()
+    }
+    direct_type = str(target.get("recommendation_type") or "").strip()
+    if direct_type:
+        source_types.add(direct_type)
+    return bool(source_types & recommendation_types)
+
+
 def get_force_top1_base_offset(target: dict[str, Any], config: dict[str, Any]) -> float:
     if target.get("recommendation_type") not in {"force_top1_maintain", "force_top1_undercut"}:
         return 0
@@ -469,6 +544,24 @@ def get_force_top1_base_offset(target: dict[str, Any], config: dict[str, Any]) -
         return 0
     _base_groups, premium_adjustments = parity
     return max([0, *premium_adjustments.values()])
+
+
+def calculate_target_base_rate(
+    target: dict[str, Any],
+    current_base_equivalent: float | None,
+    config: dict[str, Any],
+) -> tuple[float, float, float, str]:
+    minimum_rate, minimum_reason = get_minimum_rate(target, config)
+    suggested_rate = float(target["suggested_rate_pln_day"]) - get_force_top1_base_offset(target, config)
+    base_rate = max(suggested_rate, minimum_rate)
+    if (
+        target.get("duration_band_coverage_complete") is False
+        and current_base_equivalent is not None
+        and base_rate > current_base_equivalent
+        and minimum_rate <= current_base_equivalent
+    ):
+        base_rate = current_base_equivalent
+    return base_rate, suggested_rate, minimum_rate, minimum_reason
 
 
 def classify_actual_action(old_rate: float | None, new_rate: float, fallback_action: str) -> str:
@@ -596,57 +689,83 @@ def get_recommendation_fill(change: dict[str, Any], config: dict[str, Any]) -> P
     return PatternFill(fill_type="solid", fgColor=str(color).replace("#", ""))
 
 
+def append_city_top1_airport_cap_reason(change: dict[str, Any], reason: str) -> str:
+    if not change.get("city_top1_airport_cap_active"):
+        return reason
+    multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+    airport_location = change.get("airport_reference_location") or change.get("airport_reference_zone") or "lotnisko"
+    airport_rate = format_rate_for_comment(parse_number(change.get("airport_reference_rate")))
+    maximum_rate = format_rate_for_comment(parse_number(change.get("city_top1_airport_max_rate")))
+    cap_text = (
+        f"Dla oddzialu miejskiego obowiazuje dodatkowo limit {format_percent_for_comment((multiplier - 1) * 100)} "
+        f"powyzej stawki {airport_location}: {airport_rate} PLN, czyli maksymalnie {maximum_rate} PLN."
+    )
+    return f"{reason} {cap_text}".strip()
+
+
 def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
     benchmark_provider = change.get("benchmark_provider") or "konkurent"
     benchmark_rate = format_rate_for_comment(parse_number(change.get("benchmark_rate")))
     if recommendation_type == "top1_gap":
-        return (
+        reason = (
             "MM Cars Rental jest na 1 miejscu, a druga oferta jest drozsza o co najmniej "
             "10 PLN/dzien. Cel jest ustawiony 1 PLN ponizej top2: "
             f"{benchmark_provider} ({benchmark_rate} PLN)."
         )
-    if recommendation_type == "top3_small_decrease":
+    elif recommendation_type == "top3_small_decrease":
         target_rank = int(parse_number(change.get("target_rank")) or 3)
-        return (
+        reason = (
             "Male obnizenie ceny, ponizej 10 PLN/dzien, pozwala przeskoczyc "
             f"rywala z top{target_rank}: {benchmark_provider} ({benchmark_rate} PLN)."
         )
-    if recommendation_type == "top1_undercut":
-        return (
+    elif recommendation_type == "top1_undercut":
+        reason = (
             "MM Cars Rental jest na 2 miejscu i brakuje mniej niz 10 PLN/dzien, "
             "zeby zostac top1. Cel jest ustawiony 1 PLN ponizej "
             f"benchmarku {benchmark_provider} ({benchmark_rate} PLN)."
         )
-    if recommendation_type == "force_top1_maintain":
-        return (
+    elif recommendation_type == "force_top1_maintain":
+        reason = (
             "MM Cars Rental jest top1. Cel utrzymuje top1 przy cenie 1 PLN ponizej "
             f"top2: {benchmark_provider} ({benchmark_rate} PLN)."
         )
-    if recommendation_type == "force_top1_undercut":
-        return (
+    elif recommendation_type == "force_top1_undercut":
+        reason = (
             "MM Cars Rental nie jest top1. Cel jest ustawiony 1 PLN ponizej "
             f"aktualnego top1: {benchmark_provider} ({benchmark_rate} PLN)."
         )
-    return str(change.get("reason") or "")
+    else:
+        reason = str(change.get("reason") or "")
+    return append_city_top1_airport_cap_reason(change, reason)
 
 
 def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
     if change.get("target_achievable") is False:
-        return "cel rankingowy nie jest gwarantowany przy finalnej stawce; pozycja wymaga kontroli."
+        outcome = "cel rankingowy nie jest gwarantowany przy finalnej stawce; pozycja wymaga kontroli."
+        return outcome
     recommendation_type = change.get("recommendation_type")
     if recommendation_type == "group_parity":
-        return "spojnosc stawek grup bazowych oraz EDAH/EDMV."
-    if recommendation_type == "top1_gap":
-        return "utrzymanie top1 przy cenie 1 PLN ponizej top2."
-    if recommendation_type == "top3_small_decrease":
+        outcome = "spojnosc stawek grup bazowych oraz korekta EDMV."
+    elif recommendation_type == "top1_gap":
+        outcome = "utrzymanie top1 przy cenie 1 PLN ponizej top2."
+    elif recommendation_type == "top3_small_decrease":
         target_rank = int(parse_number(change.get("target_rank")) or 3)
-        return f"top{target_rank} przy cenie 1 PLN ponizej rywala z top{target_rank}."
-    if recommendation_type == "top1_undercut":
-        return "top1 przy cenie 1 PLN ponizej obecnego top1."
-    if recommendation_type in {"force_top1_maintain", "force_top1_undercut"}:
-        return "top1 przy cenie 1 PLN ponizej najblizszego benchmarku."
-    return ""
+        outcome = f"top{target_rank} przy cenie 1 PLN ponizej rywala z top{target_rank}."
+    elif recommendation_type == "top1_undercut":
+        outcome = "top1 przy cenie 1 PLN ponizej obecnego top1."
+    elif recommendation_type in {"force_top1_maintain", "force_top1_undercut"}:
+        outcome = "top1 przy cenie 1 PLN ponizej najblizszego benchmarku."
+    else:
+        outcome = ""
+    if change.get("city_top1_airport_cap_active"):
+        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+        suffix = (
+            " Cena oddzialu miejskiego pozostaje nie wyzsza niz "
+            f"{format_percent_for_comment(multiplier * 100)} odpowiadajacej stawki lotniskowej."
+        )
+        outcome = f"{outcome}{suffix}".strip()
+    return outcome
 
 
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
@@ -737,6 +856,13 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
         lines.append(f"Prognoza na stronie: {format_rate_for_comment(predicted_site_rate)} PLN")
     if broker_markup_percent is not None:
         lines.append(f"Szac. narzut brokera: {format_percent_for_comment(broker_markup_percent)}")
+    if change.get("city_top1_airport_cap_active"):
+        multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.2
+        lines.append(
+            "Limit oddzialu miejskiego: "
+            f"max {format_percent_for_comment(multiplier * 100)} ceny lotniskowej "
+            f"({format_rate_for_comment(parse_number(change.get('city_top1_airport_max_rate')))} PLN)"
+        )
     if change.get("target_achievable") is False:
         lines.append("Cel rankingowy: wymaga kontroli")
     return Comment("\n".join(lines), "Codex")
@@ -828,6 +954,8 @@ def get_changed_positions_group_key(change: dict[str, Any]) -> tuple[Any, ...]:
         change.get("benchmark_rate"),
         change.get("minimum_reason"),
         change.get("target_achievable"),
+        change.get("airport_reference_zone"),
+        change.get("city_top1_airport_max_rate"),
     )
 
 
@@ -945,6 +1073,19 @@ def get_excluded_group_highlight_legend_text(config: dict[str, Any]) -> str:
     )
 
 
+def get_city_top1_airport_cap_legend_text(config: dict[str, Any]) -> str:
+    cap_rule = get_city_top1_airport_cap(config)
+    if cap_rule is None:
+        return "Limit ceny oddzialu miejskiego wzgledem lotniska jest wylaczony."
+    multiplier, _ = cap_rule
+    return (
+        "Przy rekomendacji utrzymania top1 stawka oddzialu miejskiego dla tej samej daty, "
+        "grupy i przedzialu duration moze wynosic maksymalnie "
+        f"{format_percent_for_comment(multiplier * 100)} stawki odpowiadajacego lotniska. "
+        "Lotniska nie sa ograniczane ta regula."
+    )
+
+
 def build_review_notes(changes: list[dict[str, Any]]) -> str:
     notes: list[str] = []
     strongest = get_strongest_delta_change(changes)
@@ -954,8 +1095,11 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
 
     if any(change.get("minimum_reason") for change in changes):
         notes.append("ochrona floor cenowego")
+    if any(change.get("city_top1_airport_cap_applied") for change in changes):
+        multiplier = parse_number(changes[0].get("city_top1_airport_max_multiplier")) or 1.2
+        notes.append(f"limit oddzialu miejskiego do {format_percent_for_comment(multiplier * 100)} stawki lotniskowej")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
-        notes.append("korekta grupy EDAH/EDMV")
+        notes.append("korekta grupy EDMV")
     if any(parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
         notes.append("uwzgledniono szacowany narzut brokera")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
@@ -1069,8 +1213,10 @@ def write_changed_positions_sheet(
         ("D9EAF7", "Grupy zmieniane", get_group_rules_legend_text(config)),
         ("FCE4D6", "Grupy tylko kontrolne", get_excluded_group_highlight_legend_text(config)),
         ("FCE4D6", "Floor cenowy", get_floor_legend_text(config)),
-        ("FFFFFF", "Kolory w Sheet1", "Zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien. Komentarze sa tylko w kolumnie O tego arkusza."),
     ]
+    if config.get("city_zone_airport_zones"):
+        legend_items.append(("DDEBF7", "Limit miasto vs lotnisko", get_city_top1_airport_cap_legend_text(config)))
+    legend_items.append(("FFFFFF", "Kolory w Sheet1", "Zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien. Komentarze sa tylko w kolumnie O tego arkusza."))
     warning = config.get("changed_rate_warning") or {}
     warning_threshold = parse_number(warning.get("below_pln_day"))
     if warning_threshold is not None:
@@ -1453,16 +1599,28 @@ def build_validation_rows(
         and parse_number(change.get("benchmark_rate")) is None
     })
     below_floor_changes: list[str] = []
+    city_airport_cap_violations: list[str] = []
     for change in changes:
         minimum_rate = parse_number(change.get("minimum_rate_pln_day"))
         new_rate = parse_number(change.get("new_rate"))
-        if minimum_rate is None or new_rate is None or new_rate >= minimum_rate:
-            continue
-        below_floor_changes.append(
-            f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} "
-            f"{change.get('duration_band')}: {format_rate_for_comment(new_rate)} < "
-            f"{format_rate_for_comment(minimum_rate)}"
-        )
+        if minimum_rate is not None and new_rate is not None and new_rate < minimum_rate:
+            below_floor_changes.append(
+                f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} "
+                f"{change.get('duration_band')}: {format_rate_for_comment(new_rate)} < "
+                f"{format_rate_for_comment(minimum_rate)}"
+            )
+        maximum_city_rate = parse_number(change.get("city_top1_airport_max_rate"))
+        if (
+            change.get("city_top1_airport_cap_active")
+            and maximum_city_rate is not None
+            and new_rate is not None
+            and new_rate > maximum_city_rate + 0.001
+        ):
+            city_airport_cap_violations.append(
+                f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} "
+                f"{change.get('duration_band')}: {format_rate_for_comment(new_rate)} > "
+                f"{format_rate_for_comment(maximum_city_rate)}"
+            )
 
     unachievable_targets = sorted({
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}"
@@ -1510,6 +1668,7 @@ def build_validation_rows(
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
+        ["Stawki miejskie powyzej 120% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
         ["Sprzeczne rekomendacje w przedziale duration", get_validation_status(len(aggregation_conflicts), warning=True), len(aggregation_conflicts), first_items(aggregation_conflicts)],
         ["Niepelne pokrycie przedzialu duration", get_validation_status(len(incomplete_duration_coverage), warning=True), len(incomplete_duration_coverage), first_items(incomplete_duration_coverage)],
@@ -1847,6 +2006,163 @@ def build_group_price_parity_scope(
     return scope
 
 
+def build_city_top1_airport_rate_caps(
+    ws: Any,
+    config: dict[str, Any],
+    targets: dict[str, dict[date, list[dict[str, Any]]]],
+) -> tuple[dict[tuple[str, date, int], dict[str, Any]], list[dict[str, Any]]]:
+    cap_rule = get_city_top1_airport_cap(config)
+    city_zone_airport_zones = {
+        normalize_code(city_zone): [normalize_code(zone) for zone in airport_zones if normalize_code(zone)]
+        for city_zone, airport_zones in (config.get("city_zone_airport_zones") or {}).items()
+        if normalize_code(city_zone)
+    }
+    if cap_rule is None or not city_zone_airport_zones:
+        return {}, []
+
+    multiplier, recommendation_types = cap_rule
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rows_by_zone_date: dict[tuple[str, date], dict[str, int]] = defaultdict(dict)
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if group and zone and pickup_date is not None:
+            rows_by_zone_date[(zone, pickup_date)][group] = row
+
+    targets_by_cell: dict[tuple[str, date, int], dict[str, Any]] = {}
+    for zone, targets_by_date in targets.items():
+        normalized_zone = normalize_code(zone)
+        for target_date, row_targets in targets_by_date.items():
+            for target in row_targets:
+                rate_col = target.get("rate_col")
+                if isinstance(target_date, date) and isinstance(rate_col, int):
+                    targets_by_cell[(normalized_zone, target_date, rate_col)] = target
+
+    parity = get_group_price_parity(config)
+    tracked_groups = set(parity[0]) | set(parity[1]) if parity else set()
+    zone_labels = {
+        normalize_code(zone): str(label)
+        for zone, label in (config.get("zone_location_labels") or {}).items()
+        if normalize_code(zone)
+    }
+    caps: dict[tuple[str, date, int], dict[str, Any]] = {}
+    missing_references: list[dict[str, Any]] = []
+
+    for city_zone, targets_by_date in targets.items():
+        normalized_city_zone = normalize_code(city_zone)
+        airport_zones = city_zone_airport_zones.get(normalized_city_zone, [])
+        if not airport_zones:
+            continue
+        for target_date, row_targets in targets_by_date.items():
+            for city_target in row_targets:
+                rate_col = city_target.get("rate_col")
+                if not isinstance(rate_col, int) or not target_matches_recommendation_types(city_target, recommendation_types):
+                    continue
+
+                airport_options: list[dict[str, Any]] = []
+                for airport_zone in airport_zones:
+                    airport_rows = rows_by_zone_date.get((airport_zone, target_date), {})
+                    if not airport_rows:
+                        continue
+                    candidate_groups = tracked_groups or {
+                        group for group in airport_rows if not group_is_excluded(group, config)
+                    }
+                    airport_target = targets_by_cell.get((airport_zone, target_date, rate_col))
+                    projected_rates: dict[str, float] = {}
+
+                    if airport_target is not None:
+                        reference_group = next(
+                            (
+                                group
+                                for group in (parity[0] if parity else sorted(candidate_groups))
+                                if group in airport_rows
+                            ),
+                            None,
+                        )
+                        if reference_group is not None:
+                            reference_adjustment = get_group_rate_adjustment(reference_group, config)
+                            current_rate = parse_number(ws.cell(airport_rows[reference_group], rate_col).value)
+                            current_base = None if current_rate is None else current_rate - reference_adjustment
+                            projected_base, _, _, _ = calculate_target_base_rate(airport_target, current_base, config)
+                            for group in candidate_groups:
+                                if group in airport_rows:
+                                    projected_rates[group] = projected_base + get_group_rate_adjustment(group, config)
+                    else:
+                        for group in candidate_groups:
+                            row = airport_rows.get(group)
+                            rate = parse_number(ws.cell(row, rate_col).value) if row is not None else None
+                            if rate is not None:
+                                projected_rates[group] = rate
+
+                    base_cap_candidates = [
+                        rate * multiplier - get_group_rate_adjustment(group, config)
+                        for group, rate in projected_rates.items()
+                    ]
+                    if not base_cap_candidates:
+                        continue
+                    airport_options.append({
+                        "airport_zone": airport_zone,
+                        "airport_location": zone_labels.get(airport_zone, airport_zone),
+                        "airport_rates_by_group": projected_rates,
+                        "base_rate_cap_pln_day": math.floor((min(base_cap_candidates) + 1e-9) * 100) / 100,
+                        "max_multiplier": multiplier,
+                    })
+
+                if airport_options:
+                    caps[(normalized_city_zone, target_date, rate_col)] = min(
+                        airport_options,
+                        key=lambda item: float(item["base_rate_cap_pln_day"]),
+                    )
+                else:
+                    missing_references.append({
+                        "city_zone": normalized_city_zone,
+                        "pickup_date": target_date.isoformat(),
+                        "rate_col": rate_col,
+                        "duration_band": city_target.get("duration_band", ""),
+                        "airport_zones": airport_zones,
+                    })
+
+    return caps, missing_references
+
+
+def find_city_top1_airport_cap_violations(
+    ws: Any,
+    config: dict[str, Any],
+    caps: dict[tuple[str, date, int], dict[str, Any]],
+) -> list[str]:
+    if not caps:
+        return []
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    caps_by_zone_date: dict[tuple[str, date], list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+    for (zone, pickup_date, rate_col), cap_info in caps.items():
+        caps_by_zone_date[(zone, pickup_date)].append((rate_col, cap_info))
+    violations: list[str] = []
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if not group or not zone or pickup_date is None or group_is_excluded(group, config):
+            continue
+        for rate_col, cap_info in caps_by_zone_date.get((zone, pickup_date), []):
+            rate = parse_number(ws.cell(row, rate_col).value)
+            maximum_rate = float(cap_info["base_rate_cap_pln_day"]) + get_group_rate_adjustment(group, config)
+            if rate is not None and rate > maximum_rate + 0.001:
+                violations.append(
+                    f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(rate_col)}: "
+                    f"{format_rate_for_comment(rate)} > {format_rate_for_comment(maximum_rate)}"
+                )
+    return violations
+
+
 def snapshot_row(ws: Any, row: int, max_col: int) -> dict[str, Any]:
     row_dimension = ws.row_dimensions[row]
     return {
@@ -2130,7 +2446,7 @@ def enforce_group_price_parity(
                     "recommendation_action": "parity",
                     "recommendation_type": "group_parity",
                     "target_rank": "",
-                    "reason": "Ujednolicenie stawek grup bazowych oraz korekty EDAH/EDMV.",
+                    "reason": "Ujednolicenie stawek grup bazowych oraz korekta EDMV.",
                     "location": "",
                     "zone": zone,
                     "group": group,
@@ -2228,6 +2544,17 @@ def apply_updates(
             else set()
         )
         targets, accepted_target_count, filtered_unaccepted_target_count = filter_targets_by_acceptance(targets, accepted_keys)
+    city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(ws, config, targets)
+    if missing_airport_references:
+        details = "; ".join(
+            f"{item['city_zone']}/{item['pickup_date']} {item['duration_band']} -> "
+            + ",".join(item["airport_zones"])
+            for item in missing_airport_references[:8]
+        )
+        raise ValueError(
+            "Missing airport rate required by city Top1 cap; no workbook changes were saved. "
+            + details
+        )
     group_price_parity_scope = build_group_price_parity_scope(targets)
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
@@ -2237,6 +2564,7 @@ def apply_updates(
     synced_booking_end_count = 0
     group_price_parity_changes: list[dict[str, Any]] = []
     excluded_group_highlight_count = 0
+    city_top1_airport_cap_applied_count = 0
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
@@ -2279,20 +2607,35 @@ def apply_updates(
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
             group_adjustment = get_group_rate_adjustment(group, config)
-            minimum_rate, minimum_reason = get_minimum_rate(target, config)
-            suggested_rate = (
-                float(target["suggested_rate_pln_day"])
-                - get_force_top1_base_offset(target, config)
-            )
-            base_rate = max(suggested_rate, minimum_rate)
             current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
-            if (
-                target.get("duration_band_coverage_complete") is False
-                and current_base_equivalent is not None
-                and base_rate > current_base_equivalent
-                and minimum_rate <= current_base_equivalent
-            ):
-                base_rate = current_base_equivalent
+            base_rate, suggested_rate, minimum_rate, minimum_reason = calculate_target_base_rate(
+                target,
+                current_base_equivalent,
+                config,
+            )
+            uncapped_base_rate = base_rate
+            cap_info = city_top1_airport_caps.get((zone, target["target_date"], int(target["rate_col"])))
+            city_airport_cap_active = cap_info is not None
+            city_airport_cap_applied = False
+            city_airport_cap_conflict = False
+            city_airport_max_rate = None
+            airport_reference_rate = None
+            if cap_info is not None:
+                base_rate_cap = float(cap_info["base_rate_cap_pln_day"])
+                city_airport_max_rate = round(base_rate_cap + group_adjustment, 2)
+                airport_reference_rate = (cap_info.get("airport_rates_by_group") or {}).get(normalize_code(group))
+                if minimum_rate > base_rate_cap + 0.001:
+                    city_airport_cap_conflict = True
+                    raise ValueError(
+                        "City Top1 airport cap conflicts with the configured price floor; no workbook changes were saved. "
+                        f"{normalize_code(group)}/{zone}/{target['target_date'].isoformat()} "
+                        f"{target['duration_band']}: floor {format_rate_for_comment(minimum_rate)} > "
+                        f"cap {format_rate_for_comment(base_rate_cap)}."
+                    )
+                if base_rate > base_rate_cap:
+                    base_rate = base_rate_cap
+                    city_airport_cap_applied = True
+                    city_top1_airport_cap_applied_count += 1
             new_rate = base_rate + group_adjustment
             if old_rate is not None and abs(new_rate - old_rate) < min_change:
                 continue
@@ -2320,6 +2663,7 @@ def apply_updates(
                 "new_rate": new_rate,
                 "delta": None if old_rate is None else round(new_rate - old_rate, 2),
                 "suggested_rate_before_minimum": suggested_rate,
+                "suggested_rate_before_airport_cap": uncapped_base_rate + group_adjustment,
                 "site_target_rate": target.get("site_cap_rate_pln_day") or target.get("site_target_rate_pln_day"),
                 "predicted_site_rate": predicted_site_rate,
                 "broker_markup_multiplier": broker_markup_multiplier,
@@ -2328,6 +2672,14 @@ def apply_updates(
                 "minimum_rate_pln_day": minimum_rate,
                 "minimum_reason": minimum_reason if base_rate > suggested_rate else "",
                 "group_adjustment_pln_day": group_adjustment,
+                "city_top1_airport_cap_active": city_airport_cap_active,
+                "city_top1_airport_cap_applied": city_airport_cap_applied,
+                "city_top1_airport_cap_conflict": city_airport_cap_conflict,
+                "city_top1_airport_max_multiplier": cap_info.get("max_multiplier") if cap_info else None,
+                "city_top1_airport_max_rate": city_airport_max_rate,
+                "airport_reference_zone": cap_info.get("airport_zone", "") if cap_info else "",
+                "airport_reference_location": cap_info.get("airport_location", "") if cap_info else "",
+                "airport_reference_rate": airport_reference_rate,
                 "currency": target.get("currency", ""),
                 "mm_rank": target.get("mm_rank", ""),
                 "mm_provider": target.get("mm_provider", ""),
@@ -2372,6 +2724,15 @@ def apply_updates(
     )
     changes.extend(group_price_parity_changes)
 
+    city_top1_airport_cap_violations = (
+        [] if dry_run else find_city_top1_airport_cap_violations(ws, config, city_top1_airport_caps)
+    )
+    if city_top1_airport_cap_violations:
+        raise ValueError(
+            "Final rates violate the city Top1 airport cap after group parity; no workbook changes were saved. "
+            + "; ".join(city_top1_airport_cap_violations[:8])
+        )
+
     if not dry_run:
         if output_path is None:
             raise ValueError("Output path is required unless --dry-run is used.")
@@ -2394,6 +2755,9 @@ def apply_updates(
         "change_count": len(changes),
         "group_price_parity_change_count": len(group_price_parity_changes),
         "group_price_parity_scope_count": len(group_price_parity_scope),
+        "city_top1_airport_cap_scope_count": len(city_top1_airport_caps),
+        "city_top1_airport_cap_applied_count": city_top1_airport_cap_applied_count,
+        "city_top1_airport_cap_violation_count": len(city_top1_airport_cap_violations),
         "excluded_group_highlight_count": excluded_group_highlight_count,
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,

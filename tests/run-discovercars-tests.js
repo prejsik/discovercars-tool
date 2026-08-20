@@ -78,7 +78,7 @@ runTest("parseMoney ignores rental duration before a currency-tagged total", () 
 runTest("transmission helpers recognize automatic, manual, and ACRISS codes", () => {
   assert.equal(normalizeTransmission("Automatic Transmission"), "automatic");
   assert.equal(normalizeTransmission("Manual Transmission"), "manual");
-  assert.equal(normalizeTransmission("EDAH"), "automatic");
+  assert.equal(normalizeTransmission("CGAV"), "automatic");
   assert.equal(normalizeTransmission("CDMV"), "manual");
   assert.equal(findTransmissionInCandidate({ sipp: "CDAR" }), "automatic");
   assert.equal(findTransmissionInCandidate({ sipp: "CXMR" }), "manual");

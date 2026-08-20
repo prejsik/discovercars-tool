@@ -21,6 +21,7 @@ from tools.update_excel_rates import (  # noqa: E402
     merge_config,
     parse_date_value,
     parse_number,
+    target_matches_recommendation_types,
 )
 
 
@@ -112,14 +113,14 @@ def build_workbook(path):
     rows = [
         ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
         ["CGAV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
-        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["CWAV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
         ["EDMV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
-        ["IDAH", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
+        ["FVMD", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
         ["SWAV", None, None, "WA1", "09-07-26", "10-07-26", "10-07-26", "11-07-26", 160, 70, 80, 90, 100, 120],
         ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "11-07-26", "12-07-26", 160, 90, 80, 90, 100, 120],
-        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "11-07-26", "12-07-26", 160, 90, 80, 90, 100, 120],
+        ["EDMV", None, None, "WA1", "09-07-26", "10-07-26", "11-07-26", "12-07-26", 160, 90, 80, 90, 100, 120],
         ["CDMV", None, None, "WA1", "09-07-26", "10-07-26", "25-07-26", "26-07-26", 160, 90, 80, 90, 130, 120],
-        ["EDAH", None, None, "WA1", "09-07-26", "10-07-26", "25-07-26", "26-07-26", 160, 90, 80, 90, 130, 120],
+        ["EDMV", None, None, "WA1", "09-07-26", "10-07-26", "25-07-26", "26-07-26", 160, 90, 80, 90, 130, 120],
     ]
     for row in rows:
         ws.append(row)
@@ -163,10 +164,30 @@ def main():
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    assert_equal(example_config["excluded_groups"], ["CGAV", "FVMD", "SWAV"], "excluded current groups")
+    assert_equal(
+        example_config["excluded_group_highlights"],
+        {"CGAV": 130, "SWAV": 150},
+        "current highlight-only groups",
+    )
+    assert_equal(
+        example_config["group_price_parity"]["base_groups"],
+        ["CDMV", "CWAV", "CWMR"],
+        "current base parity groups",
+    )
+    assert_equal(
+        example_config["group_price_parity"]["premium_adjustments_pln_day"],
+        {"EDMV": 1},
+        "current premium group",
+    )
     baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
     baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
     assert_equal(baseline_confirmation["status"], "confirmed_imported", "confirmed baseline status")
     assert_equal(baseline_confirmation["calibration_eligible"], True, "confirmed baseline calibration eligibility")
+    city_cap_types = {"top1_gap", "force_top1_maintain"}
+    assert target_matches_recommendation_types({"recommendation_type": "top1_gap"}, city_cap_types)
+    assert target_matches_recommendation_types({"recommendation_type": "force_top1_maintain"}, city_cap_types)
+    assert not target_matches_recommendation_types({"recommendation_type": "top1_undercut"}, city_cap_types)
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
@@ -214,6 +235,11 @@ def main():
     }
     for location, zones in expected_location_zones.items():
         assert_equal(location_zones.get(location), zones, f"location zone mapping for {location}")
+    assert_equal(example_config["city_zone_airport_zones"]["WA1"], ["WALO"], "Warsaw West city-airport mapping")
+    assert_equal(example_config["city_zone_airport_zones"]["WA2"], ["WALO"], "Warsaw city-airport mapping")
+    assert_equal(example_config["city_zone_airport_zones"]["KRDW"], ["KRLO"], "Krakow station-airport mapping")
+    assert_equal(example_config["city_zone_airport_zones"]["KRGA"], ["KRLO"], "Krakow gallery-airport mapping")
+    assert "KRTI" not in example_config["city_zone_airport_zones"]
 
     covered_zones = set().union(*location_zones.values())
     real_zones = workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
@@ -330,23 +356,23 @@ def main():
         assert_equal(ws.max_row, 14, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
         assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
-        assert_equal(ws["J7"].value, 82, "EDAH adjusted rate")
+        assert_equal(ws["J7"].value, 81, "CWAV parity rate")
         assert_equal(ws["J8"].value, 82, "EDMV adjusted rate")
-        assert_equal(ws["J9"].value, 70, "excluded IDAH rate")
+        assert_equal(ws["J9"].value, 70, "excluded FVMD rate")
         assert_equal(ws["J10"].value, 70, "excluded SWAV rate")
-        assert_equal(ws["I7"].value, 160, "EDAH duration 1 rate outside recommendations is unchanged")
+        assert_equal(ws["I7"].value, 160, "CWAV duration 1 rate outside recommendations is unchanged")
         assert_equal(ws["I8"].value, 160, "EDMV duration 1 rate outside recommendations is unchanged")
-        assert_equal(ws["I9"].value, 160, "excluded IDAH duration 1 rate")
-        assert_equal(ws["K7"].value, 80, "EDAH duration 3-4 rate outside recommendations is unchanged")
+        assert_equal(ws["I9"].value, 160, "excluded FVMD duration 1 rate")
+        assert_equal(ws["K7"].value, 80, "CWAV duration 3-4 rate outside recommendations is unchanged")
         assert_equal(ws["K8"].value, 80, "EDMV duration 3-4 rate outside recommendations is unchanged")
         assert_equal(ws["N5"].value, 100, "long duration minimum")
-        assert_equal(ws["N7"].value, 101, "long duration minimum with EDAH adjustment")
+        assert_equal(ws["N7"].value, 100, "long duration minimum for CWAV")
         assert_equal(ws["N8"].value, 101, "long duration minimum with EDMV adjustment")
-        assert_equal(ws["N9"].value, 120, "excluded IDAH long duration rate")
+        assert_equal(ws["N9"].value, 120, "excluded FVMD long duration rate")
         assert_equal(ws["J11"].value, 70, "global minimum")
-        assert_equal(ws["J12"].value, 71, "global minimum with EDAH adjustment")
+        assert_equal(ws["J12"].value, 71, "global minimum with EDMV adjustment")
         assert_equal(ws["M13"].value, 115, "seasonal duration minimum")
-        assert_equal(ws["M14"].value, 116, "seasonal duration minimum with EDAH adjustment")
+        assert_equal(ws["M14"].value, 116, "seasonal duration minimum with EDMV adjustment")
         assert_equal(ws["H5"].value, ws["G5"].value, "pickup end normalized for CDMV")
         assert_equal(ws["H6"].value, ws["G6"].value, "pickup end normalized for excluded CGAV")
         for row in range(5, 15):
@@ -360,9 +386,9 @@ def main():
             "Poprzednia stawka: 70 PLN\nNowa stawka: 81 PLN\nZmiana: +11 PLN\nCel na stronie: 81 PLN\nPrognoza na stronie: 81 PLN",
             "short Sheet1 comment",
         )
-        assert ws["J7"].comment is not None
+        assert ws["J8"].comment is not None
         assert_equal(
-            ws["J7"].comment.text,
+            ws["J8"].comment.text,
             "Poprzednia stawka: 70 PLN\nNowa stawka: 82 PLN\nZmiana: +12 PLN\nCel na stronie: 81 PLN\nPrognoza na stronie: 82 PLN\nCel rankingowy: wymaga kontroli",
             "short adjusted Sheet1 comment",
         )
@@ -382,14 +408,13 @@ def main():
         assert "Floor cenowy" in changed_ws["B9"].value
         assert_equal(changed_ws["O15"].value, "Komentarz zmiany", "changed sheet comment header")
         assert_equal(changed_ws.max_row, 20, "changed sheet row count")
-        assert_equal(changed_ws["A16"].value, "CDMV", "first changed group set")
+        assert_equal(changed_ws["A16"].value, "CDMV, CWAV", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O16"].value
         assert "co najmniej 10 PLN" in changed_ws["O16"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O16"].value
         assert "Poprzednia stawka: 70 PLN" in changed_ws["O16"].value
         assert "Nowa stawka: 81 PLN" in changed_ws["O16"].value
         assert "Zmiana: +11 PLN" in changed_ws["O16"].value
-        assert "EDAH: 82 PLN" not in changed_ws["O16"].value
         assert "EDMV: 82 PLN" not in changed_ws["O16"].value
         assert "brutto/dzien" not in changed_ws["O16"].value
         assert "Lokalizacja" not in changed_ws["O16"].value
@@ -412,13 +437,13 @@ def main():
                 assert changed_ws.cell(row, col).comment is None
         changed_groups = {changed_ws.cell(row, 1).value for row in range(16, changed_ws.max_row + 1)}
         assert "CGAV" not in ",".join(changed_groups)
-        assert "IDAH" not in ",".join(changed_groups)
+        assert "FVMD" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
         assert_equal(review_ws["A1"].value, "Akceptacja?", "review header")
         assert_equal(review_ws["B1"].value, "Status", "review status header")
         assert_equal(review_ws.max_row, 6, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
-        assert_equal(review_ws["F2"].value, "CDMV", "review grouped groups")
+        assert_equal(review_ws["F2"].value, "CDMV, CWAV", "review grouped groups")
         assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
         assert review_ws["C2"].value == "OK"
         validation_rows = {
@@ -836,7 +861,6 @@ def main():
             force_top1_workbook_path,
             [
                 ["CDMV", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 100, 100, 100, 100, 120],
-                ["EDAH", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 101, 100, 100, 100, 120],
                 ["EDMV", None, None, "WA1", "14-09-26", "15-09-26", "15-09-26", "15-09-26", 160, 101, 100, 100, 100, 120],
             ],
         )
@@ -868,13 +892,119 @@ def main():
         )
         force_top1_ws = openpyxl.load_workbook(force_top1_output_path)["Sheet1"]
         assert_equal(force_top1_ws["J5"].value, 79, "force top1 reserves premium adjustment in base rate")
-        assert_equal(force_top1_ws["J6"].value, 80, "force top1 keeps EDAH below the site cap")
-        assert_equal(force_top1_ws["J7"].value, 80, "force top1 keeps EDMV below the site cap")
+        assert_equal(force_top1_ws["J6"].value, 80, "force top1 keeps EDMV below the site cap")
         assert all(
             change["target_achievable"]
             for change in force_top1_summary["changes"]
             if change["recommendation_type"] != "group_parity"
         )
+
+        city_cap_workbook_path = tmpdir / "city-cap-rates.xlsx"
+        city_cap_recommendations_path = tmpdir / "city-cap-recommendations.json"
+        city_cap_output_path = tmpdir / "city-cap-updated.xlsx"
+        parity_groups = ["CDMV", "CWAV", "CWMR", "EDMV"]
+        city_cap_rows = []
+        for zone, base_rate in (("WA1", 90), ("WALO", 100)):
+            for group in parity_groups:
+                adjustment = 1 if group == "EDMV" else 0
+                city_cap_rows.append([
+                    group,
+                    None,
+                    None,
+                    zone,
+                    "14-09-26",
+                    "15-09-26",
+                    "15-09-26",
+                    "15-09-26",
+                    160,
+                    base_rate + adjustment,
+                    100,
+                    100,
+                    100,
+                    120,
+                ])
+        build_minimal_workbook(city_cap_workbook_path, city_cap_rows)
+        city_cap_recommendations_path.write_text(
+            json.dumps({
+                "decisions": [{
+                    "action": "increase",
+                    "recommendation_type": "top1_gap",
+                    "location": "Warsaw Train Station",
+                    "start_date": "2026-09-15",
+                    "rental_days": 2,
+                    "suggested_rate_pln_day": 150,
+                    "maximum_import_rate_pln_day": 150,
+                    "site_cap_rate_pln_day": 150,
+                    "broker_markup_multiplier": 1,
+                    "benchmark_provider": "Car24",
+                    "benchmark_rate_pln_day": 151,
+                    "mm_rate_pln_day": 90,
+                    "data_quality_status": "ok",
+                }]
+            }),
+            encoding="utf-8",
+        )
+        city_cap_summary = apply_updates(
+            workbook_path=city_cap_workbook_path,
+            recommendations_path=city_cap_recommendations_path,
+            output_path=city_cap_output_path,
+            config=merge_config({
+                "location_zones": {"Warsaw Train Station": ["WA1"]},
+                "city_zone_airport_zones": {"WA1": ["WALO"]},
+                "zone_location_labels": {"WALO": "Warsaw Chopin Airport (WAW)"},
+            }),
+            cli_groups=None,
+            dry_run=False,
+        )
+        city_cap_workbook = openpyxl.load_workbook(city_cap_output_path)
+        city_cap_ws = city_cap_workbook["Sheet1"]
+        for offset, group in enumerate(parity_groups, start=5):
+            expected_rate = 121 if group == "EDMV" else 120
+            assert_equal(city_cap_ws.cell(offset, 10).value, expected_rate, f"city cap rate for {group}")
+        for offset, group in enumerate(parity_groups, start=5 + len(parity_groups)):
+            expected_rate = 101 if group == "EDMV" else 100
+            assert_equal(city_cap_ws.cell(offset, 10).value, expected_rate, f"unchanged airport rate for {group}")
+        assert_equal(city_cap_summary["city_top1_airport_cap_scope_count"], 1, "city cap scope count")
+        assert_equal(city_cap_summary["city_top1_airport_cap_applied_count"], 4, "city cap applied count")
+        assert_equal(city_cap_summary["city_top1_airport_cap_violation_count"], 0, "city cap violations")
+        assert "max 120% ceny lotniskowej" in city_cap_ws["J5"].comment.text
+        assert_equal(city_cap_workbook["Changed Positions"]["A10"].value, "Limit miasto vs lotnisko", "city cap legend")
+        assert "maksymalnie 120%" in city_cap_workbook["Changed Positions"]["B10"].value
+
+        try:
+            apply_updates(
+                workbook_path=city_cap_workbook_path,
+                recommendations_path=city_cap_recommendations_path,
+                output_path=tmpdir / "city-cap-floor-conflict.xlsx",
+                config=merge_config({
+                    "location_zones": {"Warsaw Train Station": ["WA1"]},
+                    "city_zone_airport_zones": {"WA1": ["WALO"]},
+                    "minimum_rates": {"global_min_pln_day": 121},
+                }),
+                cli_groups=None,
+                dry_run=False,
+            )
+            raise AssertionError("city cap and floor conflict should block the workbook")
+        except ValueError as error:
+            assert "conflicts with the configured price floor" in str(error)
+
+        city_only_workbook_path = tmpdir / "city-cap-missing-airport.xlsx"
+        build_minimal_workbook(city_only_workbook_path, city_cap_rows[:len(parity_groups)])
+        try:
+            apply_updates(
+                workbook_path=city_only_workbook_path,
+                recommendations_path=city_cap_recommendations_path,
+                output_path=tmpdir / "city-cap-missing-airport-output.xlsx",
+                config=merge_config({
+                    "location_zones": {"Warsaw Train Station": ["WA1"]},
+                    "city_zone_airport_zones": {"WA1": ["WALO"]},
+                }),
+                cli_groups=None,
+                dry_run=False,
+            )
+            raise AssertionError("missing airport reference should block the workbook")
+        except ValueError as error:
+            assert "Missing airport rate required" in str(error)
 
         expired_config = merge_config(
             {
