@@ -1198,6 +1198,59 @@ runTest("buildPricingRecommendations forceTop1 undercuts top1 even when MM is ou
   assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
 });
 
+runTest("buildPricingRecommendations forceTop1 uses competitor top1 when MM is missing", () => {
+  const output = buildPricingRecommendations({
+    locations: ["Warsaw"],
+    scenarios: [{
+      scenario_id: "2026-09-20-3",
+      start_date: "2026-09-20",
+      rental_days: 3,
+      top_3_plus_mm_by_location: {
+        Warsaw: {
+          top_3: [
+            { provider_name: "Competitor A", total_price: 300, currency: "PLN", rental_days: 3 },
+            { provider_name: "Competitor B", total_price: 330, currency: "PLN", rental_days: 3 }
+          ],
+          mm_cars_rental: null
+        }
+      }
+    }]
+  }, { forceTop1: true });
+
+  assert.equal(output.recommendation_count, 1);
+  assert.equal(output.recommendations[0].recommendation_type, "force_top1_undercut");
+  assert.equal(output.recommendations[0].site_target_rate_pln_day, 99);
+  assert.equal(output.recommendations[0].suggested_rate_pln_day, 99);
+  assert.equal(output.recommendations[0].mm_rate_pln_day, null);
+  assert.equal(output.recommendations[0].change_pln_day, null);
+  assert.match(output.recommendations[0].reason, /nie jest widoczne/);
+});
+
+runTest("buildPricingRecommendations does not recommend changes from duration 8", () => {
+  const output = buildPricingRecommendations({
+    locations: ["Krakow"],
+    scenarios: [{
+      scenario_id: "2026-09-20-8",
+      start_date: "2026-09-20",
+      rental_days: 8,
+      top_3_plus_mm_by_location: {
+        Krakow: {
+          top_3: [
+            { provider_name: "MM Cars Rental", total_price: 800, currency: "PLN", rental_days: 8 },
+            { provider_name: "Competitor A", total_price: 960, currency: "PLN", rental_days: 8 }
+          ],
+          mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 800, currency: "PLN", rental_days: 8 }
+        }
+      }
+    }]
+  });
+
+  assert.equal(output.recommendation_count, 0);
+  assert.equal(output.decisions[0].action, "hold");
+  assert.equal(output.decisions[0].data_quality_status, "duration_excluded");
+  assert.match(output.decisions[0].reason, /od 8 dni/);
+});
+
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 10 PLN per day", () => {
   const output = buildPricingRecommendations({
     generated_at: "2026-06-09T07:00:00.000Z",

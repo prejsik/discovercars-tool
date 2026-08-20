@@ -104,7 +104,8 @@ function buildActiveRecommendation({ base, options, action, recommendationType, 
   const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
   const suggestedImportRate = roundRate(siteTarget / calibration.multiplier, options);
   const predictedSiteRate = Number((suggestedImportRate * calibration.multiplier).toFixed(2));
-  const siteChange = siteTarget - Number(base.mm_rate_pln_day);
+  const mmRate = base.mm_rate_pln_day == null ? null : Number(base.mm_rate_pln_day);
+  const siteChange = Number.isFinite(mmRate) ? siteTarget - mmRate : null;
 
   return {
     ...base,
@@ -123,7 +124,7 @@ function buildActiveRecommendation({ base, options, action, recommendationType, 
     broker_markup_percent: calibration.percent,
     broker_markup_source: calibration.source,
     data_quality_status: "ok",
-    change_pln_day: Number(siteChange.toFixed(2))
+    change_pln_day: siteChange == null ? null : Number(siteChange.toFixed(2))
   };
 }
 
@@ -182,8 +183,19 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       || null
   };
 
-  if (!mmOffer || mmRate == null) {
-    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.", options, null, "missing_mm");
+  const maxRecommendationRentalDays = Number(options.maxRecommendationRentalDays);
+  if (
+    Number.isFinite(maxRecommendationRentalDays)
+    && maxRecommendationRentalDays > 0
+    && Number(base.rental_days) > maxRecommendationRentalDays
+  ) {
+    return buildNoopRecommendation(
+      base,
+      `Duration od ${maxRecommendationRentalDays + 1} dni nie podlega rekomendacjom ani zmianom stawek.`,
+      options,
+      mmRate,
+      "duration_excluded"
+    );
   }
 
   if (!top1 || top1Rate == null) {
@@ -217,8 +229,8 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     }
 
     const target = roundRate(benchmarkRate - options.undercutBufferPlnDay, options);
-    const change = target - mmRate;
-    if (Math.abs(change) < options.minChangePlnDay) {
+    const change = mmRate == null ? null : target - mmRate;
+    if (change != null && Math.abs(change) < options.minChangePlnDay) {
       return buildNoopRecommendation(base, "MM Cars Rental jest juz w wymaganym przedziale top1.", options, target);
     }
 
@@ -226,15 +238,21 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     return buildActiveRecommendation({
       base,
       options,
-      action: change > 0 ? "increase" : "decrease",
+      action: change != null && change > 0 ? "increase" : "decrease",
       recommendationType: alreadyTop1 ? "force_top1_maintain" : "force_top1_undercut",
       targetRank: 1,
       reason: alreadyTop1
         ? `MM Cars Rental pozostaje top1 przy cenie ${options.undercutBufferPlnDay} PLN ponizej top2.`
-        : `Cena zostaje ustawiona ${options.undercutBufferPlnDay} PLN ponizej aktualnego top1, aby MM Cars Rental zostalo top1.`,
+        : mmRate == null
+          ? `MM Cars Rental nie jest widoczne; cena zostaje ustawiona ${options.undercutBufferPlnDay} PLN ponizej aktualnego top1.`
+          : `Cena zostaje ustawiona ${options.undercutBufferPlnDay} PLN ponizej aktualnego top1, aby MM Cars Rental zostalo top1.`,
       benchmarkOffer,
       siteTarget: target
     });
+  }
+
+  if (!mmOffer || mmRate == null) {
+    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.", options, null, "missing_mm");
   }
 
   if (mmRank === 1) {

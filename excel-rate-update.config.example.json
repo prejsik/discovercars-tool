@@ -15,6 +15,7 @@
     "rate_start": 9
   },
   "apply_groups": "all",
+  "max_recommendation_duration_days": 7,
   "excluded_groups": ["CGAV", "FVMD", "SWAV"],
   "excluded_group_highlights": {
     "CGAV": 130,
@@ -33,7 +34,7 @@
   "city_top1_airport_cap": {
     "enabled": true,
     "max_multiplier": 1.3,
-    "recommendation_types": ["top1_gap", "force_top1_maintain"]
+    "recommendation_types": ["top1_gap", "force_top1_maintain", "force_top1_undercut"]
   },
   "normalize_pickup_end_to_start": false,
   "pickup_date_expansion": {

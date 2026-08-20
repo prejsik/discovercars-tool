@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.update_excel_rates import (  # noqa: E402
     apply_updates,
+    build_targets,
     build_validation_rows,
     get_duration_columns,
     get_delta_fill,
@@ -183,6 +184,7 @@ def main():
         "current premium group",
     )
     assert_equal(example_config["city_top1_airport_cap"]["max_multiplier"], 1.3, "city-airport cap")
+    assert_equal(example_config["max_recommendation_duration_days"], 7, "maximum recommendation duration")
     september_floor, _ = get_minimum_rate(
         {"target_date": date(2026, 9, 1), "duration_min_days": 1, "duration_max_days": 35},
         example_config,
@@ -201,6 +203,22 @@ def main():
     assert target_matches_recommendation_types({"recommendation_type": "top1_gap"}, city_cap_types)
     assert target_matches_recommendation_types({"recommendation_type": "force_top1_maintain"}, city_cap_types)
     assert not target_matches_recommendation_types({"recommendation_type": "top1_undercut"}, city_cap_types)
+
+    duration_targets, duration_skipped = build_targets(
+        [{
+            "action": "decrease",
+            "recommendation_type": "top1_undercut",
+            "location": "Warsaw Train Station",
+            "start_date": "2026-09-20",
+            "rental_days": 8,
+            "suggested_rate_pln_day": 80,
+        }],
+        {8: (13, "8-20", 8, 20)},
+        example_config,
+    )
+    assert_equal(bool(duration_targets), False, "duration 8 target is blocked")
+    assert_equal(len(duration_skipped), 1, "duration 8 skip count")
+    assert "Maximum recommendation duration is 7 days" in duration_skipped[0]["skip_reason"]
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
@@ -331,6 +349,7 @@ def main():
         config = merge_config(
             {
                 "location_zones": {"Warsaw": ["WA1"]},
+                "max_recommendation_duration_days": 35,
             }
         )
 

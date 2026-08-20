@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
+    "max_recommendation_duration_days": 7,
     "excluded_groups": ["CGAV", "FVMD", "SWAV"],
     "excluded_group_highlights": {
         "CGAV": 130,
@@ -58,7 +59,7 @@ DEFAULT_CONFIG = {
     "city_top1_airport_cap": {
         "enabled": True,
         "max_multiplier": 1.3,
-        "recommendation_types": ["top1_gap", "force_top1_maintain"],
+        "recommendation_types": ["top1_gap", "force_top1_maintain", "force_top1_undercut"],
     },
     "normalize_pickup_end_to_start": True,
     "pickup_date_expansion": {
@@ -1050,10 +1051,18 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         for group, adjustment in premium_adjustments.items()
     )
     excluded_groups = [normalize_code(item) for item in config.get("excluded_groups", []) if normalize_code(item)]
+    max_duration = int(parse_number(config.get("max_recommendation_duration_days")) or 0)
+    duration_rule = (
+        f" Rekomendacje i zmiany stawek tylko dla duration 1-{max_duration} dni; "
+        f"od {max_duration + 1} dni bez rekomendacji i bez zmian."
+        if max_duration > 0
+        else ""
+    )
     return (
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
         f"{premium_text or 'brak grup premium'}. "
         f"Bez zmiany stawek: {format_group_list(excluded_groups)}."
+        f"{duration_rule}"
     )
 
 
@@ -1865,6 +1874,14 @@ def build_targets(
             continue
 
         duration = int(rental_days)
+        max_duration = int(parse_number(config.get("max_recommendation_duration_days")) or 0)
+        if max_duration > 0 and duration > max_duration:
+            if action in {"increase", "decrease"}:
+                skipped.append({
+                    **item,
+                    "skip_reason": f"Maximum recommendation duration is {max_duration} days; {duration} days was ignored.",
+                })
+            continue
         duration_column = duration_columns.get(duration)
         if not duration_column:
             skipped.append({**item, "skip_reason": f"No Excel duration column for {duration} days."})
