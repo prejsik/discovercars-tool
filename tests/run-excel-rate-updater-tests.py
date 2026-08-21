@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import zipfile
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from xml.etree import ElementTree
@@ -14,8 +15,11 @@ sys.path.insert(0, str(ROOT))
 
 from tools.update_excel_rates import (  # noqa: E402
     apply_updates,
+    build_change_statistics,
     build_targets,
     build_validation_rows,
+    ensure_fixed_rate_group_rows,
+    find_fixed_rate_group_issues,
     get_duration_columns,
     get_delta_fill,
     get_minimum_rate,
@@ -160,6 +164,24 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
+    assert_equal(
+        build_change_statistics([
+            {"delta": 10},
+            {"delta": 20},
+            {"delta": -5},
+            {"delta": -15},
+            {"delta": 0},
+            {"delta": None},
+        ]),
+        {
+            "increase_count": 2,
+            "decrease_count": 2,
+            "average_increase_pln_day": 15.0,
+            "average_decrease_pln_day": -10.0,
+        },
+        "change statistics use every non-zero applied delta",
+    )
+
     warning_fill = get_delta_fill(
         {"new_rate": 59, "delta": -10},
         merge_config({"changed_rate_warning": {"below_pln_day": 60, "color": "FFF2CC"}}),
@@ -167,7 +189,19 @@ def main():
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
-    assert_equal(example_config["excluded_groups"], ["CGAV", "FVMD", "SWAV"], "excluded current groups")
+    assert_equal(
+        example_config["excluded_groups"],
+        ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+        "excluded current and fixed-rate groups",
+    )
+    assert_equal(
+        example_config["fixed_rate_groups"],
+        {
+            "CFAV": {"rate_pln_day": 200, "template_group": "CDMV"},
+            "PDAH": {"rate_pln_day": 250, "template_group": "CDMV"},
+        },
+        "fixed-rate group configuration",
+    )
     assert_equal(
         example_config["excluded_group_highlights"],
         {"CGAV": 130, "SWAV": 150},
@@ -222,6 +256,116 @@ def main():
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
+
+        fixed_workbook_path = temporary_path / "fixed-rate-groups.xlsx"
+        fixed_recommendations_path = temporary_path / "fixed-rate-recommendations.json"
+        fixed_output_path = temporary_path / "fixed-rate-groups-output.xlsx"
+        build_minimal_workbook(
+            fixed_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
+                ["CDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
+                ["CFAV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
+                ["CFAV", None, None, "WA3", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
+            ],
+        )
+        fixed_recommendations_path.write_text(
+            json.dumps({
+                "recommendations": [{
+                    "action": "increase",
+                    "recommendation_type": "top1_undercut",
+                    "location": "Warsaw Test",
+                    "start_date": "2026-06-20",
+                    "rental_days": 2,
+                    "suggested_rate_pln_day": 180,
+                    "benchmark_rate_pln_day": 181,
+                }]
+            }),
+            encoding="utf-8",
+        )
+        fixed_config = merge_config({
+            "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+            "fixed_rate_groups": {
+                "CFAV": {"rate_pln_day": 200, "template_group": "CDMV"},
+                "PDAH": {"rate_pln_day": 250, "template_group": "CDMV"},
+            },
+            "location_zones": {"Warsaw Test": ["WA1"]},
+            "pickup_date_expansion": {"enabled": False},
+        })
+        fixed_dry_summary = apply_updates(
+            workbook_path=fixed_workbook_path,
+            recommendations_path=fixed_recommendations_path,
+            output_path=None,
+            config=fixed_config,
+            cli_groups=None,
+            dry_run=True,
+        )
+        fixed_dry_validation = {
+            item["check"]: item["status"]
+            for item in fixed_dry_summary["validation"]
+        }
+        assert_equal(
+            fixed_dry_validation["Kompletne klasy ze stawkami stalymi"],
+            "OK",
+            "fixed-rate dry-run validation",
+        )
+        fixed_summary = apply_updates(
+            workbook_path=fixed_workbook_path,
+            recommendations_path=fixed_recommendations_path,
+            output_path=fixed_output_path,
+            config=fixed_config,
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(fixed_summary["fixed_rate_groups"]["added_row_count"], 3, "fixed rows added")
+        assert_equal(fixed_summary["fixed_rate_groups"]["updated_row_count"], 2, "fixed rows updated")
+        assert not ({"CFAV", "PDAH"} & {str(change["group"]) for change in fixed_summary["changes"]})
+        fixed_book = openpyxl.load_workbook(fixed_output_path)
+        fixed_ws = fixed_book["Sheet1"]
+        fixed_legend = fixed_book["Changed Positions"]["B7"].value
+        assert "CFAV=200 PLN" in fixed_legend
+        assert "PDAH=250 PLN" in fixed_legend
+        assert_equal(fixed_ws.max_row, 11, "two fixed classes cover both template locations")
+        fixed_rows = {
+            (fixed_ws.cell(row, 1).value, fixed_ws.cell(row, 4).value): row
+            for row in range(5, fixed_ws.max_row + 1)
+        }
+        for group, expected_rate in (("CFAV", 200), ("PDAH", 250)):
+            for zone in ("WA1", "WA2"):
+                row = fixed_rows[(group, zone)]
+                assert_equal(
+                    [fixed_ws.cell(row, col).value for col in range(9, 15)],
+                    [expected_rate] * 6,
+                    f"{group}/{zone} fixed rates",
+                )
+        assert_equal(
+            [fixed_ws.cell(fixed_rows[("CFAV", "WA3")], col).value for col in range(9, 15)],
+            [200] * 6,
+            "extra CFAV row fixed rates",
+        )
+        assert_equal(
+            find_fixed_rate_group_issues(fixed_ws, fixed_config, get_duration_columns(fixed_ws, fixed_config)),
+            [],
+            "fixed-rate group validation",
+        )
+        fixed_validation = fixed_book["Validation"]
+        fixed_validation_rows = {
+            fixed_validation.cell(row, 1).value: fixed_validation.cell(row, 2).value
+            for row in range(2, fixed_validation.max_row + 1)
+        }
+        assert_equal(
+            fixed_validation_rows["Kompletne klasy ze stawkami stalymi"],
+            "OK",
+            "fixed-rate group workbook validation",
+        )
+        second_pass = ensure_fixed_rate_group_rows(
+            fixed_ws,
+            fixed_config,
+            get_duration_columns(fixed_ws, fixed_config),
+            dry_run=False,
+        )
+        assert_equal(second_pass["added_row_count"], 0, "fixed rows are idempotent")
+        assert_equal(second_pass["updated_row_count"], 0, "fixed rates are idempotent")
         pending_manifest = {
             "schema_version": 1,
             "status": "prepared",
@@ -1120,6 +1264,35 @@ def main():
         real_after = openpyxl.load_workbook(real_output_path)
         after_snapshot = header_rows_snapshot(real_after["Sheet1"])
         assert_equal(after_snapshot, before_snapshot, "Sheet1 rows 1-4 values and formatting")
+
+        fixed_real_recommendations_path = tmpdir / "fixed-real-recommendations.json"
+        fixed_real_output_path = tmpdir / "fixed-real-recommendations.xlsx"
+        fixed_real_import_path = tmpdir / "fixed-real-import.xlsx"
+        fixed_real_recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
+        fixed_real_summary = apply_updates(
+            workbook_path=real_workbook_path,
+            recommendations_path=fixed_real_recommendations_path,
+            output_path=fixed_real_output_path,
+            config=load_config(ROOT / "excel-rate-update.config.example.json"),
+            cli_groups=None,
+            dry_run=False,
+            import_output_path=fixed_real_import_path,
+        )
+        assert fixed_real_summary["fixed_rate_groups"]["enabled"] is True
+        for output_file in (fixed_real_output_path, fixed_real_import_path):
+            fixed_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
+            fixed_real_ws = fixed_real_workbook["Sheet1"]
+            group_counts = Counter()
+            for values in fixed_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
+                group = str(values[0] or "").strip().upper()
+                group_counts[group] += 1
+                if group not in {"CFAV", "PDAH"}:
+                    continue
+                expected_rate = 200 if group == "CFAV" else 250
+                assert_equal(list(values[8:14]), [expected_rate] * 6, f"real {group} fixed rates")
+            assert_equal(group_counts["CFAV"], group_counts["CDMV"], "real CFAV row coverage")
+            assert_equal(group_counts["PDAH"], group_counts["CDMV"], "real PDAH row coverage")
+            fixed_real_workbook.close()
 
     print("All Excel rate updater tests passed.")
 

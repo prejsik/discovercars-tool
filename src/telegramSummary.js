@@ -96,6 +96,21 @@ function formatIsoDate(isoDate) {
   return `${day}.${month}.${year}`;
 }
 
+function formatAverageChange(value) {
+  if (value == null || value === "") {
+    return "brak";
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return "brak";
+  }
+  const formatted = new Intl.NumberFormat("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(number);
+  return `${number > 0 ? "+" : ""}${formatted} PLN/dzień`;
+}
+
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
   const qualityStatus = env.QUALITY_STATUS || "failure";
@@ -124,8 +139,6 @@ function buildTelegramSummary(options = {}) {
     ? "BŁĄD"
     : publicationFailure
       ? "BŁĄD PUBLIKACJI"
-    : qualityStatus === "degraded"
-      ? "GOTOWE Z OSTRZEŻENIAMI"
       : "GOTOWE";
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
   const missingMmStartDates = listStartDatesWithoutMm(options.results);
@@ -177,6 +190,7 @@ function buildTelegramSummary(options = {}) {
     ...(missingMmAlert ? [missingMmAlert] : []),
     `Rekomendacje: ${recommendations.total} (podwyżki ${recommendations.increases}, obniżki ${recommendations.decreases})`,
     `Excel: ${Number.isFinite(excelChangeCount) ? excelChangeCount : "brak danych"} zmian · ${excelReady ? "gotowy do importu" : "niedostępny"}`,
+    `Średnia zmiana: podwyżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_increase_pln_day)} · obniżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_decrease_pln_day)}`,
     `Czas: ${timeLabel}`
   ];
   if (qualityStatus === "degraded") {

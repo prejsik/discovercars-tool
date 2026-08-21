@@ -992,7 +992,15 @@ runTest("Telegram success summary contains only decision-ready details", () => {
         { action: "hold" }
       ]
     },
-    excelSummary: { change_count: 14 },
+    excelSummary: {
+      change_count: 14,
+      change_statistics: {
+        increase_count: 8,
+        decrease_count: 6,
+        average_increase_pln_day: 12.345,
+        average_decrease_pln_day: -8.2
+      }
+    },
     qualityAlerts: { alerts: [] }
   });
 
@@ -1002,6 +1010,7 @@ runTest("Telegram success summary contains only decision-ready details", () => {
     "Zakres: rolling 45 dni · najem 2-14 dni",
     "Rekomendacje: 2 (podwyżki 1, obniżki 1)",
     "Excel: 14 zmian · gotowy do importu",
+    "Średnia zmiana: podwyżka +12,35 PLN/dzień · obniżka -8,20 PLN/dzień",
     "Czas: 4 h 12 min (scraper 3 h 50 min)",
     "",
     "Raport: https://example.test/report.html",
@@ -1085,7 +1094,8 @@ runTest("Telegram degraded summary keeps the Excel link and warning count", () =
     qualityAlerts: { alerts: ["Pierwsze.", "Drugie."] }
   });
 
-  assert.match(message, /^DiscoverCars \| GOTOWE Z OSTRZEŻENIAMI/);
+  assert.match(message, /^DiscoverCars \| GOTOWE\n/);
+  assert.doesNotMatch(message, /GOTOWE Z OSTRZEŻENIAMI/);
   assert.match(message, /Ostrzeżenia: 2 · szczegóły w raporcie/);
   assert.match(message, /Excel importowy: https:\/\/example\.test\/import\.xlsx/);
 });

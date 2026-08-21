@@ -41,7 +41,8 @@ DEFAULT_CONFIG = {
     "location_zones": {},
     "apply_groups": "all",
     "max_recommendation_duration_days": 7,
-    "excluded_groups": ["CGAV", "FVMD", "SWAV"],
+    "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+    "fixed_rate_groups": {},
     "excluded_group_highlights": {
         "CGAV": 130,
         "SWAV": 150,
@@ -348,6 +349,18 @@ def parse_number(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def build_change_statistics(changes: list[dict[str, Any]]) -> dict[str, Any]:
+    deltas = [parse_number(change.get("delta")) for change in changes]
+    increases = [delta for delta in deltas if delta is not None and delta > 0]
+    decreases = [delta for delta in deltas if delta is not None and delta < 0]
+    return {
+        "increase_count": len(increases),
+        "decrease_count": len(decreases),
+        "average_increase_pln_day": round(sum(increases) / len(increases), 2) if increases else None,
+        "average_decrease_pln_day": round(sum(decreases) / len(decreases), 2) if decreases else None,
+    }
+
+
 def normalize_key(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -473,6 +486,22 @@ def group_is_allowed(group: Any, allowed_groups: set[str] | str) -> bool:
 def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
     excluded = {normalize_code(item) for item in config.get("excluded_groups", [])}
     return normalize_code(group) in excluded
+
+
+def get_fixed_rate_groups(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    fixed_groups: dict[str, dict[str, Any]] = {}
+    for raw_group, raw_settings in (config.get("fixed_rate_groups") or {}).items():
+        group = normalize_code(raw_group)
+        settings = raw_settings if isinstance(raw_settings, dict) else {"rate_pln_day": raw_settings}
+        rate = parse_number(settings.get("rate_pln_day"))
+        template_group = normalize_code(settings.get("template_group") or "CDMV")
+        if not group or rate is None or rate < 0 or not template_group or group == template_group:
+            raise ValueError(f"Invalid fixed_rate_groups configuration for '{raw_group}'.")
+        fixed_groups[group] = {
+            "rate_pln_day": rate,
+            "template_group": template_group,
+        }
+    return fixed_groups
 
 
 def get_excluded_group_highlight_threshold(group: Any, config: dict[str, Any]) -> float | None:
@@ -1051,6 +1080,16 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         for group, adjustment in premium_adjustments.items()
     )
     excluded_groups = [normalize_code(item) for item in config.get("excluded_groups", []) if normalize_code(item)]
+    fixed_groups = get_fixed_rate_groups(config)
+    fixed_rate_text = ", ".join(
+        f"{group}={format_rate_for_comment(settings['rate_pln_day'])} PLN"
+        for group, settings in fixed_groups.items()
+    )
+    fixed_rate_rule = (
+        f" Stawki stale we wszystkich przedzialach: {fixed_rate_text}."
+        if fixed_rate_text
+        else ""
+    )
     max_duration = int(parse_number(config.get("max_recommendation_duration_days")) or 0)
     duration_rule = (
         f" Rekomendacje i zmiany stawek tylko dla duration 1-{max_duration} dni; "
@@ -1062,6 +1101,7 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
         f"{premium_text or 'brak grup premium'}. "
         f"Bez zmiany stawek: {format_group_list(excluded_groups)}."
+        f"{fixed_rate_rule}"
         f"{duration_rule}"
     )
 
@@ -1548,6 +1588,7 @@ def build_validation_rows(
     changes: list[dict[str, Any]],
     skipped_targets: list[dict[str, Any]],
     expansion_summary: dict[str, Any] | None = None,
+    assume_fixed_rate_changes_applied: bool = False,
 ) -> list[list[Any]]:
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
@@ -1664,6 +1705,11 @@ def build_validation_rows(
         for item in expansion_summary.get("missing_source_group_zones_after_expansion", [])
         if str(item).strip()
     ]
+    fixed_rate_group_issues = (
+        []
+        if assume_fixed_rate_changes_applied
+        else find_fixed_rate_group_issues(ws, config, duration_columns)
+    )
 
     return [
         ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
@@ -1676,6 +1722,7 @@ def build_validation_rows(
         ["Pickup end date = Pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
+        ["Kompletne klasy ze stawkami stalymi", get_validation_status(len(fixed_rate_group_issues)), len(fixed_rate_group_issues), first_items(fixed_rate_group_issues)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
         ["Stawki miejskie powyzej 130% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
@@ -2210,6 +2257,164 @@ def write_row_snapshot(ws: Any, row: int, snapshot: dict[str, Any]) -> None:
             cell._hyperlink = copy(cell_snapshot["hyperlink"])
 
 
+def ensure_fixed_rate_group_rows(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    dry_run: bool,
+) -> dict[str, Any]:
+    fixed_groups = get_fixed_rate_groups(config)
+    if not fixed_groups:
+        return {
+            "enabled": False,
+            "added_row_count": 0,
+            "updated_row_count": 0,
+            "updated_cell_count": 0,
+            "groups": {},
+        }
+
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    max_col = ws.max_column
+    rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if group and zone and pickup_date is not None:
+            rows_by_group_key[(group, zone, pickup_date)].append(row)
+
+    added_row_count = 0
+    updated_row_count = 0
+    updated_cell_count = 0
+    group_summaries: dict[str, dict[str, Any]] = {}
+    next_row = ws.max_row + 1
+
+    for group, settings in fixed_groups.items():
+        template_group = settings["template_group"]
+        fixed_rate = float(settings["rate_pln_day"])
+        template_rows = {
+            (zone, pickup_date): rows[0]
+            for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
+            if row_group == template_group
+        }
+        if not template_rows:
+            raise ValueError(
+                f"Fixed-rate group {group} cannot be created because template group {template_group} is missing."
+            )
+
+        group_added = 0
+        group_updated = 0
+        existing_group_rows = [
+            row
+            for (row_group, _zone, _pickup_date), rows in rows_by_group_key.items()
+            if row_group == group
+            for row in rows
+        ]
+        for existing_row in existing_group_rows:
+            row_changed = False
+            for col in rate_cols:
+                current_rate = parse_number(ws.cell(existing_row, col).value)
+                if current_rate is not None and abs(current_rate - fixed_rate) < 0.001:
+                    continue
+                row_changed = True
+                updated_cell_count += 1
+                if not dry_run:
+                    ws.cell(existing_row, col).value = int(fixed_rate) if fixed_rate.is_integer() else fixed_rate
+            if row_changed:
+                group_updated += 1
+                updated_row_count += 1
+
+        for (zone, pickup_date), template_row in sorted(template_rows.items()):
+            if rows_by_group_key.get((group, zone, pickup_date)):
+                continue
+            group_added += 1
+            added_row_count += 1
+            if dry_run:
+                continue
+            write_row_snapshot(ws, next_row, snapshot_row(ws, template_row, max_col))
+            ws.cell(next_row, group_col).value = group
+            for col in rate_cols:
+                ws.cell(next_row, col).value = int(fixed_rate) if fixed_rate.is_integer() else fixed_rate
+            rows_by_group_key[(group, zone, pickup_date)].append(next_row)
+            next_row += 1
+
+        group_summaries[group] = {
+            "rate_pln_day": fixed_rate,
+            "template_group": template_group,
+            "expected_row_count": len(template_rows),
+            "added_row_count": group_added,
+            "updated_row_count": group_updated,
+        }
+
+    return {
+        "enabled": True,
+        "added_row_count": added_row_count,
+        "updated_row_count": updated_row_count,
+        "updated_cell_count": updated_cell_count,
+        "groups": group_summaries,
+    }
+
+
+def find_fixed_rate_group_issues(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+) -> list[str]:
+    fixed_groups = get_fixed_rate_groups(config)
+    if not fixed_groups:
+        return []
+
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if group and zone and pickup_date is not None:
+            rows_by_group_key[(group, zone, pickup_date)].append(row)
+
+    issues: list[str] = []
+    for group, settings in fixed_groups.items():
+        template_group = settings["template_group"]
+        expected_rate = float(settings["rate_pln_day"])
+        template_keys = {
+            (zone, pickup_date)
+            for row_group, zone, pickup_date in rows_by_group_key
+            if row_group == template_group
+        }
+        for zone, pickup_date in sorted(template_keys):
+            fixed_rows = rows_by_group_key.get((group, zone, pickup_date), [])
+            if not fixed_rows:
+                issues.append(f"brak {group}/{zone}/{pickup_date.isoformat()}")
+        fixed_rows = [
+            (zone, pickup_date, row)
+            for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
+            if row_group == group
+            for row in rows
+        ]
+        for zone, pickup_date, row in sorted(fixed_rows):
+            for col in rate_cols:
+                rate = parse_number(ws.cell(row, col).value)
+                if rate is None or abs(rate - expected_rate) >= 0.001:
+                    issues.append(
+                        f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(col)}: "
+                        f"{format_rate_for_comment(rate)} != {format_rate_for_comment(expected_rate)}"
+                    )
+    return issues
+
+
 def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("pickup_date_expansion") or {}
     if not settings.get("enabled"):
@@ -2570,6 +2775,7 @@ def apply_updates(
     expansion_summary = expand_pickup_date_rows(ws, config)
     match_pickup_end_duration = False
     duration_columns = get_duration_columns(ws, config)
+    fixed_rate_group_summary = ensure_fixed_rate_group_rows(ws, config, duration_columns, dry_run)
     targets, skipped_targets = build_targets(recommendations, duration_columns, config)
     accepted_target_count = 0
     filtered_unaccepted_target_count = 0
@@ -2792,6 +2998,7 @@ def apply_updates(
         "import_output": str(import_output_path) if import_output_path else None,
         "dry_run": dry_run,
         "change_count": len(changes),
+        "change_statistics": build_change_statistics(changes),
         "group_price_parity_change_count": len(group_price_parity_changes),
         "group_price_parity_scope_count": len(group_price_parity_scope),
         "city_top1_airport_cap_scope_count": len(city_top1_airport_caps),
@@ -2801,6 +3008,7 @@ def apply_updates(
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
+        "fixed_rate_groups": fixed_rate_group_summary,
         "skipped_target_count": len(skipped_targets),
         "accepted_only": accepted_only,
         "accepted_target_count": accepted_target_count,
@@ -2812,7 +3020,15 @@ def apply_updates(
                 "issue_count": row[2],
                 "details": row[3],
             }
-            for row in build_validation_rows(ws, config, duration_columns, changes, skipped_targets, expansion_summary)
+            for row in build_validation_rows(
+                ws,
+                config,
+                duration_columns,
+                changes,
+                skipped_targets,
+                expansion_summary,
+                assume_fixed_rate_changes_applied=dry_run,
+            )
         ],
         "broker_markup_observations": build_broker_markup_observations(
             changes,

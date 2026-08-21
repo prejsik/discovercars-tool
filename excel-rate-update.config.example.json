@@ -16,7 +16,11 @@
   },
   "apply_groups": "all",
   "max_recommendation_duration_days": 7,
-  "excluded_groups": ["CGAV", "FVMD", "SWAV"],
+  "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+  "fixed_rate_groups": {
+    "CFAV": { "rate_pln_day": 200, "template_group": "CDMV" },
+    "PDAH": { "rate_pln_day": 250, "template_group": "CDMV" }
+  },
   "excluded_group_highlights": {
     "CGAV": 130,
     "SWAV": 150
