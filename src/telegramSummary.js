@@ -145,6 +145,9 @@ function buildTelegramSummary(options = {}) {
   const missingMmAlert = missingMmStartDates.length
     ? `ALERT: MM Cars Rental niewidoczne nigdzie dla start date: ${missingMmStartDates.map(formatIsoDate).join(", ")}`
     : "";
+  const recommendationSurgeAlert = options.recommendationWorkload?.recommendation_surge
+    ? String(options.recommendationWorkload.alert || "ALERT: nietypowy wzrost liczby aktywnych rekomendacji.")
+    : "";
 
   if (qualityStatus === "failure") {
     const reason = blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
@@ -155,6 +158,7 @@ function buildTelegramSummary(options = {}) {
       `Powód: ${reason}`,
       `Zakres: ${rangeLabel(env)}`,
       ...(missingMmAlert ? [missingMmAlert] : []),
+      ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
@@ -176,6 +180,7 @@ function buildTelegramSummary(options = {}) {
       `Powód: ${reason}.`,
       `Zakres: ${rangeLabel(env)}`,
       ...(missingMmAlert ? [missingMmAlert] : []),
+      ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
@@ -188,6 +193,7 @@ function buildTelegramSummary(options = {}) {
     "",
     `Zakres: ${rangeLabel(env)}`,
     ...(missingMmAlert ? [missingMmAlert] : []),
+    ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
     `Rekomendacje: ${recommendations.total} (podwyżki ${recommendations.increases}, obniżki ${recommendations.decreases})`,
     `Excel: ${Number.isFinite(excelChangeCount) ? excelChangeCount : "brak danych"} zmian · ${excelReady ? "gotowy do importu" : "niedostępny"}`,
     `Średnia zmiana: podwyżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_increase_pln_day)} · obniżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_decrease_pln_day)}`,
@@ -210,6 +216,7 @@ function buildTelegramSummaryFromFiles(env = process.env) {
     recommendations: safeReadJson(path.join(outputDir, "final-pricing-recommendations.json")),
     excelSummary: safeReadJson(path.join(outputDir, "excel-rate-update-summary.json")),
     qualityAlerts: safeReadJson(path.join(outputDir, "quality-alerts.json")),
+    recommendationWorkload: safeReadJson(path.join(outputDir, "recommendation-workload.json")),
     results: safeReadJson(path.join(outputDir, "results-latest.json")),
     reportAvailable: fs.existsSync(path.join(outputDir, "report.html")),
     excelAvailable: fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx"))

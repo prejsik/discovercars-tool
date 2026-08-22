@@ -99,6 +99,12 @@ async function verifyGroup(group, options) {
 }
 
 async function verifyActiveRecommendations(payload, options = {}) {
+  const verificationStartedAt = Date.now();
+  const configuredMaxDuration = Number(options.maxDurationMs);
+  const maxDurationMs = options.maxDurationMs === undefined || !Number.isFinite(configuredMaxDuration)
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, configuredMaxDuration);
+  const verificationDeadline = verificationStartedAt + maxDurationMs;
   const decisions = Array.isArray(payload?.decisions) ? payload.decisions : (payload?.recommendations || []);
   const active = decisions.filter((item) => item?.action !== "hold");
   const alreadyVerified = new Map();
@@ -120,9 +126,15 @@ async function verifyActiveRecommendations(payload, options = {}) {
   const groupItems = [...groups.values()];
   const verified = new Map(alreadyVerified);
   let next = 0;
+  let processedLiveGroupCount = 0;
+  let budgetExhausted = false;
   const workerCount = Math.max(1, Math.min(Number(options.concurrency) || 2, groupItems.length || 1));
   await Promise.all(Array.from({ length: workerCount }, async () => {
     while (next < groupItems.length) {
+      if (Date.now() >= verificationDeadline) {
+        budgetExhausted = true;
+        break;
+      }
       const group = groupItems[next++];
       let output;
       try {
@@ -130,9 +142,21 @@ async function verifyActiveRecommendations(payload, options = {}) {
       } catch (error) {
         output = group.map((item) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
       }
+      processedLiveGroupCount += 1;
       for (const item of output) verified.set(keyOf(item), item);
     }
   }));
+
+  let budgetExhaustedCount = 0;
+  for (const group of groupItems.slice(next)) {
+    for (const item of group) {
+      verified.set(
+        keyOf(item),
+        blockRecommendation(item, "dom_verification_budget_exhausted", ["time_budget_exhausted"])
+      );
+      budgetExhaustedCount += 1;
+    }
+  }
 
   const finalDecisions = decisions.map((item) => verified.get(keyOf(item)) || item);
   const recommendations = finalDecisions.filter((item) => item?.action !== "hold");
@@ -146,8 +170,15 @@ async function verifyActiveRecommendations(payload, options = {}) {
       active_input_count: active.length,
       reused_existing_dom_count: alreadyVerified.size,
       live_dom_check_count: pending.length,
+      live_dom_group_count: groupItems.length,
+      processed_live_dom_group_count: processedLiveGroupCount,
+      skipped_live_dom_group_count: groupItems.length - processedLiveGroupCount,
       confirmed_count: [...verified.values()].filter((item) => String(item.dom_verification_status).startsWith("confirmed")).length,
-      blocked_count: [...verified.values()].filter((item) => item.action === "hold").length
+      blocked_count: [...verified.values()].filter((item) => item.action === "hold").length,
+      budget_exhausted: budgetExhausted,
+      budget_exhausted_count: budgetExhaustedCount,
+      max_duration_ms: Number.isFinite(maxDurationMs) ? maxDurationMs : null,
+      elapsed_ms: Date.now() - verificationStartedAt
     }
   };
 }
@@ -162,6 +193,7 @@ async function runCli(argv) {
   const output = await verifyActiveRecommendations(payload, {
     concurrency: Number(args.concurrency) || 2,
     timeoutMs: Number(args.timeout) || 45_000,
+    maxDurationMs: args["max-duration-ms"] === undefined ? undefined : Number(args["max-duration-ms"]),
     speedMode: args["speed-mode"] || "fast",
     workDir: path.resolve(args["work-dir"] || "output/dom-recommendation-verification")
   });
@@ -176,4 +208,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { verifyActiveRecommendations };
+module.exports = {
+  VERIFIED_SOURCE_STATUSES,
+  blockRecommendation,
+  keyOf,
+  verifyActiveRecommendations
+};

@@ -67,13 +67,24 @@ env:
   PUSH_TEST_SPEED_MODE: "fast"
 
 jobs:
-  discovercars:
-    name: Run DiscoverCars scraper
+  scrape:
+    name: Scrape and prepare recommendations
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    environment:
-      name: github-pages
-      url: ${{ steps.pages-deployment.outputs.page_url }}
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      run_started_epoch: ${{ steps.gate.outputs.run_started_epoch }}
+      run_type: ${{ steps.options.outputs.run_type }}
+      locations: ${{ steps.options.outputs.locations }}
+      rolling_days: ${{ steps.options.outputs.rolling_days }}
+      start_dates: ${{ steps.options.outputs.start_dates }}
+      start_date_count: ${{ steps.options.outputs.start_date_count }}
+      durations: ${{ steps.options.outputs.durations }}
+      speed_mode: ${{ steps.options.outputs.speed_mode }}
+      scraper_duration_seconds: ${{ steps.scraper.outputs.duration_seconds }}
+      scrape_quality_status: ${{ steps.scrape-quality.outputs.status }}
+      pages_enabled: ${{ steps.pages-status.outputs.enabled }}
+      page_url: ${{ steps.pages-status.outputs.page_url }}
 
     steps:
       - name: Check Warsaw schedule gate
@@ -378,6 +389,20 @@ jobs:
               echo "No previous broker markup calibration found; static pricing config will be used."
               echo "calibration_args=" >> "$GITHUB_OUTPUT"
             fi
+            if [[ -n "$page_base" ]]; then
+              curl --fail --silent --show-error --location \
+                "$page_base/latest-full/pricing-recommendations.json" \
+                --output output/previous-full-pricing-recommendations.json \
+                || rm -f output/previous-full-pricing-recommendations.json
+              curl --fail --silent --show-error --location \
+                "$page_base/latest-full/final-pricing-recommendations.json" \
+                --output output/previous-full-final-pricing-recommendations.json \
+                || rm -f output/previous-full-final-pricing-recommendations.json
+              curl --fail --silent --show-error --location \
+                "$page_base/latest-full/dom-recommendation-verification-summary.json" \
+                --output output/previous-dom-recommendation-verification-summary.json \
+                || rm -f output/previous-dom-recommendation-verification-summary.json
+            fi
           else
             echo "GitHub Pages is unavailable; static pricing config will be used."
             echo "calibration_args=" >> "$GITHUB_OUTPUT"
@@ -443,27 +468,145 @@ jobs:
 
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
-      - name: Verify active recommendations in DOM
-        id: dom-verification
+      - name: Forecast DOM workload and prepare shards
         if: steps.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         run: |
-          if [[ -f output/final-pricing-recommendations.json ]]; then
-            node src/verifyActiveRecommendationsDom.js \
-              --input=output/final-pricing-recommendations.json \
-              --output=output/final-pricing-recommendations.json \
-              --work-dir=output/dom-recommendation-verification \
-              --concurrency=2 \
-              --timeout=45000 \
-              --speed-mode="${{ steps.options.outputs.speed_mode }}" \
-              | tee output/dom-recommendation-verification-summary.json
-          else
-            echo "::error::Final recommendations are missing; DOM verification cannot run."
-            exit 1
+          workload_args=()
+          if [[ -f output/previous-full-pricing-recommendations.json ]]; then
+            workload_args+=(--previous=output/previous-full-pricing-recommendations.json)
           fi
+          if [[ -f output/previous-dom-recommendation-verification-summary.json ]]; then
+            workload_args+=(--previous-dom=output/previous-dom-recommendation-verification-summary.json)
+          fi
+          node src/recommendationWorkload.js \
+            --current=output/final-pricing-recommendations.json \
+            "${workload_args[@]}" \
+            --shard-count=4 \
+            --output=output/recommendation-workload.json
+          node src/recommendationDomShards.js split \
+            --input=output/final-pricing-recommendations.json \
+            --output-dir=output/dom-shards \
+            --shard-count=4
+
+      - name: Upload scraper checkpoint
+        if: steps.gate.outputs.should_run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-checkpoint-${{ github.run_id }}
+          path: output
+          if-no-files-found: warn
+          retention-days: 2
+
+  publish:
+    name: Verify recommendations and publish
+    needs: scrape
+    if: always() && needs.scrape.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    environment:
+      name: github-pages
+      url: ${{ steps.pages-deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        continue-on-error: true
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright Chromium install attempt $attempt of 3."
+            if timeout --kill-after=15s 180s npx playwright install chromium; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then
+              echo "::warning::Playwright Chromium install attempt $attempt failed or timed out; retrying."
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Playwright Chromium installation failed after 3 bounded attempts."
+          exit 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install "openpyxl>=3.1,<4"
+
+      - name: Download scraper checkpoint
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-checkpoint-${{ github.run_id }}
+          path: output
+
+      - name: Verify active recommendations in DOM
+        id: dom-verification
+        if: needs.scrape.outputs.scrape_quality_status != 'failure'
+        timeout-minutes: 170
+        shell: bash
+        run: |
+          mkdir -p output/dom-shard-results
+          pids=()
+          shards=()
+          for shard in 0 1 2 3; do
+            timeout --kill-after=30s 9300s node src/verifyActiveRecommendationsDom.js \
+              --input="output/dom-shards/shard-${shard}-input.json" \
+              --output="output/dom-shard-results/shard-${shard}-output.json" \
+              --work-dir="output/dom-recommendation-verification/shard-${shard}" \
+              --concurrency=1 \
+              --max-duration-ms=9000000 \
+              --timeout=45000 \
+              --speed-mode="${{ needs.scrape.outputs.speed_mode }}" \
+              > "output/dom-shard-results/shard-${shard}-summary.json" &
+            pids+=("$!")
+            shards+=("$shard")
+          done
+
+          verification_failures=0
+          for index in "${!pids[@]}"; do
+            if ! wait "${pids[$index]}"; then
+              echo "::warning::DOM shard ${shards[$index]} failed; its unchecked recommendations will be blocked."
+              verification_failures=$((verification_failures + 1))
+            fi
+          done
+          echo "DOM shard process failures: $verification_failures"
+
+          node src/recommendationDomShards.js merge \
+            --base=output/final-pricing-recommendations.json \
+            --shards-dir=output/dom-shard-results \
+            --output=output/final-pricing-recommendations.json \
+            --shard-count=4 \
+            | tee output/dom-recommendation-verification-summary.json
+
+          final_workload_args=()
+          if [[ -f output/previous-full-final-pricing-recommendations.json ]]; then
+            final_workload_args+=(--previous=output/previous-full-final-pricing-recommendations.json)
+          fi
+          node src/recommendationWorkload.js \
+            --finalize \
+            --workload=output/recommendation-workload.json \
+            --current=output/final-pricing-recommendations.json \
+            "${final_workload_args[@]}" \
+            --run-type="${{ needs.scrape.outputs.run_type }}" \
+            --output=output/recommendation-workload.json
 
       - name: Generate Excel import workbook
-        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure' && steps.dom-verification.outcome == 'success'
+        if: needs.scrape.outputs.should_run == 'true' && always() && needs.scrape.outputs.scrape_quality_status != 'failure' && steps.dom-verification.outcome == 'success'
         shell: bash
         run: |
           if [[ -f output/final-pricing-recommendations.json ]]; then
@@ -479,10 +622,10 @@ jobs:
           fi
 
       - name: Run MM rate sanity check
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         env:
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
         run: |
           if [[ "$RUN_TYPE" == "push-smoke" ]]; then
             echo "Skipping MM sanity check for push smoke run."
@@ -498,14 +641,14 @@ jobs:
               --threshold=10 \
               --min-markup-multiplier=1 \
               --max-markup-multiplier=1.2 \
-              --speed-mode="${{ steps.options.outputs.speed_mode }}"
+              --speed-mode="${{ needs.scrape.outputs.speed_mode }}"
           else
             echo "::error::Final recommendations or Excel summary are missing; mandatory MM sanity check cannot run."
             exit 1
           fi
 
       - name: Update broker markup calibration
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         run: |
           node src/updateBrokerMarkupCalibration.js \
@@ -517,10 +660,10 @@ jobs:
 
       - name: Generate quality alerts
         id: quality
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         env:
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
+          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
         run: |
           sanity_args=()
           if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
@@ -531,14 +674,14 @@ jobs:
             --recommendations=output/final-pricing-recommendations.json \
             --excel-summary=output/excel-rate-update-summary.json \
             --sanity-check=output/mm-rate-sanity-check.json \
-            --locations="${{ steps.options.outputs.locations }}" \
+            --locations="${{ needs.scrape.outputs.locations }}" \
             "${sanity_args[@]}" \
             --output=output/quality-alerts.json
           status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); process.stdout.write(d.status || 'failure');")
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Regenerate HTML with quality status
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         run: |
           if [[ -f output/results-latest.json ]]; then
@@ -549,25 +692,25 @@ jobs:
           fi
 
       - name: Generate run manifest
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         env:
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
-          LOCATIONS: ${{ steps.options.outputs.locations }}
-          ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
-          START_DATES: ${{ steps.options.outputs.start_dates }}
-          DURATIONS: ${{ steps.options.outputs.durations }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
+          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
+          LOCATIONS: ${{ needs.scrape.outputs.locations }}
+          ROLLING_DAYS: ${{ needs.scrape.outputs.rolling_days }}
+          START_DATES: ${{ needs.scrape.outputs.start_dates }}
+          DURATIONS: ${{ needs.scrape.outputs.durations }}
         run: |
-          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
+          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const workload=read('output/recommendation-workload.json'); const domVerification=read('output/dom-recommendation-verification-summary.json'); const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,recommendation_workload:workload,dom_verification:domVerification,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
 
       - name: Prepare GitHub Pages site
         id: pages-site
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
         shell: bash
         env:
-          RUN_TYPE: ${{ steps.options.outputs.run_type }}
-          PAGE_URL: ${{ steps.pages-status.outputs.page_url }}
+          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
+          PAGE_URL: ${{ needs.scrape.outputs.page_url }}
           QUALITY_STATUS: ${{ steps.quality.outputs.status || 'failure' }}
         run: |
           mkdir -p pages
@@ -596,6 +739,8 @@ jobs:
             latest-full/results-latest.json \
             latest-full/pricing-recommendations.json \
             latest-full/final-pricing-recommendations.json \
+            latest-full/dom-recommendation-verification-summary.json \
+            latest-full/recommendation-workload.json \
             latest-full/rates-updated.xlsx \
             latest-full/rates-import-ready.xlsx \
             latest-full/excel-rate-update-summary.json \
@@ -631,6 +776,8 @@ jobs:
             rm -f \
               "pages/$run_dir/pricing-recommendations.json" \
               "pages/$run_dir/final-pricing-recommendations.json" \
+              "pages/$run_dir/dom-recommendation-verification-summary.json" \
+              "pages/$run_dir/recommendation-workload.json" \
               "pages/$run_dir/rates-updated.xlsx" \
               "pages/$run_dir/rates-import-ready.xlsx" \
               "pages/$run_dir/excel-rate-update-summary.json" \
@@ -646,6 +793,12 @@ jobs:
             fi
             if [[ -f output/final-pricing-recommendations.json ]]; then
               cp output/final-pricing-recommendations.json "pages/$run_dir/final-pricing-recommendations.json"
+            fi
+            if [[ -f output/dom-recommendation-verification-summary.json ]]; then
+              cp output/dom-recommendation-verification-summary.json "pages/$run_dir/dom-recommendation-verification-summary.json"
+            fi
+            if [[ -f output/recommendation-workload.json ]]; then
+              cp output/recommendation-workload.json "pages/$run_dir/recommendation-workload.json"
             fi
             if [[ -f output/rates-updated.xlsx ]]; then
               cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
@@ -718,12 +871,12 @@ jobs:
           fi
 
       - name: Configure GitHub Pages
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
         uses: actions/configure-pages@v5
         continue-on-error: true
 
       - name: Upload GitHub Pages artifact
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
         uses: actions/upload-pages-artifact@v3
         continue-on-error: true
         with:
@@ -731,13 +884,13 @@ jobs:
 
       - name: Deploy GitHub Pages
         id: pages-deployment
-        if: steps.gate.outputs.should_run == 'true' && steps.pages-status.outputs.enabled == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
         uses: actions/deploy-pages@v4
         continue-on-error: true
 
       - name: Upload scraper results
         id: upload
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.scrape.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-results-${{ github.run_number }}
@@ -746,6 +899,7 @@ jobs:
             output/pricing-recommendations.json
             output/final-pricing-recommendations.json
             output/dom-recommendation-verification-summary.json
+            output/recommendation-workload.json
             output/rates-updated.xlsx
             output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json
@@ -762,7 +916,7 @@ jobs:
 
       - name: Upload Excel import workbook
         id: upload-excel
-        if: steps.gate.outputs.should_run == 'true' && steps.quality.outputs.status != 'failure'
+        if: needs.scrape.outputs.should_run == 'true' && steps.quality.outputs.status != 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-excel-import-${{ github.run_number }}
@@ -780,7 +934,7 @@ jobs:
           retention-days: 14
 
       - name: Notify Telegram
-        if: always() && steps.gate.outputs.should_run == 'true'
+        if: always() && needs.scrape.outputs.should_run == 'true'
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -791,13 +945,13 @@ jobs:
           ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
           EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_STARTED_EPOCH: ${{ steps.gate.outputs.run_started_epoch }}
-          SCRAPER_DURATION_SECONDS: ${{ steps.scraper.outputs.duration_seconds }}
-          ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
-          START_DATES: ${{ steps.options.outputs.start_dates }}
-          START_DATE_COUNT: ${{ steps.options.outputs.start_date_count }}
-          DURATIONS: ${{ steps.options.outputs.durations }}
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
+          RUN_STARTED_EPOCH: ${{ needs.scrape.outputs.run_started_epoch }}
+          SCRAPER_DURATION_SECONDS: ${{ needs.scrape.outputs.scraper_duration_seconds }}
+          ROLLING_DAYS: ${{ needs.scrape.outputs.rolling_days }}
+          START_DATES: ${{ needs.scrape.outputs.start_dates }}
+          START_DATE_COUNT: ${{ needs.scrape.outputs.start_date_count }}
+          DURATIONS: ${{ needs.scrape.outputs.durations }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
@@ -816,10 +970,10 @@ jobs:
           fi
 
       - name: Enforce final quality gate
-        if: always() && steps.gate.outputs.should_run == 'true'
+        if: always() && needs.scrape.outputs.should_run == 'true'
         shell: bash
         env:
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || steps.scrape-quality.outputs.status || 'failure' }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
         run: |
           if [[ "$QUALITY_STATUS" == "failure" ]]; then
             echo "::error::DiscoverCars run failed the final quality gate."

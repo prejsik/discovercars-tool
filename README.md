@@ -245,6 +245,10 @@ node src/index.js --api-dom-sanity-rate=0.05
 node src/index.js --api-dom-sanity-rate=0
 ```
 
+Codzienny workflow zapisuje checkpoint po scraperze i przygotowaniu rekomendacji, a weryfikacje DOM oraz publikacje wykonuje w osobnym jobie z nowym limitem 6 godzin. Rekomendacje do sprawdzenia sa dzielone wedlug pary data-dlugosc najmu na cztery rownolegle shardy i scalane przed utworzeniem Excela. Kazdy shard ma limit 150 minut; brakujace, zduplikowane lub niesprawdzone wyniki sa ustawiane jako `hold` i nie trafiaja do importu.
+
+Przed weryfikacja powstaje `recommendation-workload.json` z liczba rekomendacji, liczba grup DOM, szacowanym czasem i wykorzystaniem budzetu. Prognoza korzysta z czasu poprzedniego pelnego runu. Po scaleniu DOM pelny run porownuje finalna liczbe aktywnych rekomendacji z poprzednim pelnym runem; wzrost o ponad 100% uruchamia osobny alert Telegram.
+
 Awaryjny powrot do starego flow DOM:
 
 ```powershell

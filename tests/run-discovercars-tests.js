@@ -26,6 +26,7 @@ const {
 } = require("../src/mmRateSanityCheck");
 const { buildCalibrationUpdate } = require("../src/updateBrokerMarkupCalibration");
 const { buildQualityAlerts, buildQualityReport, buildScrapeQualityReport } = require("../src/workflowQualityAlerts");
+const { verifyActiveRecommendations } = require("../src/verifyActiveRecommendationsDom");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
 const { compareBenchmark } = require("../tools/compare_discovercars_benchmark");
 const { parseArgs: parseChunkedArgs, runCommand } = require("../src/runDiscovercarsChunked");
@@ -638,6 +639,143 @@ runTest("Playwright installation avoids apt and cannot block the workflow for ho
   assert.doesNotMatch(installStep, /--with-deps/);
 });
 
+runTest("daily workflow checkpoints scraping and verifies four DOM shards before publication", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const verificationStep = workflow.match(/- name: Verify active recommendations in DOM[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+
+  assert.match(workflow, /scrape:\s*[\s\S]*?name: Scrape and prepare recommendations/);
+  assert.match(workflow, /publish:\s*[\s\S]*?needs: scrape/);
+  assert.match(workflow, /name: Upload scraper checkpoint/);
+  assert.match(workflow, /name: Download scraper checkpoint/);
+  assert.match(workflow, /node src\/recommendationDomShards\.js split/);
+  assert.match(workflow, /node src\/recommendationDomShards\.js merge/);
+  assert.match(verificationStep, /for shard in 0 1 2 3/);
+  assert.match(verificationStep, /timeout --kill-after=30s 9300s node src\/verifyActiveRecommendationsDom\.js/);
+  assert.match(verificationStep, /--max-duration-ms=9000000/);
+  assert.match(verificationStep, /--concurrency=1/);
+});
+
+runTest("DOM sharding keeps date-duration groups together and merge fails closed", () => {
+  const {
+    listShardOutputFiles,
+    readShardPayloads,
+    mergeVerifiedRecommendationShards,
+    splitActiveRecommendations
+  } = require("../src/recommendationDomShards");
+  const base = {
+    decisions: [
+      { action: "increase", location: "Warsaw Airport", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
+      { action: "decrease", location: "Gdansk Airport", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
+      { action: "increase", location: "Krakow Airport", start_date: "2026-08-24", rental_days: 3, source_validation_status: "dom_confirmed" },
+      { action: "hold", location: "Poznan Airport", start_date: "2026-08-25", rental_days: 4 }
+    ]
+  };
+
+  const shards = splitActiveRecommendations(base, 4);
+  assert.deepEqual(
+    listShardOutputFiles(["shard-0-output.json", "shard-0-summary.json", "notes.json", "shard-3-output.json"]),
+    ["shard-0-output.json", "shard-3-output.json"]
+  );
+  const shardDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-dom-shards-"));
+  try {
+    fs.writeFileSync(path.join(shardDir, "shard-0-output.json"), JSON.stringify({ decisions: [] }));
+    fs.writeFileSync(path.join(shardDir, "shard-1-output.json"), "{invalid json");
+    const loaded = readShardPayloads(shardDir);
+    assert.equal(loaded.payloads.length, 1);
+    assert.deepEqual(loaded.corruptFiles, ["shard-1-output.json"]);
+  } finally {
+    fs.rmSync(shardDir, { recursive: true, force: true });
+  }
+  assert.equal(shards.length, 4);
+  const assigned = shards.filter((shard) => shard.decisions.length > 0);
+  assert.equal(assigned.length, 1);
+  assert.deepEqual(
+    assigned[0].decisions.map((item) => item.location).sort(),
+    ["Gdansk Airport", "Warsaw Airport"]
+  );
+
+  const verifiedShard = {
+    ...assigned[0],
+    decisions: [{
+      ...assigned[0].decisions[0],
+      source_validation_status: "dom_recommendation_verified",
+      dom_verification_status: "confirmed"
+    }],
+    dom_verification: {
+      processed_live_dom_group_count: 1,
+      skipped_live_dom_group_count: 0,
+      budget_exhausted_count: 0,
+      elapsed_ms: 1200
+    }
+  };
+  const merged = mergeVerifiedRecommendationShards(base, [verifiedShard]);
+  const warsaw = merged.decisions.find((item) => item.location === "Warsaw Airport");
+  const gdansk = merged.decisions.find((item) => item.location === "Gdansk Airport");
+  assert.equal(warsaw.dom_verification_status, "confirmed");
+  assert.equal(gdansk.action, "hold");
+  assert.equal(gdansk.dom_verification_status, "dom_verification_shard_missing");
+  assert.equal(merged.dom_verification.missing_output_count, 1);
+  assert.equal(merged.recommendation_count, 2);
+});
+
+runTest("recommendation workload forecasts four shards and detects growth above 100 percent", () => {
+  const {
+    buildRecommendationWorkload,
+    finalizeRecommendationWorkload
+  } = require("../src/recommendationWorkload");
+  const current = {
+    decisions: [
+      { action: "increase", location: "A", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
+      { action: "increase", location: "B", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
+      { action: "decrease", location: "C", start_date: "2026-08-24", rental_days: 3, source_validation_status: "api_unverified" },
+      { action: "increase", location: "D", start_date: "2026-08-25", rental_days: 4, source_validation_status: "dom_confirmed" },
+      { action: "increase", location: "E", start_date: "2026-08-26", rental_days: 5, source_validation_status: "api_unverified" }
+    ]
+  };
+  const previous = { recommendations: [{ action: "increase" }, { action: "decrease" }] };
+  const report = buildRecommendationWorkload({
+    current,
+    previous,
+    previousDom: {
+      processed_live_dom_group_count: 8,
+      shard_count: 4,
+      elapsed_ms: 120000
+    },
+    shardCount: 4
+  });
+
+  assert.equal(report.active_recommendation_count, 5);
+  assert.equal(report.pending_dom_group_count, 3);
+  assert.equal(report.estimated_dom_duration_seconds, 60);
+  assert.equal(report.estimated_budget_usage_percent, 0.7);
+  assert.equal(report.over_budget, false);
+
+  const finalized = finalizeRecommendationWorkload(report, {
+    current,
+    previous,
+    runType: "full"
+  });
+  assert.equal(finalized.final_active_recommendation_count, 5);
+  assert.equal(finalized.recommendation_growth_percent, 150);
+  assert.equal(finalized.recommendation_surge, true);
+  assert.match(finalized.alert, /wzrosla o 150%/);
+
+  const exactDouble = finalizeRecommendationWorkload(report, {
+    current: { recommendations: Array.from({ length: 4 }, () => ({ action: "increase" })) },
+    previous,
+    runType: "full"
+  });
+  assert.equal(exactDouble.recommendation_surge, false);
+  const manual = finalizeRecommendationWorkload(report, { current, previous, runType: "manual" });
+  assert.equal(manual.recommendation_surge, false);
+  const withoutBaseline = finalizeRecommendationWorkload(report, {
+    current,
+    previous: { recommendations: [] },
+    runType: "full"
+  });
+  assert.equal(withoutBaseline.recommendation_surge, false);
+});
+
 runTest("compareBenchmark recommends parallel execution only when speed and quality are preserved", () => {
   const buildResults = () => ({
     locations: ["Airport"],
@@ -1018,6 +1156,29 @@ runTest("Telegram success summary contains only decision-ready details", () => {
     "Excel z rekomendacjami: https://example.test/recommendations.xlsx"
   ].join("\n"));
   assert.doesNotMatch(message, /Scenariusze|sprawdzenia|GitHub Actions/);
+});
+
+runTest("Telegram summary highlights a recommendation surge above 100 percent", () => {
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "60",
+      DURATIONS: "2,3,4,5,6,7",
+      PAGE_URL: "https://example.test/report.html",
+      PAGES_EXCEL_URL: "https://example.test/import.xlsx",
+      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+    },
+    excelAvailable: true,
+    recommendations: { recommendations: [] },
+    excelSummary: { change_count: 0 },
+    qualityAlerts: { alerts: [] },
+    recommendationWorkload: {
+      recommendation_surge: true,
+      alert: "ALERT: liczba aktywnych rekomendacji wzrosla o 150% (2 -> 5)."
+    }
+  });
+
+  assert.match(message, /ALERT: liczba aktywnych rekomendacji wzrosla o 150% \(2 -> 5\)\./);
 });
 
 runTest("Telegram alerts only when MM is absent everywhere for a start date", () => {
@@ -1982,6 +2143,41 @@ runTest("buildScrapeQualityReport exposes API DOM drift monitoring", () => {
 });
 
 async function runAsyncTests() {
+  const originalScraperRun = DiscoverCarsScraper.prototype.run;
+  let expiredBudgetScrapeCalls = 0;
+  DiscoverCarsScraper.prototype.run = async function runExpiredBudgetProbe() {
+    expiredBudgetScrapeCalls += 1;
+    throw new Error("DOM scrape should not start after the verification budget expires");
+  };
+  try {
+    const expiredBudgetOutput = await verifyActiveRecommendations({
+      decisions: [{
+        action: "increase",
+        location: "Warsaw Train Station",
+        start_date: "2026-08-22",
+        rental_days: 2,
+        source_validation_status: "api_unverified",
+        suggested_rate_pln_day: 100
+      }],
+      recommendations: []
+    }, {
+      concurrency: 2,
+      maxDurationMs: 0,
+      speedMode: "fast",
+      timeoutMs: 1,
+      workDir: os.tmpdir()
+    });
+    assert.equal(expiredBudgetScrapeCalls, 0);
+    assert.equal(expiredBudgetOutput.recommendations.length, 0);
+    assert.equal(expiredBudgetOutput.decisions[0].action, "hold");
+    assert.equal(expiredBudgetOutput.decisions[0].dom_verification_status, "dom_verification_budget_exhausted");
+    assert.equal(expiredBudgetOutput.dom_verification.budget_exhausted_count, 1);
+    assert.equal(expiredBudgetOutput.dom_verification.budget_exhausted, true);
+    console.log("PASS DOM recommendation verification blocks unchecked changes when its time budget expires");
+  } finally {
+    DiscoverCarsScraper.prototype.run = originalScraperRun;
+  }
+
   const watchdogDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-watchdog-"));
   const watchdogLog = path.join(watchdogDir, "run.log");
   try {
