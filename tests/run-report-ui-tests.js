@@ -127,6 +127,7 @@ async function run() {
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
 
     await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator("#report-filters").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelectorAll(".scenario:not([hidden])").length === 20);
     assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(await page.locator("#report-filters").isVisible(), true);
