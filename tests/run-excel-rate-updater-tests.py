@@ -197,10 +197,35 @@ def main():
     assert_equal(
         example_config["fixed_rate_groups"],
         {
-            "CFAV": {"rate_pln_day": 200, "template_group": "CDMV"},
-            "PDAH": {"rate_pln_day": 250, "template_group": "CDMV"},
+            "CFAV": {
+                "template_group": "CDMV",
+                "rates_by_duration_band": {
+                    "1": 300,
+                    "2": 200,
+                    "3-4": 180,
+                    "5-7": 170,
+                    "8-20": 160,
+                    "21-35": 150,
+                },
+            },
+            "PDAH": {
+                "template_group": "CDMV",
+                "rates_by_duration_band": {
+                    "1": 400,
+                    "2": 350,
+                    "3-4": 300,
+                    "5-7": 290,
+                    "8-20": 260,
+                    "21-35": 250,
+                },
+            },
         },
         "fixed-rate group configuration",
+    )
+    assert_equal(
+        example_config["mirrored_rate_groups"],
+        {"EDAV": {"template_group": "EDMV"}},
+        "EDAV mirrors EDMV",
     )
     assert_equal(
         example_config["excluded_group_highlights"],
@@ -214,8 +239,16 @@ def main():
     )
     assert_equal(
         example_config["group_price_parity"]["premium_adjustments_pln_day"],
-        {"EDMV": 1},
-        "current premium group",
+        {"EDMV": 1, "EDAV": 1},
+        "current premium groups",
+    )
+    assert_equal(
+        example_config["protected_rate_periods"],
+        [
+            {"start_date": "2026-10-31", "end_date": "2026-11-02"},
+            {"start_date": "2026-12-15", "end_date": "2027-01-10"},
+        ],
+        "holiday rate protection periods",
     )
     assert_equal(example_config["city_top1_airport_cap"]["max_multiplier"], 1.3, "city-airport cap")
     assert_equal(example_config["max_recommendation_duration_days"], 7, "maximum recommendation duration")
@@ -265,6 +298,8 @@ def main():
             [
                 ["CDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
                 ["CDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
+                ["EDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 161, 71, 81, 91, 101, 121],
+                ["EDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 162, 72, 82, 92, 102, 122],
                 ["CFAV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
                 ["CFAV", None, None, "WA3", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
             ],
@@ -286,9 +321,17 @@ def main():
         fixed_config = merge_config({
             "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
             "fixed_rate_groups": {
-                "CFAV": {"rate_pln_day": 200, "template_group": "CDMV"},
-                "PDAH": {"rate_pln_day": 250, "template_group": "CDMV"},
+                "CFAV": {
+                    "template_group": "CDMV",
+                    "rates_by_duration_band": {"1": 300, "2": 200, "3-4": 180, "5-7": 170, "8-20": 160, "21-35": 150},
+                },
+                "PDAH": {
+                    "template_group": "CDMV",
+                    "rates_by_duration_band": {"1": 400, "2": 350, "3-4": 300, "5-7": 290, "8-20": 260, "21-35": 250},
+                },
             },
+            "mirrored_rate_groups": {"EDAV": {"template_group": "EDMV"}},
+            "protected_rate_periods": example_config["protected_rate_periods"],
             "location_zones": {"Warsaw Test": ["WA1"]},
             "pickup_date_expansion": {"enabled": False},
         })
@@ -319,30 +362,47 @@ def main():
         )
         assert_equal(fixed_summary["fixed_rate_groups"]["added_row_count"], 3, "fixed rows added")
         assert_equal(fixed_summary["fixed_rate_groups"]["updated_row_count"], 2, "fixed rows updated")
+        assert_equal(fixed_summary["mirrored_rate_groups"]["added_row_count"], 2, "EDAV rows added")
         assert not ({"CFAV", "PDAH"} & {str(change["group"]) for change in fixed_summary["changes"]})
         fixed_book = openpyxl.load_workbook(fixed_output_path)
         fixed_ws = fixed_book["Sheet1"]
-        fixed_legend = fixed_book["Changed Positions"]["B7"].value
-        assert "CFAV=200 PLN" in fixed_legend
-        assert "PDAH=250 PLN" in fixed_legend
-        assert_equal(fixed_ws.max_row, 11, "two fixed classes cover both template locations")
+        fixed_legend = " ".join(
+            str(fixed_book["Changed Positions"].cell(row, 2).value or "")
+            for row in range(1, fixed_book["Changed Positions"].max_row + 1)
+        )
+        assert "CFAV: 1=300 PLN" in fixed_legend
+        assert "PDAH: 1=400 PLN" in fixed_legend
+        assert "EDAV=EDMV" in fixed_legend
+        assert "2026-10-31-2026-11-02" in fixed_legend
+        assert "2026-12-15-2027-01-10" in fixed_legend
+        assert_equal(fixed_ws.max_row, 15, "fixed and mirrored classes cover template locations")
         fixed_rows = {
             (fixed_ws.cell(row, 1).value, fixed_ws.cell(row, 4).value): row
             for row in range(5, fixed_ws.max_row + 1)
         }
-        for group, expected_rate in (("CFAV", 200), ("PDAH", 250)):
+        expected_fixed_rates = {
+            "CFAV": [300, 200, 180, 170, 160, 150],
+            "PDAH": [400, 350, 300, 290, 260, 250],
+        }
+        for group, expected_rates in expected_fixed_rates.items():
             for zone in ("WA1", "WA2"):
                 row = fixed_rows[(group, zone)]
                 assert_equal(
                     [fixed_ws.cell(row, col).value for col in range(9, 15)],
-                    [expected_rate] * 6,
+                    expected_rates,
                     f"{group}/{zone} fixed rates",
                 )
         assert_equal(
             [fixed_ws.cell(fixed_rows[("CFAV", "WA3")], col).value for col in range(9, 15)],
-            [200] * 6,
+            expected_fixed_rates["CFAV"],
             "extra CFAV row fixed rates",
         )
+        for zone in ("WA1", "WA2"):
+            assert_equal(
+                [fixed_ws.cell(fixed_rows[("EDAV", zone)], col).value for col in range(9, 15)],
+                [fixed_ws.cell(fixed_rows[("EDMV", zone)], col).value for col in range(9, 15)],
+                f"EDAV mirrors EDMV for {zone}",
+            )
         assert_equal(
             find_fixed_rate_group_issues(fixed_ws, fixed_config, get_duration_columns(fixed_ws, fixed_config)),
             [],
@@ -366,6 +426,114 @@ def main():
         )
         assert_equal(second_pass["added_row_count"], 0, "fixed rows are idempotent")
         assert_equal(second_pass["updated_row_count"], 0, "fixed rates are idempotent")
+
+        holiday_workbook_path = temporary_path / "holiday-protection.xlsx"
+        holiday_recommendations_path = temporary_path / "holiday-protection-recommendations.json"
+        holiday_output_path = temporary_path / "holiday-protection-output.xlsx"
+        holiday_dates = [
+            "30-10-26",
+            "31-10-26",
+            "02-11-26",
+            "03-11-26",
+            "14-12-26",
+            "15-12-26",
+            "10-01-27",
+            "11-01-27",
+        ]
+        holiday_group_rates = {
+            "CDMV": [100, 101, 102, 103, 104, 105],
+            "CWAV": [110, 111, 112, 113, 114, 115],
+            "CWMR": [120, 121, 122, 123, 124, 125],
+            "EDMV": [130, 131, 132, 133, 134, 135],
+            "EDAV": [140, 141, 142, 143, 144, 145],
+            "CFAV": [150, 151, 152, 153, 154, 155],
+            "PDAH": [160, 161, 162, 163, 164, 165],
+        }
+        build_minimal_workbook(
+            holiday_workbook_path,
+            [
+                [group, None, None, "WA1", "09-06-26", pickup_date, pickup_date, pickup_date, *rates]
+                for pickup_date in holiday_dates
+                for group, rates in holiday_group_rates.items()
+            ],
+        )
+        holiday_recommendations = [
+            {
+                "action": "increase",
+                "recommendation_type": "top1_gap",
+                "location": "Warsaw Test",
+                "start_date": parse_date_value(pickup_date).isoformat(),
+                "rental_days": 2,
+                "suggested_rate_pln_day": 222,
+                "benchmark_rate_pln_day": 223,
+            }
+            for pickup_date in holiday_dates
+        ]
+        holiday_recommendations_path.write_text(
+            json.dumps({"recommendations": holiday_recommendations}),
+            encoding="utf-8",
+        )
+        holiday_config = merge_config({
+            "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+            "fixed_rate_groups": example_config["fixed_rate_groups"],
+            "mirrored_rate_groups": example_config["mirrored_rate_groups"],
+            "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
+            "group_price_parity": example_config["group_price_parity"],
+            "protected_rate_periods": example_config["protected_rate_periods"],
+            "location_zones": {"Warsaw Test": ["WA1"]},
+            "pickup_date_expansion": {"enabled": False},
+        })
+        holiday_summary = apply_updates(
+            workbook_path=holiday_workbook_path,
+            recommendations_path=holiday_recommendations_path,
+            output_path=holiday_output_path,
+            config=holiday_config,
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(holiday_summary["skipped_target_count"], 4, "four holiday recommendations skipped")
+        holiday_book = openpyxl.load_workbook(holiday_output_path)
+        holiday_ws = holiday_book["Sheet1"]
+        holiday_rows = {
+            (
+                str(holiday_ws.cell(row, 1).value or "").strip().upper(),
+                parse_date_value(holiday_ws.cell(row, 7).value),
+            ): row
+            for row in range(5, holiday_ws.max_row + 1)
+        }
+        protected_dates = {
+            date(2026, 10, 31),
+            date(2026, 11, 2),
+            date(2026, 12, 15),
+            date(2027, 1, 10),
+        }
+        for pickup_date in protected_dates:
+            for group, original_rates in holiday_group_rates.items():
+                row = holiday_rows[(group, pickup_date)]
+                assert_equal(
+                    [holiday_ws.cell(row, col).value for col in range(9, 15)],
+                    original_rates,
+                    f"protected holiday rates for {group}/{pickup_date.isoformat()}",
+                )
+        unprotected_dates = {
+            date(2026, 10, 30),
+            date(2026, 11, 3),
+            date(2026, 12, 14),
+            date(2027, 1, 11),
+        }
+        for pickup_date in unprotected_dates:
+            for group, expected_rate in (("CDMV", 222), ("CWAV", 222), ("CWMR", 222), ("EDMV", 223), ("EDAV", 223)):
+                row = holiday_rows[(group, pickup_date)]
+                assert_equal(holiday_ws.cell(row, 10).value, expected_rate, f"unprotected rate for {group}/{pickup_date.isoformat()}")
+            for group, expected_rates in expected_fixed_rates.items():
+                row = holiday_rows[(group, pickup_date)]
+                assert_equal(
+                    [holiday_ws.cell(row, col).value for col in range(9, 15)],
+                    expected_rates,
+                    f"unprotected fixed rates for {group}/{pickup_date.isoformat()}",
+                )
+        holiday_book.close()
+
         pending_manifest = {
             "schema_version": 1,
             "status": "prepared",
@@ -1286,12 +1454,11 @@ def main():
             for values in fixed_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
                 group = str(values[0] or "").strip().upper()
                 group_counts[group] += 1
-                if group not in {"CFAV", "PDAH"}:
-                    continue
-                expected_rate = 200 if group == "CFAV" else 250
-                assert_equal(list(values[8:14]), [expected_rate] * 6, f"real {group} fixed rates")
+                if group in expected_fixed_rates:
+                    assert_equal(list(values[8:14]), expected_fixed_rates[group], f"real {group} fixed rates")
             assert_equal(group_counts["CFAV"], group_counts["CDMV"], "real CFAV row coverage")
             assert_equal(group_counts["PDAH"], group_counts["CDMV"], "real PDAH row coverage")
+            assert_equal(group_counts["EDAV"], group_counts["EDMV"], "real EDAV row coverage")
             fixed_real_workbook.close()
 
     print("All Excel rate updater tests passed.")

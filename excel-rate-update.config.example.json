@@ -18,23 +18,52 @@
   "max_recommendation_duration_days": 7,
   "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
   "fixed_rate_groups": {
-    "CFAV": { "rate_pln_day": 200, "template_group": "CDMV" },
-    "PDAH": { "rate_pln_day": 250, "template_group": "CDMV" }
+    "CFAV": {
+      "template_group": "CDMV",
+      "rates_by_duration_band": {
+        "1": 300,
+        "2": 200,
+        "3-4": 180,
+        "5-7": 170,
+        "8-20": 160,
+        "21-35": 150
+      }
+    },
+    "PDAH": {
+      "template_group": "CDMV",
+      "rates_by_duration_band": {
+        "1": 400,
+        "2": 350,
+        "3-4": 300,
+        "5-7": 290,
+        "8-20": 260,
+        "21-35": 250
+      }
+    }
+  },
+  "mirrored_rate_groups": {
+    "EDAV": { "template_group": "EDMV" }
   },
   "excluded_group_highlights": {
     "CGAV": 130,
     "SWAV": 150
   },
   "group_rate_adjustments_pln_day": {
-    "EDMV": 1
+    "EDMV": 1,
+    "EDAV": 1
   },
   "group_price_parity": {
     "enabled": true,
     "base_groups": ["CDMV", "CWAV", "CWMR"],
     "premium_adjustments_pln_day": {
-      "EDMV": 1
+      "EDMV": 1,
+      "EDAV": 1
     }
   },
+  "protected_rate_periods": [
+    { "start_date": "2026-10-31", "end_date": "2026-11-02" },
+    { "start_date": "2026-12-15", "end_date": "2027-01-10" }
+  ],
   "city_top1_airport_cap": {
     "enabled": true,
     "max_multiplier": 1.3,

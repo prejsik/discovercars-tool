@@ -43,18 +43,22 @@ DEFAULT_CONFIG = {
     "max_recommendation_duration_days": 7,
     "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
     "fixed_rate_groups": {},
+    "mirrored_rate_groups": {},
+    "protected_rate_periods": [],
     "excluded_group_highlights": {
         "CGAV": 130,
         "SWAV": 150,
     },
     "group_rate_adjustments_pln_day": {
         "EDMV": 1,
+        "EDAV": 1,
     },
     "group_price_parity": {
         "enabled": True,
         "base_groups": ["CDMV", "CWAV", "CWMR"],
         "premium_adjustments_pln_day": {
             "EDMV": 1,
+            "EDAV": 1,
         },
     },
     "city_top1_airport_cap": {
@@ -494,14 +498,68 @@ def get_fixed_rate_groups(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
         group = normalize_code(raw_group)
         settings = raw_settings if isinstance(raw_settings, dict) else {"rate_pln_day": raw_settings}
         rate = parse_number(settings.get("rate_pln_day"))
+        raw_band_rates = settings.get("rates_by_duration_band") or {}
+        band_rates = {
+            str(label).strip(): parse_number(value)
+            for label, value in raw_band_rates.items()
+            if str(label).strip()
+        } if isinstance(raw_band_rates, dict) else {}
         template_group = normalize_code(settings.get("template_group") or "CDMV")
-        if not group or rate is None or rate < 0 or not template_group or group == template_group:
+        invalid_band_rate = any(value is None or value < 0 for value in band_rates.values())
+        if (
+            not group
+            or (rate is None and not band_rates)
+            or (rate is not None and rate < 0)
+            or invalid_band_rate
+            or not template_group
+            or group == template_group
+        ):
             raise ValueError(f"Invalid fixed_rate_groups configuration for '{raw_group}'.")
         fixed_groups[group] = {
             "rate_pln_day": rate,
+            "rates_by_duration_band": band_rates,
             "template_group": template_group,
         }
     return fixed_groups
+
+
+def get_fixed_rate_for_duration_band(settings: dict[str, Any], duration_band: str) -> float:
+    flat_rate = parse_number(settings.get("rate_pln_day"))
+    if flat_rate is not None:
+        return float(flat_rate)
+    band_rate = parse_number((settings.get("rates_by_duration_band") or {}).get(duration_band))
+    if band_rate is None:
+        raise ValueError(f"Missing fixed rate for duration band '{duration_band}'.")
+    return float(band_rate)
+
+
+def get_mirrored_rate_groups(config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    mirrored_groups: dict[str, dict[str, str]] = {}
+    for raw_group, raw_settings in (config.get("mirrored_rate_groups") or {}).items():
+        group = normalize_code(raw_group)
+        settings = raw_settings if isinstance(raw_settings, dict) else {"template_group": raw_settings}
+        template_group = normalize_code(settings.get("template_group"))
+        if not group or not template_group or group == template_group:
+            raise ValueError(f"Invalid mirrored_rate_groups configuration for '{raw_group}'.")
+        mirrored_groups[group] = {"template_group": template_group}
+    return mirrored_groups
+
+
+def get_protected_rate_periods(config: dict[str, Any]) -> list[tuple[date, date]]:
+    periods: list[tuple[date, date]] = []
+    for item in config.get("protected_rate_periods") or []:
+        settings = item if isinstance(item, dict) else {}
+        start_date = parse_date_value(settings.get("start_date"))
+        end_date = parse_date_value(settings.get("end_date"))
+        if start_date is None or end_date is None or start_date > end_date:
+            raise ValueError("Invalid protected_rate_periods configuration.")
+        periods.append((start_date, end_date))
+    return periods
+
+
+def date_is_rate_protected(value: Any, periods: list[tuple[date, date]]) -> bool:
+    parsed = value if isinstance(value, date) else parse_date_value(value)
+    return parsed is not None and any(start_date <= parsed <= end_date for start_date, end_date in periods)
 
 
 def get_excluded_group_highlight_threshold(group: Any, config: dict[str, Any]) -> float | None:
@@ -776,7 +834,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
         return outcome
     recommendation_type = change.get("recommendation_type")
     if recommendation_type == "group_parity":
-        outcome = "spojnosc stawek grup bazowych oraz korekta EDMV."
+        outcome = "spojnosc stawek grup bazowych oraz korekta grup premium EDMV i EDAV."
     elif recommendation_type == "top1_gap":
         outcome = "utrzymanie top1 przy cenie 1 PLN ponizej top2."
     elif recommendation_type == "top3_small_decrease":
@@ -1081,13 +1139,34 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
     )
     excluded_groups = [normalize_code(item) for item in config.get("excluded_groups", []) if normalize_code(item)]
     fixed_groups = get_fixed_rate_groups(config)
-    fixed_rate_text = ", ".join(
-        f"{group}={format_rate_for_comment(settings['rate_pln_day'])} PLN"
-        for group, settings in fixed_groups.items()
-    )
+    fixed_rate_parts: list[str] = []
+    for group, settings in fixed_groups.items():
+        flat_rate = parse_number(settings.get("rate_pln_day"))
+        if flat_rate is not None:
+            fixed_rate_parts.append(f"{group}={format_rate_for_comment(flat_rate)} PLN")
+            continue
+        band_text = ", ".join(
+            f"{duration_band}={format_rate_for_comment(rate)} PLN"
+            for duration_band, rate in (settings.get("rates_by_duration_band") or {}).items()
+        )
+        fixed_rate_parts.append(f"{group}: {band_text}")
+    fixed_rate_text = "; ".join(fixed_rate_parts)
     fixed_rate_rule = (
-        f" Stawki stale we wszystkich przedzialach: {fixed_rate_text}."
+        f" Stawki dobowe niezalezne od rekomendacji konkurencyjnych: {fixed_rate_text}."
         if fixed_rate_text
+        else ""
+    )
+    mirror_text = ", ".join(
+        f"{group}={settings['template_group']}"
+        for group, settings in get_mirrored_rate_groups(config).items()
+    )
+    mirror_rule = f" Klasy lustrzane: {mirror_text}." if mirror_text else ""
+    protected_periods = get_protected_rate_periods(config)
+    protected_rule = (
+        " Istniejace stawki pozostaja bez zmian dla pickup start date: "
+        + "; ".join(f"{start_date.isoformat()}-{end_date.isoformat()}" for start_date, end_date in protected_periods)
+        + " (daty wlacznie)."
+        if protected_periods
         else ""
     )
     max_duration = int(parse_number(config.get("max_recommendation_duration_days")) or 0)
@@ -1100,9 +1179,11 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
     return (
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
         f"{premium_text or 'brak grup premium'}. "
-        f"Bez zmiany stawek: {format_group_list(excluded_groups)}."
+        f"Bez zmian z rekomendacji konkurencyjnych: {format_group_list(excluded_groups)}."
         f"{fixed_rate_rule}"
+        f"{mirror_rule}"
         f"{duration_rule}"
+        f"{protected_rule}"
     )
 
 
@@ -1710,6 +1791,11 @@ def build_validation_rows(
         if assume_fixed_rate_changes_applied
         else find_fixed_rate_group_issues(ws, config, duration_columns)
     )
+    mirrored_rate_group_issues = (
+        []
+        if assume_fixed_rate_changes_applied
+        else find_mirrored_rate_group_issues(ws, config, duration_columns)
+    )
 
     return [
         ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
@@ -1723,6 +1809,7 @@ def build_validation_rows(
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Kompletne klasy ze stawkami stalymi", get_validation_status(len(fixed_rate_group_issues)), len(fixed_rate_group_issues), first_items(fixed_rate_group_issues)],
+        ["Kompletne klasy lustrzane", get_validation_status(len(mirrored_rate_group_issues)), len(mirrored_rate_group_issues), first_items(mirrored_rate_group_issues)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
         ["Stawki miejskie powyzej 130% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
@@ -1900,6 +1987,7 @@ def build_targets(
     targets: dict[str, dict[date, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     candidates_by_cell: dict[tuple[str, date, int], list[dict[str, Any]]] = defaultdict(list)
     skipped: list[dict[str, Any]] = []
+    protected_periods = get_protected_rate_periods(config)
 
     for item in recommendations:
         action = item.get("action")
@@ -1918,6 +2006,14 @@ def build_targets(
         if rental_days is None or target_date is None or not zones or (action in {"increase", "decrease"} and suggested_rate is None):
             if action in {"increase", "decrease"}:
                 skipped.append({**item, "skip_reason": "Missing suggested rate, rental days, start date, or location zone mapping."})
+            continue
+
+        if date_is_rate_protected(target_date, protected_periods):
+            if action in {"increase", "decrease"}:
+                skipped.append({
+                    **item,
+                    "skip_reason": f"Pickup start date {target_date.isoformat()} is protected; the existing rate was preserved.",
+                })
             continue
 
         duration = int(rental_days)
@@ -2279,6 +2375,11 @@ def ensure_fixed_rate_group_rows(
     zone_col = int(columns["zone"])
     pickup_col = int(columns["pickup_start_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
+    duration_band_by_col = {
+        value[0]: value[1]
+        for value in duration_columns.values()
+    }
+    protected_periods = get_protected_rate_periods(config)
     max_col = ws.max_column
     rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
 
@@ -2297,7 +2398,6 @@ def ensure_fixed_rate_group_rows(
 
     for group, settings in fixed_groups.items():
         template_group = settings["template_group"]
-        fixed_rate = float(settings["rate_pln_day"])
         template_rows = {
             (zone, pickup_date): rows[0]
             for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
@@ -2311,14 +2411,19 @@ def ensure_fixed_rate_group_rows(
         group_added = 0
         group_updated = 0
         existing_group_rows = [
-            row
-            for (row_group, _zone, _pickup_date), rows in rows_by_group_key.items()
+            (pickup_date, row)
+            for (row_group, _zone, pickup_date), rows in rows_by_group_key.items()
             if row_group == group
             for row in rows
         ]
-        for existing_row in existing_group_rows:
+        protected_row_count = 0
+        for pickup_date, existing_row in existing_group_rows:
+            if date_is_rate_protected(pickup_date, protected_periods):
+                protected_row_count += 1
+                continue
             row_changed = False
             for col in rate_cols:
+                fixed_rate = get_fixed_rate_for_duration_band(settings, duration_band_by_col[col])
                 current_rate = parse_number(ws.cell(existing_row, col).value)
                 if current_rate is not None and abs(current_rate - fixed_rate) < 0.001:
                     continue
@@ -2340,16 +2445,19 @@ def ensure_fixed_rate_group_rows(
             write_row_snapshot(ws, next_row, snapshot_row(ws, template_row, max_col))
             ws.cell(next_row, group_col).value = group
             for col in rate_cols:
+                fixed_rate = get_fixed_rate_for_duration_band(settings, duration_band_by_col[col])
                 ws.cell(next_row, col).value = int(fixed_rate) if fixed_rate.is_integer() else fixed_rate
             rows_by_group_key[(group, zone, pickup_date)].append(next_row)
             next_row += 1
 
         group_summaries[group] = {
-            "rate_pln_day": fixed_rate,
+            "rate_pln_day": settings.get("rate_pln_day"),
+            "rates_by_duration_band": settings.get("rates_by_duration_band") or {},
             "template_group": template_group,
             "expected_row_count": len(template_rows),
             "added_row_count": group_added,
             "updated_row_count": group_updated,
+            "protected_existing_row_count": protected_row_count,
         }
 
     return {
@@ -2376,6 +2484,11 @@ def find_fixed_rate_group_issues(
     zone_col = int(columns["zone"])
     pickup_col = int(columns["pickup_start_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
+    duration_band_by_col = {
+        value[0]: value[1]
+        for value in duration_columns.values()
+    }
+    protected_periods = get_protected_rate_periods(config)
     rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
 
     for row in range(data_start_row, ws.max_row + 1):
@@ -2388,7 +2501,6 @@ def find_fixed_rate_group_issues(
     issues: list[str] = []
     for group, settings in fixed_groups.items():
         template_group = settings["template_group"]
-        expected_rate = float(settings["rate_pln_day"])
         template_keys = {
             (zone, pickup_date)
             for row_group, zone, pickup_date in rows_by_group_key
@@ -2405,13 +2517,180 @@ def find_fixed_rate_group_issues(
             for row in rows
         ]
         for zone, pickup_date, row in sorted(fixed_rows):
+            if date_is_rate_protected(pickup_date, protected_periods):
+                continue
             for col in rate_cols:
+                expected_rate = get_fixed_rate_for_duration_band(settings, duration_band_by_col[col])
                 rate = parse_number(ws.cell(row, col).value)
                 if rate is None or abs(rate - expected_rate) >= 0.001:
                     issues.append(
                         f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(col)}: "
                         f"{format_rate_for_comment(rate)} != {format_rate_for_comment(expected_rate)}"
                     )
+    return issues
+
+
+def ensure_mirrored_rate_group_rows(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+    dry_run: bool,
+) -> dict[str, Any]:
+    mirrored_groups = get_mirrored_rate_groups(config)
+    if not mirrored_groups:
+        return {
+            "enabled": False,
+            "added_row_count": 0,
+            "updated_row_count": 0,
+            "updated_cell_count": 0,
+            "groups": {},
+        }
+
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    protected_periods = get_protected_rate_periods(config)
+    max_col = ws.max_column
+    rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if group and zone and pickup_date is not None:
+            rows_by_group_key[(group, zone, pickup_date)].append(row)
+
+    added_row_count = 0
+    updated_row_count = 0
+    updated_cell_count = 0
+    group_summaries: dict[str, dict[str, Any]] = {}
+    next_row = ws.max_row + 1
+
+    for group, settings in mirrored_groups.items():
+        template_group = settings["template_group"]
+        template_rows = {
+            (zone, pickup_date): rows[0]
+            for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
+            if row_group == template_group
+        }
+        if not template_rows:
+            raise ValueError(
+                f"Mirrored-rate group {group} cannot be created because template group {template_group} is missing."
+            )
+
+        group_added = 0
+        group_updated = 0
+        protected_row_count = 0
+        existing_group_rows = [
+            (zone, pickup_date, row)
+            for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
+            if row_group == group
+            for row in rows
+        ]
+        for zone, pickup_date, existing_row in existing_group_rows:
+            if date_is_rate_protected(pickup_date, protected_periods):
+                protected_row_count += 1
+                continue
+            template_row = template_rows.get((zone, pickup_date))
+            if template_row is None:
+                continue
+            row_changed = False
+            for col in rate_cols:
+                template_rate = parse_number(ws.cell(template_row, col).value)
+                current_rate = parse_number(ws.cell(existing_row, col).value)
+                if template_rate is None or (current_rate is not None and abs(current_rate - template_rate) < 0.001):
+                    continue
+                row_changed = True
+                updated_cell_count += 1
+                if not dry_run:
+                    ws.cell(existing_row, col).value = int(template_rate) if template_rate.is_integer() else template_rate
+            if row_changed:
+                group_updated += 1
+                updated_row_count += 1
+
+        for (zone, pickup_date), template_row in sorted(template_rows.items()):
+            if rows_by_group_key.get((group, zone, pickup_date)):
+                continue
+            group_added += 1
+            added_row_count += 1
+            if dry_run:
+                continue
+            write_row_snapshot(ws, next_row, snapshot_row(ws, template_row, max_col))
+            ws.cell(next_row, group_col).value = group
+            rows_by_group_key[(group, zone, pickup_date)].append(next_row)
+            next_row += 1
+
+        group_summaries[group] = {
+            "template_group": template_group,
+            "expected_row_count": len(template_rows),
+            "added_row_count": group_added,
+            "updated_row_count": group_updated,
+            "protected_existing_row_count": protected_row_count,
+        }
+
+    return {
+        "enabled": True,
+        "added_row_count": added_row_count,
+        "updated_row_count": updated_row_count,
+        "updated_cell_count": updated_cell_count,
+        "groups": group_summaries,
+    }
+
+
+def find_mirrored_rate_group_issues(
+    ws: Any,
+    config: dict[str, Any],
+    duration_columns: dict[int, tuple[int, str, int, int]],
+) -> list[str]:
+    mirrored_groups = get_mirrored_rate_groups(config)
+    if not mirrored_groups:
+        return []
+
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    group_col = int(columns["group"])
+    zone_col = int(columns["zone"])
+    pickup_col = int(columns["pickup_start_date"])
+    rate_cols = sorted({value[0] for value in duration_columns.values()})
+    protected_periods = get_protected_rate_periods(config)
+    rows_by_group_key: dict[tuple[str, str, date], list[int]] = defaultdict(list)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, group_col).value)
+        zone = normalize_code(ws.cell(row, zone_col).value)
+        pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
+        if group and zone and pickup_date is not None:
+            rows_by_group_key[(group, zone, pickup_date)].append(row)
+
+    issues: list[str] = []
+    for group, settings in mirrored_groups.items():
+        template_group = settings["template_group"]
+        template_rows = {
+            (zone, pickup_date): rows[0]
+            for (row_group, zone, pickup_date), rows in rows_by_group_key.items()
+            if row_group == template_group
+        }
+        for zone, pickup_date in sorted(template_rows):
+            mirror_rows = rows_by_group_key.get((group, zone, pickup_date), [])
+            if not mirror_rows:
+                issues.append(f"brak {group}/{zone}/{pickup_date.isoformat()}")
+                continue
+            if date_is_rate_protected(pickup_date, protected_periods):
+                continue
+            template_row = template_rows[(zone, pickup_date)]
+            for mirror_row in mirror_rows:
+                for col in rate_cols:
+                    template_rate = parse_number(ws.cell(template_row, col).value)
+                    mirror_rate = parse_number(ws.cell(mirror_row, col).value)
+                    if template_rate is None or mirror_rate is None or abs(template_rate - mirror_rate) >= 0.001:
+                        issues.append(
+                            f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(col)}: "
+                            f"{format_rate_for_comment(mirror_rate)} != {template_group} "
+                            f"{format_rate_for_comment(template_rate)}"
+                        )
     return issues
 
 
@@ -2640,6 +2919,7 @@ def enforce_group_price_parity(
         value[0]: (value[1], value[2], value[3])
         for value in duration_columns.values()
     }
+    protected_periods = get_protected_rate_periods(config)
     min_change = float(config.get("min_excel_change_pln_day", 0.01))
     rows_by_key: dict[tuple[str, date], dict[str, int]] = defaultdict(dict)
 
@@ -2655,6 +2935,8 @@ def enforce_group_price_parity(
 
     changes: list[dict[str, Any]] = []
     for (zone, pickup_start), groups in rows_by_key.items():
+        if date_is_rate_protected(pickup_start, protected_periods):
+            continue
         for col in rate_cols:
             if scope is not None and (zone, pickup_start, col) not in scope:
                 continue
@@ -2690,7 +2972,7 @@ def enforce_group_price_parity(
                     "recommendation_action": "parity",
                     "recommendation_type": "group_parity",
                     "target_rank": "",
-                    "reason": "Ujednolicenie stawek grup bazowych oraz korekta EDMV.",
+                    "reason": "Ujednolicenie stawek grup bazowych oraz korekta grup premium EDMV i EDAV.",
                     "location": "",
                     "zone": zone,
                     "group": group,
@@ -2776,6 +3058,7 @@ def apply_updates(
     match_pickup_end_duration = False
     duration_columns = get_duration_columns(ws, config)
     fixed_rate_group_summary = ensure_fixed_rate_group_rows(ws, config, duration_columns, dry_run)
+    mirrored_rate_group_summary = ensure_mirrored_rate_group_rows(ws, config, duration_columns, dry_run)
     targets, skipped_targets = build_targets(recommendations, duration_columns, config)
     accepted_target_count = 0
     filtered_unaccepted_target_count = 0
@@ -2810,6 +3093,7 @@ def apply_updates(
     group_price_parity_changes: list[dict[str, Any]] = []
     excluded_group_highlight_count = 0
     city_top1_airport_cap_applied_count = 0
+    protected_periods = get_protected_rate_periods(config)
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and not match_pickup_end_duration:
@@ -2825,6 +3109,8 @@ def apply_updates(
         group = ws.cell(row, int(columns["group"])).value
         pickup_start = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         pickup_end = parse_date_value(ws.cell(row, int(columns["pickup_end_date"])).value)
+        if date_is_rate_protected(pickup_start, protected_periods):
+            continue
         row_targets = find_targets_for_row(
             targets[zone],
             pickup_start,
@@ -3009,6 +3295,7 @@ def apply_updates(
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
         "fixed_rate_groups": fixed_rate_group_summary,
+        "mirrored_rate_groups": mirrored_rate_group_summary,
         "skipped_target_count": len(skipped_targets),
         "accepted_only": accepted_only,
         "accepted_target_count": accepted_target_count,

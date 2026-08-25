@@ -481,7 +481,12 @@ Minimalne stawki przy aktualizacji Excela:
 - od `2026-09-01` do `2027-01-31` dla duration `1-35` stawka nie spada ponizej `50 PLN brutto/dzien`,
 - dla `2026-08-31` nie jest stosowany dodatkowy floor okresowy.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMD`, `SWAV`, `CFAV` i `PDAH`. Te grupy nie moga miec zmienianych stawek przez rekomendacje. `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `SWAV` ponizej `150 PLN/dzien`. `CFAV` i `PDAH` sa klasami ze stala cena: updater dopisuje ich kompletne wiersze dla kazdej strefy i daty obecnej w grupie wzorcowej `CDMV`, a we wszystkich kolumnach duration ustawia odpowiednio `200 PLN/dzien` i `250 PLN/dzien`. Na koncu generowania importu wyrownuje tez relacje grup: `CDMV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` dostaje stawke o `1 PLN/dzien` wyzsza. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia nadal sa respektowane.
+Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMD`, `SWAV`, `CFAV` i `PDAH`. Te grupy nie moga miec zmienianych stawek przez rekomendacje. `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `SWAV` ponizej `150 PLN/dzien`. `CFAV` i `PDAH` maja wlasne stale stawki dobowe zalezne od duration. Updater dopisuje ich kompletne wiersze dla kazdej strefy i daty obecnej w grupie wzorcowej `CDMV`:
+
+- `CFAV`: `1 dzien = 300 PLN`, `2 dni = 200 PLN`, `3-4 dni = 180 PLN`, `5-7 dni = 170 PLN`, `8-20 dni = 160 PLN`, `21-35 dni = 150 PLN`,
+- `PDAH`: `1 dzien = 400 PLN`, `2 dni = 350 PLN`, `3-4 dni = 300 PLN`, `5-7 dni = 290 PLN`, `8-20 dni = 260 PLN`, `21-35 dni = 250 PLN`.
+
+Klasa `EDAV` jest dopisywana na podstawie kompletnego zestawu wierszy `EDMV` i poza chronionymi okresami zawsze otrzymuje dokladnie te same stawki co `EDMV`. Na koncu generowania importu updater wyrownuje relacje grup: `CDMV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` i `EDAV` stawke o `1 PLN/dzien` wyzsza. Istniejace stawki nie sa zmieniane dla pickup start date od `2026-10-31` do `2026-11-02` oraz od `2026-12-15` do `2027-01-10` (daty wlacznie). Brakujace wiersze nowych klas sa nadal dopisywane, aby zachowac kompletna strukture pliku. Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia i okresy chronione nadal sa respektowane.
 
 Przy aktywnej rekomendacji utrzymania top1 (`top1_gap` lub `force_top1_maintain`) stawka oddzialu miejskiego moze wynosic maksymalnie `130%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej albo konflikt z floorem blokuje zapis pliku importowego.
 
