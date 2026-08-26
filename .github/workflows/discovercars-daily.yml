@@ -356,10 +356,6 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "Scrape quality status: $status"
 
-      - name: Generate HTML report
-        if: steps.gate.outputs.should_run == 'true' && always()
-        run: node src/reportHtml.js output/results-latest.json output/report.html
-
       - name: Restore broker markup calibration
         id: broker-calibration
         if: steps.gate.outputs.should_run == 'true' && always()

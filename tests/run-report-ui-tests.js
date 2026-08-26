@@ -75,6 +75,9 @@ async function run() {
     await page.goto(pathToFileURL(reportPath).href);
 
     assert.equal(await page.locator(".scenario:visible").count(), 20);
+    await page.locator("#load-more").click();
+    assert.equal(await page.locator(".scenario:visible").count(), 30);
+    assert.match(await page.locator("#results-status").innerText(), /Scenariusze: 30\/30/);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
     assert.match(await page.locator("tbody tr").first().innerText(), /Manual Competitor/);

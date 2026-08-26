@@ -1016,7 +1016,7 @@ function readJsonSafe(filePath) {
 function writeJsonAtomic(filePath, payload) {
   ensureParentDir(filePath);
   const tmpPath = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+  fs.writeFileSync(tmpPath, JSON.stringify(payload), "utf8");
   let lastError = null;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
@@ -1091,7 +1091,16 @@ function buildRunSignature(cli, scenarios, resolvedProfile) {
   return crypto.createHash("sha256").update(JSON.stringify(canonicalPayload)).digest("hex");
 }
 
-function createCheckpointController({ enabled, checkpointPath, runSignature, cli, scenarios }) {
+function createCheckpointController({
+  enabled,
+  checkpointPath,
+  runSignature,
+  cli,
+  scenarios,
+  maxPendingCompletions = 5,
+  maxWriteDelayMs = 60_000,
+  writeState = writeJsonAtomic
+}) {
   if (!enabled) {
     return {
       enabled: false,
@@ -1109,6 +1118,7 @@ function createCheckpointController({ enabled, checkpointPath, runSignature, cli
   }
 
   let state = readJsonSafe(checkpointPath);
+  let hadPersistedCheckpoint = Boolean(state);
   if (!state || state.run_signature !== runSignature) {
     if (state && state.run_signature !== runSignature) {
       archiveCheckpointFile(checkpointPath);
@@ -1123,6 +1133,7 @@ function createCheckpointController({ enabled, checkpointPath, runSignature, cli
       scenario_total: scenarios.length,
       completed: {}
     };
+    hadPersistedCheckpoint = false;
   }
 
   const resumedPayloadsByScenarioId = new Map();
@@ -1134,24 +1145,75 @@ function createCheckpointController({ enabled, checkpointPath, runSignature, cli
   }
 
   let writeQueue = Promise.resolve();
+  let writeTimer = null;
+  let mutationGeneration = 0;
+  let queuedGeneration = 0;
+  let persistedGeneration = 0;
+  let hasPersistedCheckpoint = hadPersistedCheckpoint;
+  let completedCount = Object.keys(state.completed || {}).length;
 
-  async function markScenarioCompleted(payload) {
-    state.completed[payload.scenario_id] = payload;
-    state.updated_at = new Date().toISOString();
-    state.completed_count = Object.keys(state.completed).length;
+  function cancelScheduledWrite() {
+    if (writeTimer) {
+      clearTimeout(writeTimer);
+      writeTimer = null;
+    }
+  }
 
+  function enqueueWrite() {
+    cancelScheduledWrite();
+    const targetGeneration = mutationGeneration;
+    queuedGeneration = Math.max(queuedGeneration, targetGeneration);
     writeQueue = writeQueue
       .catch(() => undefined)
-      .then(() => writeJsonAtomic(checkpointPath, state));
-    await writeQueue;
+      .then(async () => {
+        await writeState(checkpointPath, state);
+        persistedGeneration = Math.max(persistedGeneration, targetGeneration);
+        hasPersistedCheckpoint = true;
+      });
+    return writeQueue;
+  }
+
+  function scheduleWrite() {
+    if (writeTimer) {
+      return;
+    }
+    writeTimer = setTimeout(() => {
+      writeTimer = null;
+      void enqueueWrite().catch(() => undefined);
+    }, Math.max(1, maxWriteDelayMs));
+    writeTimer.unref?.();
+  }
+
+  async function markScenarioCompleted(payload) {
+    const wasCompleted = Object.hasOwn(state.completed, payload.scenario_id);
+    state.completed[payload.scenario_id] = payload;
+    state.updated_at = new Date().toISOString();
+    if (!wasCompleted) {
+      completedCount += 1;
+    }
+    state.completed_count = completedCount;
+    mutationGeneration += 1;
+
+    if (
+      (!hasPersistedCheckpoint && queuedGeneration === 0)
+      || mutationGeneration - queuedGeneration >= Math.max(1, maxPendingCompletions)
+    ) {
+      await enqueueWrite();
+      return;
+    }
+    scheduleWrite();
   }
 
   async function flush() {
+    cancelScheduledWrite();
     await writeQueue.catch(() => undefined);
+    if (persistedGeneration < mutationGeneration) {
+      await enqueueWrite();
+    }
   }
 
   async function clear() {
-    await writeQueue;
+    await flush();
     if (fs.existsSync(checkpointPath)) {
       fs.rmSync(checkpointPath, { force: true });
     }
@@ -1777,8 +1839,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Fatal error: ${message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Fatal error: ${message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  createCheckpointController
+};

@@ -405,7 +405,7 @@ class DiscoverCarsScraper {
     }
     const sanityRate = Math.max(
       this.getLocationValidationRate(location),
-      selectedOffers.length < 3 ? HIGH_DRIFT_API_DOM_SANITY_RATE : 0
+      selectedOffers.length < 3 ? DEFAULT_API_DOM_HIGH_SAMPLE_RATE : 0
     );
     if (sanityRate <= 0) {
       return false;

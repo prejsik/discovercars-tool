@@ -11,6 +11,11 @@ const MM_TOP1_GAP_30_PRICE_PER_DAY_THRESHOLD_PLN = 30;
 const REPORT_TIME_ZONE = "Europe/Warsaw";
 const INITIAL_SCENARIO_LIMIT = 20;
 const COMPACT_LAYOUT_MAX_WIDTH = 1220;
+const DAILY_RATE_FORMATTER = new Intl.NumberFormat("pl-PL", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+const DATE_TIME_FORMATTERS = new Map();
 
 function normalizeProviderName(value) {
   return String(value || "")
@@ -57,10 +62,7 @@ function formatOfferPrice(offer) {
 
   const rentalDays = Number(offer.rental_days);
   const divisor = Number.isFinite(rentalDays) && rentalDays > 0 ? rentalDays : 1;
-  const dailyRate = new Intl.NumberFormat("pl-PL", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(Number(offer.total_price) / divisor);
+  const dailyRate = DAILY_RATE_FORMATTER.format(Number(offer.total_price) / divisor);
   return `${dailyRate} ${offer.currency || ""}/d`.trim();
 }
 
@@ -93,15 +95,18 @@ function formatDateTime(value, timeZone = REPORT_TIME_ZONE) {
   if (!value || Number.isNaN(date.getTime())) {
     return String(value || "Brak daty");
   }
-  return new Intl.DateTimeFormat("pl-PL", {
-    timeZone,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).format(date).replace(",", "");
+  if (!DATE_TIME_FORMATTERS.has(timeZone)) {
+    DATE_TIME_FORMATTERS.set(timeZone, new Intl.DateTimeFormat("pl-PL", {
+      timeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }));
+  }
+  return DATE_TIME_FORMATTERS.get(timeZone).format(date).replace(",", "");
 }
 
 function isSameCurrency(left, right) {
@@ -983,6 +988,9 @@ function buildHtmlReport(payload, options = {}) {
     const reportMaxDate = ${JSON.stringify(maxStartDate)};
     const scenarioPageSize = ${INITIAL_SCENARIO_LIMIT};
     let visibleScenarioLimit = scenarioPageSize;
+    let matchingScenariosCache = [];
+    let matchingRowsCache = 0;
+    let renderedScenarioCount = 0;
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1129,6 +1137,30 @@ function buildHtmlReport(payload, options = {}) {
       dateFromControl.max = dateToControl.value || reportMaxDate;
     }
 
+    function renderScenarioPage(append = false) {
+      const shownSections = Math.min(visibleScenarioLimit, matchingScenariosCache.length);
+      const startIndex = append ? renderedScenarioCount : 0;
+      const html = matchingScenariosCache
+        .slice(startIndex, shownSections)
+        .map(({ scenario, rows }) => buildScenarioTable(scenario, rows))
+        .join("");
+      if (append) {
+        reportResults.insertAdjacentHTML("beforeend", html);
+      } else {
+        reportResults.innerHTML = html;
+      }
+      renderedScenarioCount = shownSections;
+      emptyState.hidden = matchingScenariosCache.length > 0;
+      loadMoreControl.hidden = shownSections >= matchingScenariosCache.length;
+      loadMoreControl.textContent = "Pokaż kolejne " + Math.min(
+        scenarioPageSize,
+        matchingScenariosCache.length - shownSections
+      );
+      resultsStatus.textContent = matchingScenariosCache.length
+        ? "Scenariusze: " + shownSections + "/" + matchingScenariosCache.length + " · pasujące wiersze: " + matchingRowsCache
+        : "Brak pasujących scenariuszy";
+    }
+
     function applyFilters(resetLimit = true) {
       if (resetLimit) {
         visibleScenarioLimit = scenarioPageSize;
@@ -1168,17 +1200,10 @@ function buildHtmlReport(payload, options = {}) {
         }
       }
 
-      const shownSections = Math.min(visibleScenarioLimit, matchingScenarios.length);
-      reportResults.innerHTML = matchingScenarios
-        .slice(0, shownSections)
-        .map(({ scenario, rows }) => buildScenarioTable(scenario, rows))
-        .join("");
-      emptyState.hidden = matchingScenarios.length > 0;
-      loadMoreControl.hidden = shownSections >= matchingScenarios.length;
-      loadMoreControl.textContent = "Pokaż kolejne " + Math.min(scenarioPageSize, matchingScenarios.length - shownSections);
-      resultsStatus.textContent = matchingScenarios.length
-        ? "Scenariusze: " + shownSections + "/" + matchingScenarios.length + " · pasujące wiersze: " + matchingRows
-        : "Brak pasujących scenariuszy";
+      matchingScenariosCache = matchingScenarios;
+      matchingRowsCache = matchingRows;
+      renderedScenarioCount = 0;
+      renderScenarioPage(false);
       updateCompactFilterToggle(toolbar.hidden);
       updateShareableUrl();
     }
@@ -1243,7 +1268,7 @@ function buildHtmlReport(payload, options = {}) {
     });
     loadMoreControl.addEventListener("click", () => {
       visibleScenarioLimit += scenarioPageSize;
-      applyFilters(false);
+      renderScenarioPage(true);
     });
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".multi-filter")) {
@@ -1300,10 +1325,25 @@ if (require.main === module) {
     const outputPath = process.argv[3] || "output/report.html";
     const qualityArg = process.argv.find((arg) => arg.startsWith("--quality="));
     const qualityPath = qualityArg ? qualityArg.slice("--quality=".length) : null;
-    const quality = qualityPath && fs.existsSync(qualityPath)
-      ? readJsonFile(qualityPath, "kontroli jakości")
-      : null;
-    const writtenPath = generateReportFromFile(inputPath, outputPath, { quality });
+    let quality = null;
+    if (qualityPath && fs.existsSync(qualityPath)) {
+      try {
+        quality = readJsonFile(qualityPath, "kontroli jakości");
+      } catch (error) {
+        console.warn(`${error.message} Raport zostanie utworzony bez statusu kontroli jakości.`);
+      }
+    }
+
+    let writtenPath;
+    try {
+      writtenPath = generateReportFromFile(inputPath, outputPath, { quality });
+    } catch (error) {
+      if (!quality) {
+        throw error;
+      }
+      console.warn(`${error.message} Ponawiam tworzenie raportu bez statusu kontroli jakości.`);
+      writtenPath = generateReportFromFile(inputPath, outputPath);
+    }
     console.log(`HTML report saved to ${writtenPath}`);
   } catch (error) {
     console.error(error.message);

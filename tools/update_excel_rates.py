@@ -1828,12 +1828,20 @@ def write_validation_sheet(
     changes: list[dict[str, Any]],
     skipped_targets: list[dict[str, Any]],
     expansion_summary: dict[str, Any] | None = None,
+    validation_rows: list[list[Any]] | None = None,
 ) -> None:
     sheet_name = str(config.get("validation_sheet") or "").strip()
     if not sheet_name:
         return
     headers = ["Kontrola", "Status", "Liczba problemow", "Szczegoly"]
-    rows = build_validation_rows(source_ws, config, duration_columns, changes, skipped_targets, expansion_summary)
+    rows = validation_rows if validation_rows is not None else build_validation_rows(
+        source_ws,
+        config,
+        duration_columns,
+        changes,
+        skipped_targets,
+        expansion_summary,
+    )
     widths = {"Kontrola": 48, "Status": 14, "Liczba problemow": 18, "Szczegoly": 90}
     ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 4, headers, rows, widths)
     for row in range(2, ws.max_row + 1):
@@ -3254,6 +3262,15 @@ def apply_updates(
         scope=group_price_parity_scope,
     )
     changes.extend(group_price_parity_changes)
+    validation_rows = build_validation_rows(
+        ws,
+        config,
+        duration_columns,
+        changes,
+        skipped_targets,
+        expansion_summary,
+        assume_fixed_rate_changes_applied=dry_run,
+    )
 
     city_top1_airport_cap_violations = (
         [] if dry_run else find_city_top1_airport_cap_violations(ws, config, city_top1_airport_caps)
@@ -3270,7 +3287,16 @@ def apply_updates(
         write_changed_positions_sheet(workbook, ws, config, changes)
         write_recommendations_review_sheet(workbook, ws, config, changes)
         write_competitor_evidence_sheet(workbook, ws, config, changes)
-        write_validation_sheet(workbook, ws, config, duration_columns, changes, skipped_targets, expansion_summary)
+        write_validation_sheet(
+            workbook,
+            ws,
+            config,
+            duration_columns,
+            changes,
+            skipped_targets,
+            expansion_summary,
+            validation_rows,
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
         if import_output_path is not None:
@@ -3307,15 +3333,7 @@ def apply_updates(
                 "issue_count": row[2],
                 "details": row[3],
             }
-            for row in build_validation_rows(
-                ws,
-                config,
-                duration_columns,
-                changes,
-                skipped_targets,
-                expansion_summary,
-                assume_fixed_rate_changes_applied=dry_run,
-            )
+            for row in validation_rows
         ],
         "broker_markup_observations": build_broker_markup_observations(
             changes,

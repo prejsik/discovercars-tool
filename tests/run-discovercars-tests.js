@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
@@ -30,6 +31,7 @@ const { verifyActiveRecommendations } = require("../src/verifyActiveRecommendati
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
 const { compareBenchmark } = require("../tools/compare_discovercars_benchmark");
 const { parseArgs: parseChunkedArgs, runCommand } = require("../src/runDiscovercarsChunked");
+const { createCheckpointController } = require("../src/index");
 const {
   isChunkPayloadComplete,
   isRunPayloadComplete,
@@ -375,6 +377,23 @@ runTest("API DOM sanity increases DOM validation after repeated drift", () => {
   assert.equal(scraper.buildApiDomTelemetrySummary().drift_rate_percent, 30);
 });
 
+runTest("sparse API results use the adaptive sample rate without throwing", () => {
+  const scraper = new DiscoverCarsScraper({
+    pickupDate: "2026-08-27",
+    dropoffDate: "2026-08-29",
+    apiDomSanityRate: 0,
+    apiDomDriftState: { by_location: {} }
+  });
+  let shouldValidate = null;
+  assert.doesNotThrow(() => {
+    shouldValidate = scraper.shouldValidateApiOutcome("Warsaw Airport (WAW)", [
+      { provider: "Provider A", totalPrice: 100 },
+      { provider: "Provider B", totalPrice: 110 }
+    ]);
+  });
+  assert.equal(typeof shouldValidate, "boolean");
+});
+
 runTest("pricing candidates wait for final recommendation DOM validation", () => {
   const scraper = new DiscoverCarsScraper({
     pickupDate: "2026-07-10",
@@ -532,6 +551,8 @@ runTest("buildHtmlReport renders compact tables and MM Cars Rental highlight", (
   assert.match(html, /Legenda oznaczeń/);
   assert.match(html, /<main id="report-results"><\/main>/);
   assert.match(html, /<script type="application\/json" id="report-data">/);
+  assert.match(html, /insertAdjacentHTML\("beforeend"/);
+  assert.doesNotMatch(html, /visibleScenarioLimit \+= scenarioPageSize;\s*applyFilters\(false\)/);
   assert.doesNotMatch(html, /source \/ car/i);
   assert.doesNotMatch(html, /evidence-cell/);
   assert.doesNotMatch(html, /Not available|Scenario \d|rental_days|\/day/);
@@ -627,6 +648,13 @@ runTest("GitHub Pages publishes compact results while Actions keeps the full art
   assert.match(workflow, /node src\/publicResults\.js output\/results-latest\.json output\/results-public\.json/);
   assert.match(workflow, /cp output\/results-public\.json "pages\/\$run_dir\/results-latest\.json"/);
   assert.match(workflow, /name: Upload scraper results[\s\S]*output\/results-latest\.json/);
+});
+
+runTest("daily workflow renders the final quality-aware HTML only once", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const reportCommands = workflow.match(/node src\/reportHtml\.js/g) || [];
+  assert.equal(reportCommands.length, 1);
+  assert.match(workflow, /node src\/reportHtml\.js output\/results-latest\.json output\/report\.html --quality=output\/quality-alerts\.json/);
 });
 
 runTest("Playwright installation avoids apt and cannot block the workflow for hours", () => {
@@ -1024,7 +1052,7 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   assert.match(html, /text = checked\.length \+ " wybrane"/);
   assert.match(html, /visibleScenarioLimit = scenarioPageSize/);
   assert.match(html, /const scenarioPageSize = 20/);
-  assert.match(html, /matchingScenarios[\s\S]*\.slice\(0, shownSections\)/);
+  assert.match(html, /matchingScenariosCache[\s\S]*\.slice\(startIndex, shownSections\)/);
   assert.match(html, /\.filter-field:nth-of-type\(even\) \.multi-options/);
   assert.match(html, /new URLSearchParams\(location\.search\)/);
   assert.match(html, /\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
@@ -1093,6 +1121,29 @@ runTest("generateReportFromFile distinguishes a missing JSON file", () => {
     () => generateReportFromFile(missingPath, path.join(os.tmpdir(), "unused-report.html")),
     /Nie znaleziono pliku danych raportu/
   );
+});
+
+runTest("report CLI falls back when the quality JSON is damaged", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-quality-fallback-"));
+  const inputPath = path.join(tempDir, "results.json");
+  const qualityPath = path.join(tempDir, "quality.json");
+  const outputPath = path.join(tempDir, "report.html");
+  try {
+    fs.writeFileSync(inputPath, JSON.stringify({ locations: [], scenarios: [] }), "utf8");
+    fs.writeFileSync(qualityPath, "{damaged", "utf8");
+    const result = spawnSync(process.execPath, [
+      path.resolve(__dirname, "../src/reportHtml.js"),
+      inputPath,
+      outputPath,
+      `--quality=${qualityPath}`
+    ], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(outputPath), true);
+    assert.match(fs.readFileSync(outputPath, "utf8"), /Kontrola cen DiscoverCars/);
+    assert.match(result.stderr, /bez statusu kontroli jakości/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 runTest("buildHtmlReport keeps an empty run empty", () => {
@@ -2177,6 +2228,84 @@ async function runAsyncTests() {
   } finally {
     DiscoverCarsScraper.prototype.run = originalScraperRun;
   }
+
+  const checkpointWrites = [];
+  const checkpointController = createCheckpointController({
+    enabled: true,
+    checkpointPath: path.join(os.tmpdir(), `discovercars-checkpoint-${process.pid}.json`),
+    runSignature: "checkpoint-batch-test",
+    cli: { resetState: false, locations: ["Warsaw"] },
+    scenarios: [],
+    maxPendingCompletions: 3,
+    maxWriteDelayMs: 60_000,
+    writeState: (_filePath, state) => {
+      checkpointWrites.push(JSON.parse(JSON.stringify(state)));
+    }
+  });
+  const completedPayload = (scenarioId) => ({
+    scenario_id: scenarioId,
+    results: [{ location: "Warsaw" }],
+    errors: [],
+    top_3_by_location: { Warsaw: [{ total_price: 100 }] }
+  });
+
+  await checkpointController.markScenarioCompleted(completedPayload("scenario-1"));
+  assert.equal(checkpointWrites.length, 1);
+  await checkpointController.markScenarioCompleted(completedPayload("scenario-2"));
+  await checkpointController.markScenarioCompleted(completedPayload("scenario-3"));
+  assert.equal(checkpointWrites.length, 1);
+  await checkpointController.markScenarioCompleted(completedPayload("scenario-4"));
+  assert.equal(checkpointWrites.length, 2);
+  assert.equal(checkpointWrites.at(-1).completed_count, 4);
+  await checkpointController.markScenarioCompleted(completedPayload("scenario-5"));
+  await checkpointController.flush();
+  assert.equal(checkpointWrites.length, 3);
+  assert.equal(checkpointWrites.at(-1).completed_count, 5);
+  console.log("PASS checkpoint batches writes and flushes pending scenarios");
+
+  let checkpointWriteAttempts = 0;
+  const retriedCheckpointWrites = [];
+  const retryingCheckpointController = createCheckpointController({
+    enabled: true,
+    checkpointPath: path.join(os.tmpdir(), `discovercars-checkpoint-retry-${process.pid}.json`),
+    runSignature: "checkpoint-retry-test",
+    cli: { resetState: false, locations: ["Warsaw"] },
+    scenarios: [],
+    maxPendingCompletions: 10,
+    maxWriteDelayMs: 5,
+    writeState: async (_filePath, state) => {
+      checkpointWriteAttempts += 1;
+      if (checkpointWriteAttempts === 2) {
+        throw new Error("simulated checkpoint failure");
+      }
+      retriedCheckpointWrites.push(JSON.parse(JSON.stringify(state)));
+    }
+  });
+  await retryingCheckpointController.markScenarioCompleted(completedPayload("retry-1"));
+  await retryingCheckpointController.markScenarioCompleted(completedPayload("retry-2"));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(checkpointWriteAttempts, 2);
+  await retryingCheckpointController.flush();
+  assert.equal(checkpointWriteAttempts, 3);
+  assert.equal(retriedCheckpointWrites.at(-1).completed_count, 2);
+  console.log("PASS checkpoint flush retries a failed background write");
+
+  const failingCheckpointController = createCheckpointController({
+    enabled: true,
+    checkpointPath: path.join(os.tmpdir(), `discovercars-checkpoint-failure-${process.pid}.json`),
+    runSignature: "checkpoint-failure-test",
+    cli: { resetState: false, locations: ["Warsaw"] },
+    scenarios: [],
+    writeState: async () => {
+      throw new Error("persistent checkpoint failure");
+    }
+  });
+  await assert.rejects(
+    failingCheckpointController.markScenarioCompleted(completedPayload("failure-1")),
+    /persistent checkpoint failure/
+  );
+  await assert.rejects(failingCheckpointController.flush(), /persistent checkpoint failure/);
+  console.log("PASS checkpoint flush surfaces a persistent write failure");
 
   const watchdogDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-watchdog-"));
   const watchdogLog = path.join(watchdogDir, "run.log");
