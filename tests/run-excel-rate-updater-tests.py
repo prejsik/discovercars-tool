@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tools.update_excel_rates import (  # noqa: E402
+    add_calendar_months,
     apply_updates,
     build_change_statistics,
     build_targets,
@@ -22,6 +23,7 @@ from tools.update_excel_rates import (  # noqa: E402
     find_fixed_rate_group_issues,
     get_duration_columns,
     get_delta_fill,
+    get_import_row_limit,
     get_minimum_rate,
     load_baseline_confirmation,
     load_config,
@@ -164,6 +166,8 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
+    assert_equal(add_calendar_months(date(2026, 8, 27), 4), date(2026, 12, 27), "four-month pickup horizon")
+    assert_equal(add_calendar_months(date(2026, 10, 31), 4), date(2027, 2, 28), "month-end pickup horizon")
     assert_equal(
         build_change_statistics([
             {"delta": 10},
@@ -227,6 +231,8 @@ def main():
         {"EDAV": {"template_group": "EDMV"}},
         "EDAV mirrors EDMV",
     )
+    assert_equal(example_config["max_import_rows"], 27000, "broker import row limit")
+    assert_equal(get_import_row_limit({"max_import_rows": 30000}), 27000, "broker row limit cannot be raised")
     assert_equal(
         example_config["excluded_group_highlights"],
         {"CGAV": 130, "SWAV": 150},
@@ -675,10 +681,39 @@ def main():
             import_output_path=import_output_path,
         )
 
+        limited_output_path = tmpdir / "rates-over-limit.xlsx"
+        limited_import_path = tmpdir / "rates-import-over-limit.xlsx"
+        try:
+            apply_updates(
+                workbook_path=workbook_path,
+                recommendations_path=recommendations_path,
+                output_path=limited_output_path,
+                config=merge_config({
+                    "location_zones": {"Warsaw": ["WA1"]},
+                    "max_recommendation_duration_days": 35,
+                    "max_import_rows": 13,
+                }),
+                cli_groups=None,
+                dry_run=False,
+                import_output_path=limited_import_path,
+            )
+            raise AssertionError("workbook above the broker row limit should fail")
+        except ValueError as error:
+            assert "row limit exceeded" in str(error)
+        assert_equal(limited_output_path.exists(), False, "over-limit recommendation workbook is not saved")
+        assert_equal(limited_import_path.exists(), False, "over-limit import workbook is not saved")
+
         assert_equal(summary["change_count"], 10, "change_count")
         assert_equal(summary["group_price_parity_change_count"], 0, "group_price_parity_change_count")
         assert_equal(summary["group_price_parity_scope_count"], 4, "group_price_parity_scope_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
+        assert_equal(summary["max_import_rows"], 27000, "summary import row limit")
+        assert_equal(summary["import_row_count"], 14, "summary import row count")
+        assert_equal(
+            summary["recommendation_date_scope"],
+            {"start_date": "2026-07-10", "end_date": "2026-07-25", "date_count": 3},
+            "summary recommendation date scope",
+        )
         assert_equal(summary["normalized_pickup_end_count"], 10, "normalized_pickup_end_count")
         assert_equal(summary["synced_booking_end_count"], 4, "synced_booking_end_count")
         updated = openpyxl.load_workbook(output_path)
@@ -1027,6 +1062,7 @@ def main():
             [
                 ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "10-06-26", 155, 65, 75, 85, 95, 115],
                 ["CDMV", None, None, "WA1", "09-06-26", "10-06-26", "10-06-26", "12-06-26", 160, 70, 80, 90, 100, 120],
+                ["CDMV", None, None, "WA1", "09-06-26", "13-06-26", "13-06-26", "13-06-26", 165, 75, 85, 95, 105, 125],
             ],
         )
         expansion_before = openpyxl.load_workbook(expansion_workbook_path)
@@ -1078,6 +1114,7 @@ def main():
                         "enabled": True,
                         "start_date": "2026-06-11",
                         "end_date": "2026-06-12",
+                        "drop_rows_after_end_date": True,
                         "time_zone": "Europe/Warsaw",
                     },
                 }
@@ -1088,6 +1125,7 @@ def main():
         assert_equal(expansion_summary["pickup_date_expansion"]["source_row_count"], 1, "expanded source row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 2, "expanded row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["preserved_out_of_range_row_count"], 1, "preserved source row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["dropped_after_end_row_count"], 1, "future row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["output_row_count"], 3, "full output row count")
         assert_equal(expansion_summary["normalized_pickup_end_count"], 0, "expansion disables pickup end normalization")
         assert_equal(expansion_summary["synced_booking_end_count"], 2, "expanded booking end sync count")
@@ -1456,6 +1494,7 @@ def main():
                 group_counts[group] += 1
                 if group in expected_fixed_rates:
                     assert_equal(list(values[8:14]), expected_fixed_rates[group], f"real {group} fixed rates")
+            assert_equal(fixed_real_ws.max_row <= 27000, True, "real workbook stays within broker row limit")
             assert_equal(group_counts["CFAV"], group_counts["CDMV"], "real CFAV row coverage")
             assert_equal(group_counts["PDAH"], group_counts["CDMV"], "real PDAH row coverage")
             assert_equal(group_counts["EDAV"], group_counts["EDMV"], "real EDAV row coverage")

@@ -15,6 +15,7 @@
     "rate_start": 9
   },
   "apply_groups": "all",
+  "max_import_rows": 27000,
   "max_recommendation_duration_days": 7,
   "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
   "fixed_rate_groups": {
@@ -73,7 +74,8 @@
   "pickup_date_expansion": {
     "enabled": true,
     "start_date": "today",
-    "end_date": "2027-01-31",
+    "months_ahead": 4,
+    "drop_rows_after_end_date": true,
     "time_zone": "Europe/Warsaw"
   },
   "changed_positions_sheet": "Changed Positions",

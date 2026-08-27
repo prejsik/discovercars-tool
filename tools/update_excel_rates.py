@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import json
 import math
@@ -24,6 +25,9 @@ except ImportError as exc:  # pragma: no cover - runtime environment guard
     raise SystemExit("Missing dependency: openpyxl. Install it with: pip install openpyxl") from exc
 
 
+BROKER_IMPORT_ROW_LIMIT = 27000
+
+
 DEFAULT_CONFIG = {
     "worksheet": "Sheet1",
     "header_row": 4,
@@ -40,6 +44,7 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": "all",
+    "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
     "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
     "fixed_rate_groups": {},
@@ -323,6 +328,16 @@ def resolve_config_date(value: Any, time_zone: str) -> date:
     return parsed
 
 
+def add_calendar_months(value: date, months: int) -> date:
+    if months < 0:
+        raise ValueError("pickup_date_expansion.months_ahead must not be negative.")
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
 def iter_dates_inclusive(start_date: date, end_date: date) -> Iterator[date]:
     current = start_date
     while current <= end_date:
@@ -403,6 +418,17 @@ def load_recommendation_items(path: Path) -> list[dict[str, Any]]:
     if isinstance(payload, dict) and isinstance(payload.get("recommendations"), list):
         return payload["recommendations"]
     raise ValueError("Recommendations file must be a list or an object with a 'decisions' or 'recommendations' list.")
+
+
+def get_recommendation_scope_dates(recommendations: list[dict[str, Any]]) -> set[date]:
+    dates: set[date] = set()
+    for recommendation in recommendations:
+        pickup_date = parse_date_value(
+            recommendation.get("start_date") or recommendation.get("pickup_date")
+        )
+        if pickup_date is not None:
+            dates.add(pickup_date)
+    return dates
 
 
 def is_accepted_value(value: Any) -> bool:
@@ -2709,7 +2735,10 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
 
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
-    end_date = resolve_config_date(settings.get("end_date", "2027-01-31"), time_zone)
+    if settings.get("months_ahead") is not None:
+        end_date = add_calendar_months(start_date, int(settings["months_ahead"]))
+    else:
+        end_date = resolve_config_date(settings.get("end_date", "2027-01-31"), time_zone)
     if start_date > end_date:
         raise ValueError(
             f"Pickup date expansion start {start_date.isoformat()} is after end {end_date.isoformat()}; Sheet1 was not modified."
@@ -2727,6 +2756,8 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     template_dates_by_group_zone: dict[tuple[str, str], date] = {}
     included_group_zones: set[tuple[str, str]] = set()
     preserved_out_of_range_row_count = 0
+    dropped_after_end_row_count = 0
+    drop_rows_after_end_date = bool(settings.get("drop_rows_after_end_date"))
 
     for row in range(data_start_row, ws.max_row + 1):
         group = ws.cell(row, group_col).value
@@ -2748,6 +2779,9 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             template_rows_by_group_zone[group_zone_key] = row_snapshot
             template_dates_by_group_zone[group_zone_key] = pickup_start
 
+        if pickup_start > end_date and drop_rows_after_end_date:
+            dropped_after_end_row_count += 1
+            continue
         if pickup_end < start_date or pickup_start > end_date:
             row_segments.append(("preserve", row_snapshot))
             preserved_out_of_range_row_count += 1
@@ -2812,6 +2846,7 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         "source_row_count": len(source_rows),
         "expanded_row_count": len(expanded_rows),
         "preserved_out_of_range_row_count": preserved_out_of_range_row_count,
+        "dropped_after_end_row_count": dropped_after_end_row_count,
         "output_row_count": len(output_rows),
         "source_groups": sorted({group for group, _zone in template_rows_by_group_zone}),
         "expanded_groups": sorted(expanded_groups),
@@ -2894,6 +2929,23 @@ def maybe_sync_booking_end_to_pickup_end(ws: Any, row: int, columns: dict[str, A
         booking_end_cell.value = pickup_end_cell.value
         booking_end_cell.number_format = pickup_end_cell.number_format
     return True
+
+
+def get_import_row_limit(config: dict[str, Any]) -> int:
+    configured_max = int(config.get("max_import_rows") or 0)
+    if configured_max <= 0:
+        raise ValueError("max_import_rows must be a positive integer.")
+    return min(configured_max, BROKER_IMPORT_ROW_LIMIT)
+
+
+def validate_import_row_limit(ws: Any, config: dict[str, Any]) -> int:
+    max_rows = get_import_row_limit(config)
+    if ws.max_row > max_rows:
+        raise ValueError(
+            f"Import workbook row limit exceeded: Sheet1 has {ws.max_row} rows, "
+            f"but the configured maximum is {max_rows}. No Excel files were saved."
+        )
+    return max_rows
 
 
 def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path) -> None:
@@ -3055,6 +3107,7 @@ def apply_updates(
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
+    recommendation_scope_dates = get_recommendation_scope_dates(recommendations)
 
     workbook = openpyxl.load_workbook(workbook_path)
     sheet_name = config.get("worksheet") or workbook.sheetnames[0]
@@ -3262,6 +3315,16 @@ def apply_updates(
         scope=group_price_parity_scope,
     )
     changes.extend(group_price_parity_changes)
+    changes_outside_recommendation_scope = sorted({
+        str(change.get("pickup_date") or "")
+        for change in changes
+        if parse_date_value(change.get("pickup_date")) not in recommendation_scope_dates
+    })
+    if changes_outside_recommendation_scope:
+        raise ValueError(
+            "Excel changes fall outside the recommendation date scope; no Excel files were saved. "
+            + "; ".join(changes_outside_recommendation_scope[:8])
+        )
     validation_rows = build_validation_rows(
         ws,
         config,
@@ -3284,6 +3347,7 @@ def apply_updates(
     if not dry_run:
         if output_path is None:
             raise ValueError("Output path is required unless --dry-run is used.")
+        validate_import_row_limit(ws, config)
         write_changed_positions_sheet(workbook, ws, config, changes)
         write_recommendations_review_sheet(workbook, ws, config, changes)
         write_competitor_evidence_sheet(workbook, ws, config, changes)
@@ -3308,6 +3372,13 @@ def apply_updates(
         "baseline_confirmation": baseline_confirmation,
         "output": str(output_path) if output_path else None,
         "import_output": str(import_output_path) if import_output_path else None,
+        "max_import_rows": get_import_row_limit(config),
+        "import_row_count": ws.max_row,
+        "recommendation_date_scope": {
+            "start_date": min(recommendation_scope_dates).isoformat() if recommendation_scope_dates else None,
+            "end_date": max(recommendation_scope_dates).isoformat() if recommendation_scope_dates else None,
+            "date_count": len(recommendation_scope_dates),
+        },
         "dry_run": dry_run,
         "change_count": len(changes),
         "change_statistics": build_change_statistics(changes),
