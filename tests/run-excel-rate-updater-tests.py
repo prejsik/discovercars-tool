@@ -3,9 +3,10 @@ import sys
 import tempfile
 import zipfile
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 import openpyxl
 from openpyxl.styles import PatternFill
@@ -1114,6 +1115,7 @@ def main():
                         "enabled": True,
                         "start_date": "2026-06-11",
                         "end_date": "2026-06-12",
+                        "drop_rows_before_start_date": True,
                         "drop_rows_after_end_date": True,
                         "time_zone": "Europe/Warsaw",
                     },
@@ -1124,9 +1126,10 @@ def main():
         )
         assert_equal(expansion_summary["pickup_date_expansion"]["source_row_count"], 1, "expanded source row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["expanded_row_count"], 2, "expanded row count")
-        assert_equal(expansion_summary["pickup_date_expansion"]["preserved_out_of_range_row_count"], 1, "preserved source row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["preserved_out_of_range_row_count"], 0, "preserved source row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["dropped_before_start_row_count"], 2, "past row count")
         assert_equal(expansion_summary["pickup_date_expansion"]["dropped_after_end_row_count"], 1, "future row count")
-        assert_equal(expansion_summary["pickup_date_expansion"]["output_row_count"], 3, "full output row count")
+        assert_equal(expansion_summary["pickup_date_expansion"]["output_row_count"], 2, "full output row count")
         assert_equal(expansion_summary["normalized_pickup_end_count"], 0, "expansion disables pickup end normalization")
         assert_equal(expansion_summary["synced_booking_end_count"], 2, "expanded booking end sync count")
         assert_equal(expansion_summary["change_count"], 2, "expanded duration-specific change count")
@@ -1134,19 +1137,17 @@ def main():
         expansion_ws = expansion_updated["Sheet1"]
         expansion_after_snapshot = header_rows_snapshot(expansion_ws)
         assert_equal(expansion_after_snapshot, expansion_before_snapshot, "expanded Sheet1 rows 1-4 values and formatting")
-        assert_equal(expansion_ws.max_row, 7, "expanded Sheet1 row count")
-        assert_equal(expansion_ws["G5"].value, "10-06-26", "out-of-range pickup date is preserved")
-        assert_equal(expansion_ws["J5"].value, 65, "out-of-range rate is preserved")
-        assert_equal(expansion_ws["G6"].value, "11-06-26", "first expanded pickup date")
-        assert_equal(expansion_ws["H6"].value, "11-06-26", "first expanded pickup end")
-        assert_equal(expansion_ws["F6"].value, expansion_ws["H6"].value, "first expanded booking end")
-        assert_equal(expansion_ws["G7"].value, "12-06-26", "second expanded pickup date")
-        assert_equal(expansion_ws["H7"].value, "12-06-26", "second expanded pickup end")
-        assert_equal(expansion_ws["F7"].value, expansion_ws["H7"].value, "unchanged date booking end")
-        assert_equal(expansion_ws["I6"].value, 75, "duration 1 rate update")
-        assert_equal(expansion_ws["J6"].value, 81, "duration 2 rate update on the same pickup date row")
-        assert_equal(expansion_ws["I7"].value, 160, "duration 1 rate does not update a different pickup date")
-        assert_equal(expansion_ws["J7"].value, 70, "duration 2 rate does not update a different pickup date")
+        assert_equal(expansion_ws.max_row, 6, "expanded Sheet1 row count")
+        assert_equal(expansion_ws["G5"].value, "11-06-26", "first expanded pickup date")
+        assert_equal(expansion_ws["H5"].value, "11-06-26", "first expanded pickup end")
+        assert_equal(expansion_ws["F5"].value, expansion_ws["H5"].value, "first expanded booking end")
+        assert_equal(expansion_ws["G6"].value, "12-06-26", "second expanded pickup date")
+        assert_equal(expansion_ws["H6"].value, "12-06-26", "second expanded pickup end")
+        assert_equal(expansion_ws["F6"].value, expansion_ws["H6"].value, "unchanged date booking end")
+        assert_equal(expansion_ws["I5"].value, 75, "duration 1 rate update")
+        assert_equal(expansion_ws["J5"].value, 81, "duration 2 rate update on the same pickup date row")
+        assert_equal(expansion_ws["I6"].value, 165, "duration 1 rate does not update a different pickup date")
+        assert_equal(expansion_ws["J6"].value, 75, "duration 2 rate does not update a different pickup date")
 
         aggregate_workbook_path = tmpdir / "aggregate-duration-rates.xlsx"
         aggregate_recommendations_path = tmpdir / "aggregate-duration-recommendations.json"
@@ -1485,16 +1486,24 @@ def main():
             import_output_path=fixed_real_import_path,
         )
         assert fixed_real_summary["fixed_rate_groups"]["enabled"] is True
+        expected_pickup_start = datetime.now(ZoneInfo("Europe/Warsaw")).date()
+        expected_pickup_end = add_calendar_months(expected_pickup_start, 4)
         for output_file in (fixed_real_output_path, fixed_real_import_path):
             fixed_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
             fixed_real_ws = fixed_real_workbook["Sheet1"]
             group_counts = Counter()
+            pickup_dates = []
             for values in fixed_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
                 group = str(values[0] or "").strip().upper()
                 group_counts[group] += 1
+                pickup_date = parse_date_value(values[6])
+                if pickup_date is not None:
+                    pickup_dates.append(pickup_date)
                 if group in expected_fixed_rates:
                     assert_equal(list(values[8:14]), expected_fixed_rates[group], f"real {group} fixed rates")
             assert_equal(fixed_real_ws.max_row <= 27000, True, "real workbook stays within broker row limit")
+            assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
+            assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             assert_equal(group_counts["CFAV"], group_counts["CDMV"], "real CFAV row coverage")
             assert_equal(group_counts["PDAH"], group_counts["CDMV"], "real PDAH row coverage")
             assert_equal(group_counts["EDAV"], group_counts["EDMV"], "real EDAV row coverage")

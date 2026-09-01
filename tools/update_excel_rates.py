@@ -2756,7 +2756,9 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     template_dates_by_group_zone: dict[tuple[str, str], date] = {}
     included_group_zones: set[tuple[str, str]] = set()
     preserved_out_of_range_row_count = 0
+    dropped_before_start_row_count = 0
     dropped_after_end_row_count = 0
+    drop_rows_before_start_date = bool(settings.get("drop_rows_before_start_date"))
     drop_rows_after_end_date = bool(settings.get("drop_rows_after_end_date"))
 
     for row in range(data_start_row, ws.max_row + 1):
@@ -2779,6 +2781,9 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             template_rows_by_group_zone[group_zone_key] = row_snapshot
             template_dates_by_group_zone[group_zone_key] = pickup_start
 
+        if pickup_start < start_date and drop_rows_before_start_date:
+            dropped_before_start_row_count += 1
+            continue
         if pickup_start > end_date and drop_rows_after_end_date:
             dropped_after_end_row_count += 1
             continue
@@ -2846,6 +2851,7 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         "source_row_count": len(source_rows),
         "expanded_row_count": len(expanded_rows),
         "preserved_out_of_range_row_count": preserved_out_of_range_row_count,
+        "dropped_before_start_row_count": dropped_before_start_row_count,
         "dropped_after_end_row_count": dropped_after_end_row_count,
         "output_row_count": len(output_rows),
         "source_groups": sorted({group for group, _zone in template_rows_by_group_zone}),

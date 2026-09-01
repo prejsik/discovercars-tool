@@ -75,6 +75,7 @@
     "enabled": true,
     "start_date": "today",
     "months_ahead": 4,
+    "drop_rows_before_start_date": true,
     "drop_rows_after_end_date": true,
     "time_zone": "Europe/Warsaw"
   },

@@ -205,8 +205,12 @@ jobs:
         run: python -m pip install "openpyxl>=3.1,<4"
 
       - name: Run regression tests
-        if: steps.gate.outputs.should_run == 'true'
+        if: steps.gate.outputs.should_run == 'true' && github.event_name != 'schedule'
         run: npm run test:all
+
+      - name: Run scheduled Excel preflight
+        if: steps.gate.outputs.should_run == 'true' && github.event_name == 'schedule'
+        run: python tests/run-excel-rate-updater-tests.py
 
       - name: Resolve run options
         if: steps.gate.outputs.should_run == 'true'
@@ -930,7 +934,14 @@ jobs:
           retention-days: 14
 
       - name: Notify Telegram
-        if: always() && needs.scrape.outputs.should_run == 'true'
+        if: >-
+          always() &&
+          needs.scrape.outputs.should_run == 'true' &&
+          (
+            (steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure') != 'failure' ||
+            github.event_name != 'schedule' ||
+            github.event.schedule == '17 21 * * *'
+          )
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

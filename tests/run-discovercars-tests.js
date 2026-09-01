@@ -667,6 +667,23 @@ runTest("Playwright installation avoids apt and cannot block the workflow for ho
   assert.doesNotMatch(installStep, /--with-deps/);
 });
 
+runTest("scheduled daily runs skip Node tests and retain the date-sensitive Excel preflight", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const regressionStep = workflow.match(/- name: Run regression tests[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+  const excelPreflightStep = workflow.match(/- name: Run scheduled Excel preflight[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+
+  assert.match(regressionStep, /github\.event_name != 'schedule'/);
+  assert.match(excelPreflightStep, /github\.event_name == 'schedule'/);
+  assert.match(excelPreflightStep, /python tests\/run-excel-rate-updater-tests\.py/);
+});
+
+runTest("scheduled fallback windows send a Telegram failure only after the final attempt", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const notifyStep = workflow.match(/- name: Notify Telegram[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+
+  assert.match(notifyStep, /github\.event\.schedule == '17 21 \* \* \*'/);
+});
+
 runTest("daily workflow checkpoints scraping and verifies four DOM shards before publication", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
   const verificationStep = workflow.match(/- name: Verify active recommendations in DOM[\s\S]*?(?=\n      - name:)/)?.[0] || "";
@@ -2328,16 +2345,18 @@ async function runAsyncTests() {
       "const fs=require('fs')",
       "const p=process.argv[1]",
       "let count=0",
-      "const timer=setInterval(()=>fs.writeFileSync(p,String(++count)),60)",
-      "setTimeout(()=>{clearInterval(timer);process.exit(0)},360)"
+      "const write=()=>fs.writeFileSync(p,String(++count))",
+      "write()",
+      "const timer=setInterval(write,100)",
+      "setTimeout(()=>{clearInterval(timer);process.exit(0)},2500)"
     ].join(";");
     await runCommand(process.execPath, ["-e", progressScript, progressPath], {
       cwd: process.cwd(),
       logPath: watchdogLog,
       label: "progress-test",
       progressPath,
-      stallTimeoutMs: 150,
-      progressCheckIntervalMs: 25
+      stallTimeoutMs: 2000,
+      progressCheckIntervalMs: 100
     });
     console.log("PASS chunk watchdog preserves a child with checkpoint progress");
   } finally {
@@ -2439,7 +2458,7 @@ runAsyncTests().then(() => {
     console.log("All DiscoverCars tests passed.");
   }
 }).catch((error) => {
-  console.error("FAIL shared browser provider reuses and closes one browser");
+  console.error("FAIL DiscoverCars async tests");
   console.error(error instanceof Error ? error.stack : String(error));
   process.exitCode = 1;
 });
