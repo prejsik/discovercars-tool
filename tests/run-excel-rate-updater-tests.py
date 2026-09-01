@@ -1359,6 +1359,39 @@ def main():
         assert_equal(city_cap_workbook["Changed Positions"]["A10"].value, "Limit miasto vs lotnisko", "city cap legend")
         assert "maksymalnie 130%" in city_cap_workbook["Changed Positions"]["B10"].value
 
+        city_cap_out_of_scope_output_path = tmpdir / "city-cap-out-of-scope.xlsx"
+        city_cap_out_of_scope_summary = apply_updates(
+            workbook_path=city_cap_workbook_path,
+            recommendations_path=city_cap_recommendations_path,
+            output_path=city_cap_out_of_scope_output_path,
+            config=merge_config({
+                "location_zones": {"Warsaw Train Station": ["WA1"]},
+                "city_zone_airport_zones": {"WA1": ["WALO"]},
+                "pickup_date_expansion": {
+                    "enabled": True,
+                    "start_date": "2026-09-16",
+                    "end_date": "2026-09-16",
+                    "drop_rows_before_start_date": True,
+                    "drop_rows_after_end_date": True,
+                    "time_zone": "Europe/Warsaw",
+                },
+            }),
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(
+            city_cap_out_of_scope_summary["recommendation_out_of_pickup_range_count"],
+            1,
+            "out-of-range recommendation count",
+        )
+        assert_equal(city_cap_out_of_scope_summary["city_top1_airport_cap_scope_count"], 0, "out-of-range city cap scope")
+        city_cap_out_of_scope_ws = openpyxl.load_workbook(city_cap_out_of_scope_output_path)["Sheet1"]
+        assert_equal(
+            {parse_date_value(city_cap_out_of_scope_ws.cell(row, 7).value) for row in range(5, city_cap_out_of_scope_ws.max_row + 1)},
+            {date(2026, 9, 16)},
+            "out-of-range recommendations do not restore removed dates",
+        )
+
         try:
             apply_updates(
                 workbook_path=city_cap_workbook_path,

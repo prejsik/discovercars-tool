@@ -431,6 +431,41 @@ def get_recommendation_scope_dates(recommendations: list[dict[str, Any]]) -> set
     return dates
 
 
+def filter_recommendations_to_pickup_date_range(
+    recommendations: list[dict[str, Any]],
+    config: dict[str, Any],
+    expansion_summary: dict[str, Any],
+) -> tuple[list[dict[str, Any]], int]:
+    if not expansion_summary.get("enabled"):
+        return recommendations, 0
+
+    settings = config.get("pickup_date_expansion") or {}
+    start_date = (
+        parse_date_value(expansion_summary.get("start_date"))
+        if settings.get("drop_rows_before_start_date")
+        else None
+    )
+    end_date = (
+        parse_date_value(expansion_summary.get("end_date"))
+        if settings.get("drop_rows_after_end_date")
+        else None
+    )
+    filtered: list[dict[str, Any]] = []
+    removed_count = 0
+    for recommendation in recommendations:
+        pickup_date = parse_date_value(
+            recommendation.get("start_date") or recommendation.get("pickup_date")
+        )
+        if pickup_date is not None and (
+            (start_date is not None and pickup_date < start_date)
+            or (end_date is not None and pickup_date > end_date)
+        ):
+            removed_count += 1
+            continue
+        filtered.append(recommendation)
+    return filtered, removed_count
+
+
 def is_accepted_value(value: Any) -> bool:
     text = str(value or "").strip().lower()
     return text in {"1", "yes", "y", "true", "tak", "t", "x", "accepted", "accept"}
@@ -3113,7 +3148,6 @@ def apply_updates(
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
-    recommendation_scope_dates = get_recommendation_scope_dates(recommendations)
 
     workbook = openpyxl.load_workbook(workbook_path)
     sheet_name = config.get("worksheet") or workbook.sheetnames[0]
@@ -3122,6 +3156,12 @@ def apply_updates(
     ws = workbook[sheet_name]
 
     expansion_summary = expand_pickup_date_rows(ws, config)
+    recommendations, recommendation_out_of_pickup_range_count = filter_recommendations_to_pickup_date_range(
+        recommendations,
+        config,
+        expansion_summary,
+    )
+    recommendation_scope_dates = get_recommendation_scope_dates(recommendations)
     match_pickup_end_duration = False
     duration_columns = get_duration_columns(ws, config)
     fixed_rate_group_summary = ensure_fixed_rate_group_rows(ws, config, duration_columns, dry_run)
@@ -3385,6 +3425,7 @@ def apply_updates(
             "end_date": max(recommendation_scope_dates).isoformat() if recommendation_scope_dates else None,
             "date_count": len(recommendation_scope_dates),
         },
+        "recommendation_out_of_pickup_range_count": recommendation_out_of_pickup_range_count,
         "dry_run": dry_run,
         "change_count": len(changes),
         "change_statistics": build_change_statistics(changes),
