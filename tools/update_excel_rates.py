@@ -25,7 +25,7 @@ except ImportError as exc:  # pragma: no cover - runtime environment guard
     raise SystemExit("Missing dependency: openpyxl. Install it with: pip install openpyxl") from exc
 
 
-BROKER_IMPORT_ROW_LIMIT = 27000
+BROKER_IMPORT_ROW_LIMIT = 28000
 
 
 DEFAULT_CONFIG = {
@@ -2862,6 +2862,22 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             expanded_rows.append((row_snapshot, pickup_date, group, zone))
             output_rows.append((row_snapshot, pickup_date))
 
+    appended_horizon_rows: list[tuple[date, str, str, dict[str, Any]]] = []
+    latest_source_date = max(template_dates_by_group_zone.values())
+    if start_date <= latest_source_date < end_date:
+        append_start_date = latest_source_date + timedelta(days=1)
+        for group_zone_key in sorted(template_rows_by_group_zone):
+            if template_dates_by_group_zone[group_zone_key] != latest_source_date:
+                continue
+            group, zone = group_zone_key
+            row_snapshot = template_rows_by_group_zone[group_zone_key]
+            for pickup_date in iter_dates_inclusive(append_start_date, end_date):
+                appended_horizon_rows.append((pickup_date, group, zone, row_snapshot))
+
+    for pickup_date, group, zone, row_snapshot in appended_horizon_rows:
+        expanded_rows.append((row_snapshot, pickup_date, group, zone))
+        output_rows.append((row_snapshot, pickup_date))
+
     if not template_rows_by_group_zone:
         raise ValueError("Pickup date expansion found no valid Group + Zone source rows; Sheet1 was not modified.")
     if not expanded_rows:
@@ -2901,6 +2917,7 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
         ),
         "restored_group_zone_count": len(restored_group_zones),
         "restored_group_zones": restored_group_zones[:50],
+        "appended_horizon_row_count": len(appended_horizon_rows),
     }
 
 

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "b0c37ca9179c7c905de8b49815a0c9156f41cb84455c298df80565b5d438a6b0",
-  "confirmed_at": "2026-08-20T16:03:41+02:00",
+  "workbook_sha256": "be37af71fd6764db2409f785d8325966a92838eb912bd0124e2d85bbd3c489a9",
+  "confirmed_at": "2026-09-02T15:16:25+02:00",
   "confirmed_by": "user",
-  "note": "User supplied this workbook as the new DiscoverCars baseline for recommendations and import files on 2026-08-20. It includes the current class set and rates. Live verification is produced by the mandatory daily sanity check."
+  "note": "User supplied the INCLUSIVE POA workbook as the new DiscoverCars baseline for recommendations and import files on 2026-09-02. It includes the current class set and rates. Live verification is produced by the mandatory daily sanity check."
 }

@@ -232,8 +232,8 @@ def main():
         {"EDAV": {"template_group": "EDMV"}},
         "EDAV mirrors EDMV",
     )
-    assert_equal(example_config["max_import_rows"], 27000, "broker import row limit")
-    assert_equal(get_import_row_limit({"max_import_rows": 30000}), 27000, "broker row limit cannot be raised")
+    assert_equal(example_config["max_import_rows"], 28000, "broker import row limit")
+    assert_equal(get_import_row_limit({"max_import_rows": 30000}), 28000, "broker row limit cannot be raised")
     assert_equal(
         example_config["excluded_group_highlights"],
         {"CGAV": 130, "SWAV": 150},
@@ -708,7 +708,7 @@ def main():
         assert_equal(summary["group_price_parity_change_count"], 0, "group_price_parity_change_count")
         assert_equal(summary["group_price_parity_scope_count"], 4, "group_price_parity_scope_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
-        assert_equal(summary["max_import_rows"], 27000, "summary import row limit")
+        assert_equal(summary["max_import_rows"], 28000, "summary import row limit")
         assert_equal(summary["import_row_count"], 14, "summary import row count")
         assert_equal(
             summary["recommendation_date_scope"],
@@ -1149,6 +1149,78 @@ def main():
         assert_equal(expansion_ws["I6"].value, 165, "duration 1 rate does not update a different pickup date")
         assert_equal(expansion_ws["J6"].value, 75, "duration 2 rate does not update a different pickup date")
 
+        partial_range_workbook_path = tmpdir / "partial-range-rates.xlsx"
+        partial_range_recommendations_path = tmpdir / "partial-range-recommendations.json"
+        partial_range_output_path = tmpdir / "partial-range-updated.xlsx"
+        partial_range_recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
+        build_minimal_workbook(
+            partial_range_workbook_path,
+            [["CDMV", None, None, "WA1", "09-06-26", "11-06-26", "11-06-26", "11-06-26", 155, 65, 75, 85, 95, 115]],
+        )
+        partial_range_summary = apply_updates(
+            workbook_path=partial_range_workbook_path,
+            recommendations_path=partial_range_recommendations_path,
+            output_path=partial_range_output_path,
+            config=merge_config(
+                {
+                    "pickup_date_expansion": {
+                        "enabled": True,
+                        "start_date": "2026-06-11",
+                        "end_date": "2026-06-12",
+                        "drop_rows_before_start_date": True,
+                        "drop_rows_after_end_date": True,
+                        "time_zone": "Europe/Warsaw",
+                    },
+                }
+            ),
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(
+            partial_range_summary["pickup_date_expansion"]["appended_horizon_row_count"],
+            1,
+            "partial source range is extended through configured end date",
+        )
+        partial_range_ws = openpyxl.load_workbook(partial_range_output_path)["Sheet1"]
+        assert_equal(partial_range_ws.max_row, 6, "partial source range output row count")
+        assert_equal(partial_range_ws["G6"].value, "12-06-26", "partial source range final pickup date")
+        assert_equal(partial_range_ws["J6"].value, 65, "partial source range carries the latest rate forward")
+
+        internal_gap_workbook_path = tmpdir / "internal-gap-rates.xlsx"
+        internal_gap_output_path = tmpdir / "internal-gap-updated.xlsx"
+        build_minimal_workbook(
+            internal_gap_workbook_path,
+            [
+                ["CDMV", None, None, "WA1", "09-06-26", "11-06-26", "11-06-26", "11-06-26", 155, 65, 75, 85, 95, 115],
+                ["CDMV", None, None, "WA1", "09-06-26", "13-06-26", "13-06-26", "13-06-26", 165, 75, 85, 95, 105, 125],
+            ],
+        )
+        apply_updates(
+            workbook_path=internal_gap_workbook_path,
+            recommendations_path=partial_range_recommendations_path,
+            output_path=internal_gap_output_path,
+            config=merge_config(
+                {
+                    "pickup_date_expansion": {
+                        "enabled": True,
+                        "start_date": "2026-06-11",
+                        "end_date": "2026-06-14",
+                        "drop_rows_before_start_date": True,
+                        "drop_rows_after_end_date": True,
+                        "time_zone": "Europe/Warsaw",
+                    },
+                }
+            ),
+            cli_groups=None,
+            dry_run=False,
+        )
+        internal_gap_ws = openpyxl.load_workbook(internal_gap_output_path)["Sheet1"]
+        assert_equal(
+            [internal_gap_ws.cell(row, 7).value for row in range(5, internal_gap_ws.max_row + 1)],
+            ["11-06-26", "13-06-26", "14-06-26"],
+            "internal source gaps are preserved while the horizon is extended",
+        )
+
         aggregate_workbook_path = tmpdir / "aggregate-duration-rates.xlsx"
         aggregate_recommendations_path = tmpdir / "aggregate-duration-recommendations.json"
         aggregate_output_path = tmpdir / "aggregate-duration-updated.xlsx"
@@ -1534,7 +1606,7 @@ def main():
                     pickup_dates.append(pickup_date)
                 if group in expected_fixed_rates:
                     assert_equal(list(values[8:14]), expected_fixed_rates[group], f"real {group} fixed rates")
-            assert_equal(fixed_real_ws.max_row <= 27000, True, "real workbook stays within broker row limit")
+            assert_equal(fixed_real_ws.max_row <= 28000, True, "real workbook stays within broker row limit")
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             assert_equal(group_counts["CFAV"], group_counts["CDMV"], "real CFAV row coverage")
