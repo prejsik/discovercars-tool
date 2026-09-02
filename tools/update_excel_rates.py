@@ -46,7 +46,7 @@ DEFAULT_CONFIG = {
     "apply_groups": "all",
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
-    "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
+    "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
     "fixed_rate_groups": {},
     "mirrored_rate_groups": {},
     "protected_rate_periods": [],
@@ -56,14 +56,12 @@ DEFAULT_CONFIG = {
     },
     "group_rate_adjustments_pln_day": {
         "EDMV": 1,
-        "EDAV": 1,
     },
     "group_price_parity": {
         "enabled": True,
         "base_groups": ["CDMV", "CWAV", "CWMR"],
         "premium_adjustments_pln_day": {
             "EDMV": 1,
-            "EDAV": 1,
         },
     },
     "city_top1_airport_cap": {
@@ -895,7 +893,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
         return outcome
     recommendation_type = change.get("recommendation_type")
     if recommendation_type == "group_parity":
-        outcome = "spojnosc stawek grup bazowych oraz korekta grup premium EDMV i EDAV."
+        outcome = "spojnosc stawek grup bazowych oraz korekta skonfigurowanych grup premium."
     elif recommendation_type == "top1_gap":
         outcome = "utrzymanie top1 przy cenie 1 PLN ponizej top2."
     elif recommendation_type == "top3_small_decrease":
@@ -3090,7 +3088,7 @@ def enforce_group_price_parity(
                     "recommendation_action": "parity",
                     "recommendation_type": "group_parity",
                     "target_rank": "",
-                    "reason": "Ujednolicenie stawek grup bazowych oraz korekta grup premium EDMV i EDAV.",
+                    "reason": "Ujednolicenie stawek grup bazowych oraz korekta skonfigurowanych grup premium.",
                     "location": "",
                     "zone": zone,
                     "group": group,

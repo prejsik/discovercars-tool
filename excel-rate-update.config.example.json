@@ -17,48 +17,21 @@
   "apply_groups": "all",
   "max_import_rows": 28000,
   "max_recommendation_duration_days": 7,
-  "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
-  "fixed_rate_groups": {
-    "CFAV": {
-      "template_group": "CDMV",
-      "rates_by_duration_band": {
-        "1": 300,
-        "2": 200,
-        "3-4": 180,
-        "5-7": 170,
-        "8-20": 160,
-        "21-35": 150
-      }
-    },
-    "PDAH": {
-      "template_group": "CDMV",
-      "rates_by_duration_band": {
-        "1": 400,
-        "2": 350,
-        "3-4": 300,
-        "5-7": 290,
-        "8-20": 260,
-        "21-35": 250
-      }
-    }
-  },
-  "mirrored_rate_groups": {
-    "EDAV": { "template_group": "EDMV" }
-  },
+  "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+  "fixed_rate_groups": {},
+  "mirrored_rate_groups": {},
   "excluded_group_highlights": {
     "CGAV": 130,
     "SWAV": 150
   },
   "group_rate_adjustments_pln_day": {
-    "EDMV": 1,
-    "EDAV": 1
+    "EDMV": 1
   },
   "group_price_parity": {
     "enabled": true,
     "base_groups": ["CDMV", "CWAV", "CWMR"],
     "premium_adjustments_pln_day": {
-      "EDMV": 1,
-      "EDAV": 1
+      "EDMV": 1
     }
   },
   "protected_rate_periods": [
