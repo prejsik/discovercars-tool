@@ -17,11 +17,10 @@
   "apply_groups": "all",
   "max_import_rows": 28000,
   "max_recommendation_duration_days": 7,
-  "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+  "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
   "fixed_rate_groups": {},
   "mirrored_rate_groups": {},
   "excluded_group_highlights": {
-    "CGAV": 130,
     "SWAV": 150
   },
   "group_rate_adjustments_pln_day": {
@@ -29,7 +28,7 @@
   },
   "group_price_parity": {
     "enabled": true,
-    "base_groups": ["CDMV", "CWAV", "CWMR"],
+    "base_groups": ["CDMV", "CGAV", "CWAV", "CWMR"],
     "premium_adjustments_pln_day": {
       "EDMV": 1
     }

@@ -46,12 +46,11 @@ DEFAULT_CONFIG = {
     "apply_groups": "all",
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
-    "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+    "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
     "fixed_rate_groups": {},
     "mirrored_rate_groups": {},
     "protected_rate_periods": [],
     "excluded_group_highlights": {
-        "CGAV": 130,
         "SWAV": 150,
     },
     "group_rate_adjustments_pln_day": {
@@ -59,7 +58,7 @@ DEFAULT_CONFIG = {
     },
     "group_price_parity": {
         "enabled": True,
-        "base_groups": ["CDMV", "CWAV", "CWMR"],
+        "base_groups": ["CDMV", "CGAV", "CWAV", "CWMR"],
         "premium_adjustments_pln_day": {
             "EDMV": 1,
         },

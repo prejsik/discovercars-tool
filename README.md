@@ -481,9 +481,9 @@ Minimalne stawki przy aktualizacji Excela:
 - od `2026-09-01` do `2027-01-31` dla duration `1-35` stawka nie spada ponizej `50 PLN brutto/dzien`,
 - dla `2026-08-31` nie jest stosowany dodatkowy floor okresowy.
 
-Domyslnie updater zmienia wszystkie grupy poza `CGAV`, `FVMD`, `SWAV`, `CFAV`, `EDAV` i `PDAH`. `CFAV`, `EDAV` i `PDAH` sa kopiowane z pliku bazowego bez zmian: nie obejmuja ich rekomendacje scrapera, stale stawki, kopiowanie z innych klas, korekty grupowe ani parytet cen. `CGAV` moze byc tylko podswietlany kontrolnie ponizej `130 PLN/dzien`, a `SWAV` ponizej `150 PLN/dzien`.
+Domyslnie updater zmienia wszystkie grupy poza `FVMD`, `SWAV`, `CFAV`, `EDAV` i `PDAH`. `CFAV`, `EDAV` i `PDAH` sa kopiowane z pliku bazowego bez zmian: nie obejmuja ich rekomendacje scrapera, stale stawki, kopiowanie z innych klas, korekty grupowe ani parytet cen. `SWAV` moze byc tylko podswietlany kontrolnie ponizej `150 PLN/dzien`.
 
-Na koncu generowania importu updater wyrownuje relacje pozostalych grup: `CDMV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` stawke o `1 PLN/dzien` wyzsza. Istniejace stawki nie sa zmieniane dla pickup start date od `2026-10-31` do `2026-11-02` oraz od `2026-12-15` do `2027-01-10` (daty wlacznie). Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia i okresy chronione nadal sa respektowane.
+Na koncu generowania importu updater wyrownuje relacje pozostalych grup: `CDMV`, `CGAV`, `CWAV` i `CWMR` dostaja taka sama stawke bazowa, a `EDMV` stawke o `1 PLN/dzien` wyzsza. Istniejace stawki nie sa zmieniane dla pickup start date od `2026-10-31` do `2026-11-02` oraz od `2026-12-15` do `2027-01-10` (daty wlacznie). Opcjonalnie `--groups=...` moze ograniczyc aktualizacje do wybranych grup, ale wykluczenia i okresy chronione nadal sa respektowane.
 
 Przy aktywnej rekomendacji utrzymania top1 (`top1_gap` lub `force_top1_maintain`) stawka oddzialu miejskiego moze wynosic maksymalnie `130%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej albo konflikt z floorem blokuje zapis pliku importowego.
 

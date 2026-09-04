@@ -195,7 +195,7 @@ def main():
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
     assert_equal(
         example_config["excluded_groups"],
-        ["CGAV", "FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+        ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
         "excluded and unchanged groups",
     )
     assert_equal(
@@ -212,12 +212,12 @@ def main():
     assert_equal(get_import_row_limit({"max_import_rows": 30000}), 28000, "broker row limit cannot be raised")
     assert_equal(
         example_config["excluded_group_highlights"],
-        {"CGAV": 130, "SWAV": 150},
+        {"SWAV": 150},
         "current highlight-only groups",
     )
     assert_equal(
         example_config["group_price_parity"]["base_groups"],
-        ["CDMV", "CWAV", "CWMR"],
+        ["CDMV", "CGAV", "CWAV", "CWMR"],
         "current base parity groups",
     )
     assert_equal(
@@ -758,7 +758,7 @@ def main():
         assert_equal(limited_output_path.exists(), False, "over-limit recommendation workbook is not saved")
         assert_equal(limited_import_path.exists(), False, "over-limit import workbook is not saved")
 
-        assert_equal(summary["change_count"], 10, "change_count")
+        assert_equal(summary["change_count"], 12, "change_count")
         assert_equal(summary["group_price_parity_change_count"], 0, "group_price_parity_change_count")
         assert_equal(summary["group_price_parity_scope_count"], 4, "group_price_parity_scope_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
@@ -789,7 +789,8 @@ def main():
         assert_equal(import_ready_ws["N5"].value, 100, "import-ready long duration minimum")
         assert_equal(ws.max_row, 14, "main import sheet row count")
         assert_equal(ws["J5"].value, 81, "updated rate")
-        assert_equal(ws["J6"].value, 70, "excluded CGAV rate")
+        assert_equal(ws["J6"].value, ws["J7"].value, "CGAV rate equals CWAV")
+        assert_equal(ws["N6"].value, ws["N7"].value, "CGAV long-duration rate equals CWAV")
         assert_equal(ws["J7"].value, 81, "CWAV parity rate")
         assert_equal(ws["J8"].value, 82, "EDMV adjusted rate")
         assert_equal(ws["J9"].value, 70, "excluded FVMD rate")
@@ -808,7 +809,7 @@ def main():
         assert_equal(ws["M13"].value, 115, "seasonal duration minimum")
         assert_equal(ws["M14"].value, 116, "seasonal duration minimum with EDMV adjustment")
         assert_equal(ws["H5"].value, ws["G5"].value, "pickup end normalized for CDMV")
-        assert_equal(ws["H6"].value, ws["G6"].value, "pickup end normalized for excluded CGAV")
+        assert_equal(ws["H6"].value, ws["G6"].value, "pickup end normalized for CGAV")
         for row in range(5, 15):
             assert_equal(ws.cell(row, 6).value, ws.cell(row, 8).value, f"booking end equals pickup end in row {row}")
         assert_not_equal(rgb(ws["J5"]), "C6EFCE", "increase color uses dynamic scale")
@@ -827,7 +828,7 @@ def main():
             "short adjusted Sheet1 comment",
         )
         assert "brutto/dzien" not in ws["N5"].comment.text
-        assert ws["J6"].comment is None
+        assert ws["J6"].comment is not None
         assert_equal(changed_ws["A1"].value, "Legenda", "changed sheet legend title")
         assert_equal(changed_ws["A2"].value, "Top1 gap", "top1 legend label")
         assert "co najmniej 10 PLN" in changed_ws["B2"].value
@@ -842,7 +843,7 @@ def main():
         assert "Floor cenowy" in changed_ws["B9"].value
         assert_equal(changed_ws["O15"].value, "Komentarz zmiany", "changed sheet comment header")
         assert_equal(changed_ws.max_row, 20, "changed sheet row count")
-        assert_equal(changed_ws["A16"].value, "CDMV, CWAV", "first changed group set")
+        assert_equal(changed_ws["A16"].value, "CDMV, CGAV, CWAV", "first changed group set")
         assert "Powod rekomendacji: MM Cars Rental jest na 1 miejscu" in changed_ws["O16"].value
         assert "co najmniej 10 PLN" in changed_ws["O16"].value
         assert "Co pozwoli osiagnac: utrzymanie top1" in changed_ws["O16"].value
@@ -870,14 +871,14 @@ def main():
             for col in range(1, 15):
                 assert changed_ws.cell(row, col).comment is None
         changed_groups = {changed_ws.cell(row, 1).value for row in range(16, changed_ws.max_row + 1)}
-        assert "CGAV" not in ",".join(changed_groups)
+        assert "CGAV" in ",".join(changed_groups)
         assert "FVMD" not in ",".join(changed_groups)
         assert "SWAV" not in ",".join(changed_groups)
         assert_equal(review_ws["A1"].value, "Akceptacja?", "review header")
         assert_equal(review_ws["B1"].value, "Status", "review status header")
         assert_equal(review_ws.max_row, 6, "review row count")
         assert_equal(review_ws["D2"].value, "Warsaw", "review location")
-        assert_equal(review_ws["F2"].value, "CDMV, CWAV", "review grouped groups")
+        assert_equal(review_ws["F2"].value, "CDMV, CGAV, CWAV", "review grouped groups")
         assert review_ws["B2"].value in {"Gotowe", "Gotowe z uwaga", "Sprawdz"}
         assert review_ws["C2"].value == "OK"
         validation_rows = {
