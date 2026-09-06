@@ -19,8 +19,6 @@ from tools.update_excel_rates import (  # noqa: E402
     build_change_statistics,
     build_targets,
     build_validation_rows,
-    ensure_fixed_rate_group_rows,
-    find_fixed_rate_group_issues,
     get_duration_columns,
     get_delta_fill,
     get_import_row_limit,
@@ -166,6 +164,14 @@ def build_minimal_workbook(path, rows):
 
 
 def main():
+    for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
+        try:
+            merge_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
+        except ValueError as error:
+            assert retired_rule in str(error)
+        else:
+            raise AssertionError(f"Obsolete rule {retired_rule} must not silently override baseline rates or reports.")
+
     assert_equal(add_calendar_months(date(2026, 8, 27), 4), date(2026, 12, 27), "four-month pickup horizon")
     assert_equal(add_calendar_months(date(2026, 10, 31), 4), date(2027, 2, 28), "month-end pickup horizon")
     assert_equal(
@@ -197,16 +203,6 @@ def main():
         example_config["excluded_groups"],
         ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
         "excluded and unchanged groups",
-    )
-    assert_equal(
-        example_config["fixed_rate_groups"],
-        {},
-        "no production fixed-rate groups",
-    )
-    assert_equal(
-        example_config["mirrored_rate_groups"],
-        {},
-        "no production mirrored groups",
     )
     assert_equal(example_config["max_import_rows"], 28000, "broker import row limit")
     assert_equal(get_import_row_limit({"max_import_rows": 30000}), 28000, "broker row limit cannot be raised")
@@ -278,154 +274,13 @@ def main():
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
 
-        fixed_workbook_path = temporary_path / "fixed-rate-groups.xlsx"
-        fixed_recommendations_path = temporary_path / "fixed-rate-recommendations.json"
-        fixed_output_path = temporary_path / "fixed-rate-groups-output.xlsx"
-        build_minimal_workbook(
-            fixed_workbook_path,
-            [
-                ["CDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
-                ["CDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 160, 70, 80, 90, 100, 120],
-                ["EDMV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 161, 71, 81, 91, 101, 121],
-                ["EDMV", None, None, "WA2", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 162, 72, 82, 92, 102, 122],
-                ["CFAV", None, None, "WA1", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
-                ["CFAV", None, None, "WA3", "09-06-26", "20-06-26", "20-06-26", "20-06-26", 1, 2, 3, 4, 5, 6],
-            ],
-        )
-        fixed_recommendations_path.write_text(
-            json.dumps({
-                "recommendations": [{
-                    "action": "increase",
-                    "recommendation_type": "top1_undercut",
-                    "location": "Warsaw Test",
-                    "start_date": "2026-06-20",
-                    "rental_days": 2,
-                    "suggested_rate_pln_day": 180,
-                    "benchmark_rate_pln_day": 181,
-                }]
-            }),
-            encoding="utf-8",
-        )
-        fixed_config = merge_config({
-            "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
-            "fixed_rate_groups": {
-                "CFAV": {
-                    "template_group": "CDMV",
-                    "rates_by_duration_band": {"1": 300, "2": 200, "3-4": 180, "5-7": 170, "8-20": 160, "21-35": 150},
-                },
-                "PDAH": {
-                    "template_group": "CDMV",
-                    "rates_by_duration_band": {"1": 400, "2": 350, "3-4": 300, "5-7": 290, "8-20": 260, "21-35": 250},
-                },
-            },
-            "mirrored_rate_groups": {"EDAV": {"template_group": "EDMV"}},
-            "group_rate_adjustments_pln_day": {"EDMV": 1, "EDAV": 1},
-            "group_price_parity": {
-                "enabled": True,
-                "base_groups": ["CDMV", "CWAV", "CWMR"],
-                "premium_adjustments_pln_day": {"EDMV": 1, "EDAV": 1},
-            },
-            "protected_rate_periods": example_config["protected_rate_periods"],
-            "location_zones": {"Warsaw Test": ["WA1"]},
-            "pickup_date_expansion": {"enabled": False},
-        })
-        fixed_dry_summary = apply_updates(
-            workbook_path=fixed_workbook_path,
-            recommendations_path=fixed_recommendations_path,
-            output_path=None,
-            config=fixed_config,
-            cli_groups=None,
-            dry_run=True,
-        )
-        fixed_dry_validation = {
-            item["check"]: item["status"]
-            for item in fixed_dry_summary["validation"]
-        }
-        assert_equal(
-            fixed_dry_validation["Kompletne klasy ze stawkami stalymi"],
-            "OK",
-            "fixed-rate dry-run validation",
-        )
-        fixed_summary = apply_updates(
-            workbook_path=fixed_workbook_path,
-            recommendations_path=fixed_recommendations_path,
-            output_path=fixed_output_path,
-            config=fixed_config,
-            cli_groups=None,
-            dry_run=False,
-        )
-        assert_equal(fixed_summary["fixed_rate_groups"]["added_row_count"], 3, "fixed rows added")
-        assert_equal(fixed_summary["fixed_rate_groups"]["updated_row_count"], 2, "fixed rows updated")
-        assert_equal(fixed_summary["mirrored_rate_groups"]["added_row_count"], 2, "EDAV rows added")
-        assert not ({"CFAV", "PDAH"} & {str(change["group"]) for change in fixed_summary["changes"]})
-        fixed_book = openpyxl.load_workbook(fixed_output_path)
-        fixed_ws = fixed_book["Sheet1"]
-        fixed_legend = " ".join(
-            str(fixed_book["Changed Positions"].cell(row, 2).value or "")
-            for row in range(1, fixed_book["Changed Positions"].max_row + 1)
-        )
-        assert "CFAV: 1=300 PLN" in fixed_legend
-        assert "PDAH: 1=400 PLN" in fixed_legend
-        assert "EDAV=EDMV" in fixed_legend
-        assert "2026-10-31-2026-11-02" in fixed_legend
-        assert "2026-12-15-2027-01-10" in fixed_legend
-        assert_equal(fixed_ws.max_row, 15, "fixed and mirrored classes cover template locations")
-        fixed_rows = {
-            (fixed_ws.cell(row, 1).value, fixed_ws.cell(row, 4).value): row
-            for row in range(5, fixed_ws.max_row + 1)
-        }
-        expected_fixed_rates = {
-            "CFAV": [300, 200, 180, 170, 160, 150],
-            "PDAH": [400, 350, 300, 290, 260, 250],
-        }
-        for group, expected_rates in expected_fixed_rates.items():
-            for zone in ("WA1", "WA2"):
-                row = fixed_rows[(group, zone)]
-                assert_equal(
-                    [fixed_ws.cell(row, col).value for col in range(9, 15)],
-                    expected_rates,
-                    f"{group}/{zone} fixed rates",
-                )
-        assert_equal(
-            [fixed_ws.cell(fixed_rows[("CFAV", "WA3")], col).value for col in range(9, 15)],
-            expected_fixed_rates["CFAV"],
-            "extra CFAV row fixed rates",
-        )
-        for zone in ("WA1", "WA2"):
-            assert_equal(
-                [fixed_ws.cell(fixed_rows[("EDAV", zone)], col).value for col in range(9, 15)],
-                [fixed_ws.cell(fixed_rows[("EDMV", zone)], col).value for col in range(9, 15)],
-                f"EDAV mirrors EDMV for {zone}",
-            )
-        assert_equal(
-            find_fixed_rate_group_issues(fixed_ws, fixed_config, get_duration_columns(fixed_ws, fixed_config)),
-            [],
-            "fixed-rate group validation",
-        )
-        fixed_validation = fixed_book["Validation"]
-        fixed_validation_rows = {
-            fixed_validation.cell(row, 1).value: fixed_validation.cell(row, 2).value
-            for row in range(2, fixed_validation.max_row + 1)
-        }
-        assert_equal(
-            fixed_validation_rows["Kompletne klasy ze stawkami stalymi"],
-            "OK",
-            "fixed-rate group workbook validation",
-        )
-        second_pass = ensure_fixed_rate_group_rows(
-            fixed_ws,
-            fixed_config,
-            get_duration_columns(fixed_ws, fixed_config),
-            dry_run=False,
-        )
-        assert_equal(second_pass["added_row_count"], 0, "fixed rows are idempotent")
-        assert_equal(second_pass["updated_row_count"], 0, "fixed rates are idempotent")
 
         frozen_workbook_path = temporary_path / "frozen-groups.xlsx"
         frozen_recommendations_path = temporary_path / "frozen-groups-recommendations.json"
         frozen_output_path = temporary_path / "frozen-groups-output.xlsx"
         frozen_group_rates = {
             "CDMV": [100, 101, 102, 103, 104, 105],
+            "CGAV": [90, 91, 92, 93, 94, 95],
             "CWAV": [110, 111, 112, 113, 114, 115],
             "CWMR": [120, 121, 122, 123, 124, 125],
             "EDMV": [130, 131, 132, 133, 134, 135],
@@ -456,8 +311,6 @@ def main():
         )
         frozen_config = merge_config({
             "excluded_groups": example_config["excluded_groups"],
-            "fixed_rate_groups": example_config["fixed_rate_groups"],
-            "mirrored_rate_groups": example_config["mirrored_rate_groups"],
             "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
             "group_price_parity": example_config["group_price_parity"],
             "location_zones": {"Warsaw Test": ["WA1"]},
@@ -478,6 +331,9 @@ def main():
             str(frozen_ws.cell(row, 1).value or "").strip().upper(): row
             for row in range(5, frozen_ws.max_row + 1)
         }
+        for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
+            assert_equal(frozen_ws.cell(frozen_rows[group], 10).value, 222, f"{group} follows the recommendation")
+        assert_equal(frozen_ws.cell(frozen_rows["EDMV"], 10).value, 223, "EDMV premium remains active")
         for group in ("CFAV", "EDAV", "PDAH"):
             row = frozen_rows[group]
             assert_equal(
@@ -503,6 +359,7 @@ def main():
         ]
         holiday_group_rates = {
             "CDMV": [100, 101, 102, 103, 104, 105],
+            "CGAV": [90, 91, 92, 93, 94, 95],
             "CWAV": [110, 111, 112, 113, 114, 115],
             "CWMR": [120, 121, 122, 123, 124, 125],
             "EDMV": [130, 131, 132, 133, 134, 135],
@@ -535,11 +392,9 @@ def main():
             encoding="utf-8",
         )
         holiday_config = merge_config({
-            "excluded_groups": ["CGAV", "FVMD", "SWAV", "CFAV", "PDAH"],
-            "fixed_rate_groups": fixed_config["fixed_rate_groups"],
-            "mirrored_rate_groups": fixed_config["mirrored_rate_groups"],
-            "group_rate_adjustments_pln_day": fixed_config["group_rate_adjustments_pln_day"],
-            "group_price_parity": fixed_config["group_price_parity"],
+            "excluded_groups": example_config["excluded_groups"],
+            "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
+            "group_price_parity": example_config["group_price_parity"],
             "protected_rate_periods": example_config["protected_rate_periods"],
             "location_zones": {"Warsaw Test": ["WA1"]},
             "pickup_date_expansion": {"enabled": False},
@@ -583,15 +438,15 @@ def main():
             date(2027, 1, 11),
         }
         for pickup_date in unprotected_dates:
-            for group, expected_rate in (("CDMV", 222), ("CWAV", 222), ("CWMR", 222), ("EDMV", 223), ("EDAV", 223)):
+            for group, expected_rate in (("CDMV", 222), ("CGAV", 222), ("CWAV", 222), ("CWMR", 222), ("EDMV", 223)):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(holiday_ws.cell(row, 10).value, expected_rate, f"unprotected rate for {group}/{pickup_date.isoformat()}")
-            for group, expected_rates in expected_fixed_rates.items():
+            for group in ("CFAV", "EDAV", "PDAH"):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(
                     [holiday_ws.cell(row, col).value for col in range(9, 15)],
-                    expected_rates,
-                    f"unprotected fixed rates for {group}/{pickup_date.isoformat()}",
+                    holiday_group_rates[group],
+                    f"frozen rates outside holidays for {group}/{pickup_date.isoformat()}",
                 )
         holiday_book.close()
 
@@ -1642,27 +1497,26 @@ def main():
         after_snapshot = header_rows_snapshot(real_after["Sheet1"])
         assert_equal(after_snapshot, before_snapshot, "Sheet1 rows 1-4 values and formatting")
 
-        fixed_real_recommendations_path = tmpdir / "fixed-real-recommendations.json"
-        fixed_real_output_path = tmpdir / "fixed-real-recommendations.xlsx"
-        fixed_real_import_path = tmpdir / "fixed-real-import.xlsx"
-        fixed_real_recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
-        fixed_real_summary = apply_updates(
+        baseline_real_recommendations_path = tmpdir / "baseline-real-recommendations.json"
+        baseline_real_output_path = tmpdir / "baseline-real-recommendations.xlsx"
+        baseline_real_import_path = tmpdir / "baseline-real-import.xlsx"
+        baseline_real_recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
+        baseline_real_summary = apply_updates(
             workbook_path=real_workbook_path,
-            recommendations_path=fixed_real_recommendations_path,
-            output_path=fixed_real_output_path,
+            recommendations_path=baseline_real_recommendations_path,
+            output_path=baseline_real_output_path,
             config=load_config(ROOT / "excel-rate-update.config.example.json"),
             cli_groups=None,
             dry_run=False,
-            import_output_path=fixed_real_import_path,
+            import_output_path=baseline_real_import_path,
         )
-        assert fixed_real_summary["fixed_rate_groups"]["enabled"] is False
-        assert fixed_real_summary["mirrored_rate_groups"]["enabled"] is False
-        for output_file in (fixed_real_output_path, fixed_real_import_path):
-            fixed_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
-            fixed_real_ws = fixed_real_workbook["Sheet1"]
+        assert_equal(baseline_real_summary["change_count"], 0, "empty recommendations preserve baseline prices")
+        for output_file in (baseline_real_output_path, baseline_real_import_path):
+            baseline_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
+            baseline_real_ws = baseline_real_workbook["Sheet1"]
             pickup_dates = []
             frozen_output_rates = {}
-            for values in fixed_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
+            for values in baseline_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
                 group = str(values[0] or "").strip().upper()
                 zone = str(values[3] or "").strip().upper()
                 pickup_date = parse_date_value(values[6])
@@ -1670,12 +1524,12 @@ def main():
                     pickup_dates.append(pickup_date)
                 if group in frozen_groups and pickup_date is not None:
                     frozen_output_rates[(group, zone, pickup_date)] = tuple(values[8:14])
-            assert_equal(fixed_real_ws.max_row <= 28000, True, "real workbook stays within broker row limit")
+            assert_equal(baseline_real_ws.max_row <= 28000, True, "real workbook stays within broker row limit")
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             for key, expected_rates in frozen_source_rates.items():
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
-            fixed_real_workbook.close()
+            baseline_real_workbook.close()
 
     print("All Excel rate updater tests passed.")
 
