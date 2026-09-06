@@ -321,7 +321,6 @@ jobs:
             --location-concurrency=3 \
             --max-active-pages=8 \
             --timeout=auto \
-            --retries=1 \
             --chunk-retries=2 \
             --chunk-stall-timeout=600000 \
             --chunk-days=7 \

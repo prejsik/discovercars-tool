@@ -1714,24 +1714,12 @@ def write_validation_sheet(
     workbook: Any,
     source_ws: Any,
     config: dict[str, Any],
-    duration_columns: dict[int, tuple[int, str, int, int]],
-    changes: list[dict[str, Any]],
-    skipped_targets: list[dict[str, Any]],
-    expansion_summary: dict[str, Any] | None = None,
-    validation_rows: list[list[Any]] | None = None,
+    rows: list[list[Any]],
 ) -> None:
     sheet_name = str(config.get("validation_sheet") or "").strip()
     if not sheet_name:
         return
     headers = ["Kontrola", "Status", "Liczba problemow", "Szczegoly"]
-    rows = validation_rows if validation_rows is not None else build_validation_rows(
-        source_ws,
-        config,
-        duration_columns,
-        changes,
-        skipped_targets,
-        expansion_summary,
-    )
     widths = {"Kontrola": 48, "Status": 14, "Liczba problemow": 18, "Szczegoly": 90}
     ws = write_table_sheet(workbook, sheet_name, workbook.index(source_ws) + 3, headers, rows, widths)
     for row in range(2, ws.max_row + 1):
@@ -2601,7 +2589,7 @@ def highlight_excluded_group_rates(
 
     fill = PatternFill(fill_type="solid", fgColor=str((config.get("colors") or {}).get("limited", "FCE4D6")))
     highlighted = 0
-    for col, _, _, _ in duration_columns.values():
+    for col in sorted({value[0] for value in duration_columns.values()}):
         if scoped_rate_cols is not None and col not in scoped_rate_cols:
             continue
         rate = parse_number(ws.cell(row, col).value)
@@ -2870,10 +2858,6 @@ def apply_updates(
             workbook,
             ws,
             config,
-            duration_columns,
-            changes,
-            skipped_targets,
-            expansion_summary,
             validation_rows,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)

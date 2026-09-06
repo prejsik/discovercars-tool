@@ -700,6 +700,14 @@ runTest("daily workflow checkpoints scraping and verifies four DOM shards before
   assert.match(verificationStep, /--concurrency=1/);
 });
 
+runTest("daily batch scraping uses chunk retries without an ignored direct retry option", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
+  const scrapeCommand = workflow.match(/node src\/runDiscovercarsChunked\.js[\s\S]*?\| tee output\/run-log\.txt/)?.[0] || "";
+  assert.match(scrapeCommand, /--strategy=legacy-batch/);
+  assert.match(scrapeCommand, /--chunk-retries=2/);
+  assert.doesNotMatch(scrapeCommand, /--retries=/);
+});
+
 runTest("DOM sharding keeps date-duration groups together and merge fails closed", () => {
   const {
     listShardOutputFiles,

@@ -23,6 +23,7 @@ from tools.update_excel_rates import (  # noqa: E402
     get_delta_fill,
     get_import_row_limit,
     get_minimum_rate,
+    highlight_excluded_group_rates,
     load_baseline_confirmation,
     load_config,
     merge_config,
@@ -273,6 +274,31 @@ def main():
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
+
+        highlight_path = temporary_path / "highlight-count.xlsx"
+        build_workbook(highlight_path)
+        highlight_book = openpyxl.load_workbook(highlight_path)
+        highlight_ws = highlight_book["Sheet1"]
+        highlight_config = merge_config({})
+        highlight_durations = get_duration_columns(highlight_ws, highlight_config)
+        highlight_rates = [highlight_ws.cell(10, col).value for col in range(9, 15)]
+        for dry_run in (True, False):
+            highlighted = highlight_excluded_group_rates(
+                highlight_ws, 10, highlight_config, highlight_durations, dry_run,
+                scoped_rate_cols={10, 11, 12},
+            )
+            assert_equal(highlighted, 3, "highlight count uses cells, not rental days")
+            for col in range(9, 15):
+                assert_equal(
+                    highlight_ws.cell(10, col).fill.fill_type,
+                    "solid" if not dry_run and col in {10, 11, 12} else None,
+                    f"highlight scope and dry-run for column {col}",
+                )
+        assert_equal(
+            [highlight_ws.cell(10, col).value for col in range(9, 15)],
+            highlight_rates, "highlighting preserves baseline rates",
+        )
+        highlight_book.close()
 
 
         frozen_workbook_path = temporary_path / "frozen-groups.xlsx"
@@ -637,6 +663,13 @@ def main():
         assert str(ws["A4"].fill.fgColor.rgb).endswith("1F4E78")
         review_ws = updated["Recommendations Review"]
         validation_ws = updated["Validation"]
+        assert_equal(
+            [tuple("" if value is None else value for value in row)
+             for row in validation_ws.iter_rows(min_row=2, values_only=True)],
+            [(item["check"], item["status"], item["issue_count"], item["details"])
+             for item in summary["validation"]],
+            "validation sheet matches the checks returned in the summary",
+        )
         import_ready = openpyxl.load_workbook(import_output_path)
         assert_equal(import_ready.sheetnames, ["Sheet1"], "import-ready workbook sheets")
         import_ready_ws = import_ready["Sheet1"]
