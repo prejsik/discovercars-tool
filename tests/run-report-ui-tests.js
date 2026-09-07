@@ -77,6 +77,7 @@ async function run() {
     assert.equal(await page.locator(".scenario:visible").count(), 20);
     await page.locator("#load-more").click();
     assert.equal(await page.locator(".scenario:visible").count(), 30);
+    assert.equal(await page.locator(".scenario").nth(20).locator("h2").evaluate((element) => element === document.activeElement), true);
     assert.match(await page.locator("#results-status").innerText(), /Scenariusze: 30\/30/);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
@@ -84,7 +85,7 @@ async function run() {
 
     await page.locator("#toggle-filters").click();
     for (const id of ["filter-location", "filter-duration", "filter-state", "filter-top1"]) {
-      await page.locator(`#${id}`).evaluate((element) => { element.open = true; });
+      await page.locator(`#${id} > summary`).click();
       const bounds = await page.locator(`#${id} .multi-options`).boundingBox();
       assert.ok(bounds.x >= 0, `${id} opens left of the viewport`);
       assert.ok(bounds.x + bounds.width <= 390, `${id} opens right of the viewport`);
@@ -94,11 +95,10 @@ async function run() {
     await page.selectOption("#filter-transmission", "automatic");
     assert.doesNotMatch(await page.locator("tbody tr").first().innerText(), /Manual Competitor/);
     await page.fill("#filter-date-from", "2026-08-20");
-    await page.locator("#filter-duration input").evaluateAll((inputs) => {
-      const input = inputs.find((item) => item.value === "5");
-      input.checked = true;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await page.locator("#filter-duration > summary").click();
+    await page.locator("#filter-duration input[value='5']").check();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#filter-duration > summary").evaluate((element) => element === document.activeElement), true);
     assert.match(page.url(), /view=automatic/);
     assert.match(page.url(), /from=2026-08-20/);
     assert.match(page.url(), /days=5/);
@@ -114,6 +114,19 @@ async function run() {
     assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(new URL(page.url()).search, "");
 
+    await page.fill("#filter-date-from", "2026-08-22");
+    await page.fill("#filter-date-to", "2026-08-20");
+    assert.equal(await page.locator("#date-error").isVisible(), true);
+    assert.match(await page.locator("#date-error").innerText(), /wcześniejsza/);
+    assert.equal(await page.locator("#filter-date-to").getAttribute("aria-invalid"), "true");
+    await page.locator("#empty-reset").click();
+    assert.equal(await page.locator("#date-error").isVisible(), false);
+    assert.equal(await page.locator(".scenario:visible").count(), 20);
+    assert.equal(await page.locator("#summary-checks").innerText(), "30");
+    await page.selectOption("#filter-location-type", "all");
+    assert.equal(await page.locator("#summary-checks").innerText(), "60");
+    await page.locator("#reset-filters").click();
+
     await page.locator("#filter-date-from").evaluate((input) => {
       input.value = "2030-01-01";
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -126,7 +139,7 @@ async function run() {
     await page.reload();
     assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
-    assert.equal(await page.locator("tbody tr").first().evaluate((row) => getComputedStyle(row).display), "block");
+    assert.equal(await page.locator("tbody tr").first().evaluate((row) => getComputedStyle(row).display), "grid");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -135,6 +148,37 @@ async function run() {
     assert.equal(await page.locator(".scenario:visible").count(), 20);
     assert.equal(await page.locator("#report-filters").isVisible(), true);
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
+
+    const copyBounds = await page.locator("#copy-view").boundingBox();
+    await page.locator("#copy-view").click();
+    assert.match(await page.locator("#view-feedback").innerText(), /lokalny plik/);
+    assert.equal((await page.locator("#copy-view").boundingBox()).width, copyBounds.width);
+    await page.waitForFunction(() => !document.querySelector("#view-feedback").classList.contains("is-open"), null, { timeout: 7000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.locator("#filter-duration > summary").click();
+    assert.equal(await page.locator("#filter-duration .t-dropdown").evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
+    await page.keyboard.press("Escape");
+
+    const signalFixture = buildFixture();
+    signalFixture.scenarios = [signalFixture.scenarios[0]];
+    const automatic = signalFixture.scenarios[0].offer_views_by_location[signalFixture.locations[0]].automatic;
+    automatic.mm_cars_rental = null;
+    automatic.top_3 = [{ provider_name: "Competitor", total_price: 400, currency: "PLN", rental_days: 2 }];
+    const signalPath = path.join(tempDir, "signals.html");
+    fs.writeFileSync(signalPath, buildHtmlReport(signalFixture), "utf8");
+    await page.goto(pathToFileURL(signalPath).href);
+    assert.equal(await page.locator("#summary-missing").innerText(), "0");
+    assert.equal(await page.locator("#summary-high").innerText(), "0");
+    await page.selectOption("#filter-transmission", "automatic");
+    assert.equal(await page.locator("#summary-missing").innerText(), "1");
+    assert.equal(await page.locator("#summary-high").innerText(), "1");
+    await page.selectOption("#filter-location-type", "all");
+    assert.equal(await page.locator("#summary-checks-label").innerText(), "sprawdzenia lokalizacji");
+    for (const width of [375, 768, 1024, 1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true, `Overflow at ${width}px`);
+    }
     assert.deepEqual(browserErrors, []);
   } finally {
     await browser.close();

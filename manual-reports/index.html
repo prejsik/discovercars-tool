@@ -6,12 +6,16 @@
   <title>Ręczne raporty DiscoverCars</title>
   <link rel="icon" href="data:,">
   <style>
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
       padding: 32px 20px;
       font-family: "Segoe UI", Arial, sans-serif;
       color: #172033;
       background: #f6f8fb;
+      overflow-wrap: anywhere;
     }
     main {
       max-width: 760px;
@@ -22,22 +26,54 @@
       margin: 0 0 18px;
       font-size: 24px;
     }
+    .catalog-nav {
+      margin: 0 0 24px;
+    }
     a {
       display: block;
       margin: 12px 0;
       padding: 14px 16px;
+      min-height: 44px;
       border: 1px solid #cbd6e2;
       border-radius: 6px;
       color: #075da8;
       text-decoration: none;
       background: #f9fbfe;
+      overflow-wrap: anywhere;
+    }
+    .daily-report-link {
+      margin: 0;
+      font-weight: 600;
+      background: #eef6ff;
     }
     a:hover {
       background: #eef6ff;
     }
     a:focus-visible {
-      outline: 3px solid #1683d8;
-      outline-offset: 2px;
+      outline: 3px solid #005fcc;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 2px #f6f8fb;
+    }
+    .report-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .report-list li {
+      margin: 0;
+      padding: 0;
+    }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
     }
     small {
       color: #596579;
@@ -47,56 +83,64 @@
 <body>
   <main>
     <h1>Ręczne raporty DiscoverCars</h1>
-    <!-- Import links must show the changed date range and use it in the downloaded filename. -->
-    <a href="latest-full-2026-09-01--2026-10-29/recommendations-2026-09-01--2026-10-29.xlsx">
-      Rekomendacje · najnowszy pełny scraper · 01.09-29.10.2026<br>
-      <small>60 dat źródłowych · rekomendacje dla duration 2-7 · 8 400 zmienionych komórek</small>
-    </a>
-    <a href="latest-full-2026-09-01--2026-10-29/import-ready-2026-09-01--2026-10-29.xlsx"
-       download="MM-Cars-Rental-import-2026-09-01--2026-10-29.xlsx">
-      Plik gotowy do importu · 01.09-29.10.2026<br>
-      <small>Pełny cennik: 24 703 pozycje · Pickup start date 01.09.2026-01.01.2027</small>
-    </a>
-    <a href="morning-2026-08-21--2026-10-19-duration2-7/recommendations-2026-08-21--2026-10-19-duration2-7.xlsx">
-      Rekomendacje · poranny scraper · 21.08-19.10.2026<br>
-      <small>Run #400 · pełne 60 dni · rekomendacje wyłącznie dla duration 2-7 · 9 924 zmienione komórki</small>
-    </a>
-    <a href="morning-2026-08-21--2026-10-19-duration2-7/import-ready-2026-08-21--2026-10-19-duration2-7.xlsx"
-       download="MM-Cars-Rental-import-2026-08-21--2026-10-19-duration2-7.xlsx">
-      Plik gotowy do importu · 21.08-19.10.2026 · duration 2-7<br>
-      <small>Pełny cennik: 22 360 pozycji · bez zmian stawek dla duration 8 dni i więcej</small>
-    </a>
-    <a href="morning-2026-08-21--2026-09-09/recommendations-2026-08-21--2026-09-09.xlsx">
-      Rekomendacje · poranny scraper · zmiany 21.08-09.09.2026<br>
-      <small>Run #400 · scraper 21.08-19.10.2026 · duration 2-14 · 2 162 zmienione komórki</small>
-    </a>
-    <a href="morning-2026-08-21--2026-09-09/import-ready-2026-08-21--2026-09-09.xlsx"
-       download="MM-Cars-Rental-import-2026-08-21--2026-09-09.xlsx">
-      Plik gotowy do importu · zmiany 21.08-09.09.2026<br>
-      <small>Pełny cennik: 22 360 pozycji · aktualna baza z 20.08.2026</small>
-    </a>
-    <a href="top1-auto-2026-08-23--2026-10-17-floor65-cap150/recommendations.xlsx">
-      Rekomendacje Top1 · automaty · 23.08-17.10.2026<br>
-      <small>Floor 65 PLN · maksymalna stawka 150 PLN</small>
-    </a>
-    <a href="top1-auto-2026-08-23--2026-10-17-floor65-cap150/import-ready.xlsx"
-       download="MM-Cars-Rental-import-Top1-automaty-2026-08-23--2026-10-17.xlsx">
-      Plik gotowy do importu · Top1 · automaty · 23.08-17.10.2026<br>
-      <small>Pełny cennik: 22 360 wierszy · stawki 65-150 PLN</small>
-    </a>
-    <a href="top1-auto-2026-08-22--2026-09-25/recommendations.xlsx">
-      Rekomendacje Top1 · automaty · 22.08-25.09.2026<br>
-      <small>Floor 80 PLN: 22-30.08 · floor 50 PLN: 01-25.09</small>
-    </a>
-    <a href="top1-auto-2026-08-22--2026-09-25/import-ready.xlsx"
-       download="MM-Cars-Rental-import-Top1-automaty-2026-08-22--2026-09-25.xlsx">
-      Plik gotowy do importu · Top1 · automaty · 22.08-25.09.2026<br>
-      <small>Pełny cennik: 42 335 wierszy</small>
-    </a>
-    <a href="rolling-15-duration-2-14-2026-07-11/report.html">
-      12.07.2026-26.07.2026 · 15 dni<br>
-      <small>Run #269 · długość najmu 2-14 dni · 195 scenariuszy · 2535 sprawdzeń lokalizacji</small>
-    </a>
+    <nav class="catalog-nav" aria-label="Nawigacja do bieżącego raportu">
+      <a class="daily-report-link" href="https://prejsik.github.io/discovercars-tool/">Wróć do bieżącego raportu dziennego</a>
+    </nav>
+    <section aria-labelledby="manual-reports-heading">
+      <h2 id="manual-reports-heading" class="visually-hidden">Lista ręcznych raportów</h2>
+      <ul class="report-list">
+        <!-- Import links must show the changed date range and use it in the downloaded filename. -->
+        <li><a href="latest-full-2026-09-01--2026-10-29/recommendations-2026-09-01--2026-10-29.xlsx">
+          Rekomendacje · najnowszy pełny scraper · 01.09-29.10.2026<br>
+          <small>60 dat źródłowych · rekomendacje dla duration 2-7 · 8 400 zmienionych komórek</small>
+        </a></li>
+        <li><a href="latest-full-2026-09-01--2026-10-29/import-ready-2026-09-01--2026-10-29.xlsx"
+               download="MM-Cars-Rental-import-2026-09-01--2026-10-29.xlsx">
+          Plik gotowy do importu · 01.09-29.10.2026<br>
+          <small>Pełny cennik: 24 703 pozycje · Pickup start date 01.09.2026-01.01.2027</small>
+        </a></li>
+        <li><a href="morning-2026-08-21--2026-10-19-duration2-7/recommendations-2026-08-21--2026-10-19-duration2-7.xlsx">
+          Rekomendacje · poranny scraper · 21.08-19.10.2026<br>
+          <small>Run #400 · pełne 60 dni · rekomendacje wyłącznie dla duration 2-7 · 9 924 zmienione komórki</small>
+        </a></li>
+        <li><a href="morning-2026-08-21--2026-10-19-duration2-7/import-ready-2026-08-21--2026-10-19-duration2-7.xlsx"
+               download="MM-Cars-Rental-import-2026-08-21--2026-10-19-duration2-7.xlsx">
+          Plik gotowy do importu · 21.08-19.10.2026 · duration 2-7<br>
+          <small>Pełny cennik: 22 360 pozycji · bez zmian stawek dla duration 8 dni i więcej</small>
+        </a></li>
+        <li><a href="morning-2026-08-21--2026-09-09/recommendations-2026-08-21--2026-09-09.xlsx">
+          Rekomendacje · poranny scraper · zmiany 21.08-09.09.2026<br>
+          <small>Run #400 · scraper 21.08-19.10.2026 · duration 2-14 · 2 162 zmienione komórki</small>
+        </a></li>
+        <li><a href="morning-2026-08-21--2026-09-09/import-ready-2026-08-21--2026-09-09.xlsx"
+               download="MM-Cars-Rental-import-2026-08-21--2026-09-09.xlsx">
+          Plik gotowy do importu · zmiany 21.08-09.09.2026<br>
+          <small>Pełny cennik: 22 360 pozycji · aktualna baza z 20.08.2026</small>
+        </a></li>
+        <li><a href="top1-auto-2026-08-23--2026-10-17-floor65-cap150/recommendations.xlsx">
+          Rekomendacje Top1 · automaty · 23.08-17.10.2026<br>
+          <small>Floor 65 PLN · maksymalna stawka 150 PLN</small>
+        </a></li>
+        <li><a href="top1-auto-2026-08-23--2026-10-17-floor65-cap150/import-ready.xlsx"
+               download="MM-Cars-Rental-import-Top1-automaty-2026-08-23--2026-10-17.xlsx">
+          Plik gotowy do importu · Top1 · automaty · 23.08-17.10.2026<br>
+          <small>Pełny cennik: 22 360 wierszy · stawki 65-150 PLN</small>
+        </a></li>
+        <li><a href="top1-auto-2026-08-22--2026-09-25/recommendations.xlsx">
+          Rekomendacje Top1 · automaty · 22.08-25.09.2026<br>
+          <small>Floor 80 PLN: 22-30.08 · floor 50 PLN: 01-25.09</small>
+        </a></li>
+        <li><a href="top1-auto-2026-08-22--2026-09-25/import-ready.xlsx"
+               download="MM-Cars-Rental-import-Top1-automaty-2026-08-22--2026-09-25.xlsx">
+          Plik gotowy do importu · Top1 · automaty · 22.08-25.09.2026<br>
+          <small>Pełny cennik: 42 335 wierszy</small>
+        </a></li>
+        <li><a href="rolling-15-duration-2-14-2026-07-11/report.html">
+          12.07.2026-26.07.2026 · 15 dni<br>
+          <small>Run #269 · długość najmu 2-14 dni · 195 scenariuszy · 2535 sprawdzeń lokalizacji</small>
+        </a></li>
+      </ul>
+    </section>
   </main>
 </body>
 </html>

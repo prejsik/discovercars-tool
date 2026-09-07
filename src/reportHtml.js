@@ -495,18 +495,27 @@ function buildQualityBanner(quality) {
   const alerts = Array.isArray(alertSource)
     ? alertSource
       .filter((item) => !/API-DOM|kontrola DOM|Brak MM Cars Rental dla/i.test(String(item)))
-      .slice(0, 3)
-      .join(" ")
-    : "";
+      .map((item) => String(item).replace(/^Validation WARNING:\s*/i, "")
+        .replace("Pominiete rekomendacje", "Pominięte rekomendacje")
+        .replace("Cele rankingowe nieosiagalne po finalnej stawce", "Nieosiągalne cele rankingowe po zastosowaniu końcowej stawki")
+        .replace("Sprzeczne rekomendacje w przedziale duration", "Sprzeczne rekomendacje w przedziale długości najmu")
+        .replace("Sanity check MM:", "Kontrola stawek MM:")
+        .replace("probek przekracza prog", "próbek przekracza próg")
+        .replaceAll("PLN/dzien", "PLN/dzień")
+        .replace("roznica", "różnica")
+        .replace("powod", "powód")
+        .replace("live_rate_changed_since_full_scrape", "cena zmieniła się od pełnego pomiaru")
+        .replace("baseline_markup_outside_allowed_range", "narzut poza dopuszczalnym zakresem"))
+    : [];
   const message = quality.status === "failure"
     ? "Raport danych został opublikowany, ale nowy Excel zablokowała kontrola jakości."
     : "Raport zawiera ostrzeżenia kontroli jakości.";
-  return `<div class="quality-banner quality-${escapeHtml(quality.status)}" role="status"><strong>${escapeHtml(message)}</strong>${alerts ? ` ${escapeHtml(alerts)}` : ""}</div>`;
+  return `<div class="quality-banner quality-${escapeHtml(quality.status)}" role="status"><strong>${escapeHtml(message)}</strong>${alerts.length ? `<details${quality.status === "failure" ? " open" : ""}><summary>Szczegóły (${alerts.length})</summary><ul>${alerts.map((alert) => `<li>${escapeHtml(alert)}</li>`).join("")}</ul></details>` : ""}</div>`;
 }
 
 function buildMultiFilter(id, label, options, allLabel = "Wszystkie") {
   const optionHtml = options.map((option) => `<label class="multi-option"><input type="checkbox" value="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span></label>`).join("");
-  return `<div class="filter-field"><span class="filter-label" id="${escapeHtml(id)}-label">${escapeHtml(label)}</span><details class="multi-filter" id="${escapeHtml(id)}" data-all-label="${escapeHtml(allLabel)}" aria-labelledby="${escapeHtml(id)}-label"><summary>${escapeHtml(allLabel)}</summary><div class="multi-options">${optionHtml}</div></details></div>`;
+  return `<div class="filter-field"><span class="filter-label" id="${escapeHtml(id)}-label">${escapeHtml(label)}</span><details class="multi-filter" id="${escapeHtml(id)}" data-all-label="${escapeHtml(allLabel)}" aria-labelledby="${escapeHtml(id)}-label"><summary>${escapeHtml(allLabel)}</summary><div class="multi-options t-dropdown">${optionHtml}</div></details></div>`;
 }
 
 function buildHtmlReport(payload, options = {}) {
@@ -560,12 +569,22 @@ function buildHtmlReport(payload, options = {}) {
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
       --blue-text: #ffffff;
-      --orange-bg: #d96b00;
+      --orange-bg: #a44800;
       --orange-text: #ffffff;
       --magenta-bg: #a61e74;
       --magenta-text: #ffffff;
       --red-bg: #c62828;
       --red-text: #ffffff;
+      color-scheme: dark;
+      --dropdown-open-dur: 200ms;
+      --dropdown-pre-scale: 0.97;
+      --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --toast-open: 200ms;
+      --toast-close: 150ms;
+      --toast-distance: 4px;
+      --toast-blur: 0px;
+      --toast-scale: 1;
+      --toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     * { box-sizing: border-box; }
@@ -586,6 +605,7 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     .meta {
+      flex-basis: 100%;
       color: var(--muted);
       margin-bottom: 18px;
       font-size: 13px;
@@ -651,6 +671,7 @@ function buildHtmlReport(payload, options = {}) {
       color: var(--text);
       padding: 7px 12px;
       font: inherit;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
     }
@@ -712,6 +733,45 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     .summary strong { color: var(--text); }
+    .summary-label { flex-basis: 100%; color: var(--text); font-weight: 600; }
+    .report-range { display: block; margin-top: 5px; }
+    .date-error { color: #ffb4a9; margin: 0 0 14px; font-size: 14px; }
+    input[aria-invalid="true"] { border-color: #ffb4a9 !important; }
+    .empty-state p { margin-top: 0; }
+    .view-feedback { position: fixed; bottom: 20px; right: 20px; z-index: 30; max-width: min(420px, calc(100vw - 40px)); padding: 12px 16px; background: #173627; border: 1px solid #56886a; border-radius: 4px; font-size: 14px; color: #dcfce7; pointer-events: none; }
+    .copy-fallback { margin-bottom: 14px; }
+    .copy-fallback input { width: 100%; padding: 10px; color: var(--text); background: var(--panel); border: 1px solid var(--line); }
+    #copy-view { min-width: 112px; }
+    .report-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 20px; margin-bottom: 8px; }
+    .report-heading h1 { margin: 0; }
+    .report-nav { margin: 0; }
+    a { color: #9dccff; text-underline-offset: 3px; }
+    .report-nav a { display: inline-flex; min-height: 36px; align-items: center; font-size: 13px; }
+    .quality-banner summary { cursor: pointer; padding: 8px 0; }
+    .quality-banner ul { margin: 4px 0; padding-left: 20px; line-height: 1.5; overflow-wrap: anywhere; }
+    .t-dropdown {
+      transform-origin: top left;
+    }
+    .multi-filter[open] .t-dropdown { animation: dropdown-open var(--dropdown-open-dur) var(--dropdown-ease); }
+    @keyframes dropdown-open {
+      from { transform: scale(var(--dropdown-pre-scale)); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .t-toast {
+      opacity: 0;
+      transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+      filter: blur(var(--toast-blur));
+      transition: opacity var(--toast-close) var(--toast-ease), transform var(--toast-close) var(--toast-ease), filter var(--toast-close) var(--toast-ease);
+    }
+    .t-toast.is-open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+      transition: opacity var(--toast-open) var(--toast-ease), transform var(--toast-open) var(--toast-ease), filter var(--toast-open) var(--toast-ease);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .t-dropdown, .t-toast { transition: none !important; animation: none !important; }
+    }
 
     .results-status {
       color: var(--muted);
@@ -898,28 +958,32 @@ function buildHtmlReport(payload, options = {}) {
       table { border: 0; background: transparent; }
       colgroup, thead { display: none; }
       tbody { display: grid; gap: 10px; }
-      tr { border: 1px solid var(--line); background: var(--panel); }
+      tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(105px, 36%); border: 1px solid var(--line); background: var(--panel); }
       td, td.index,
       td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
-        display: grid;
-        grid-template-columns: minmax(92px, 38%) 1fr;
-        gap: 8px;
+        display: block;
         border: 0;
         border-bottom: 1px solid #3d434b;
         padding: 7px 9px;
         text-align: left;
         white-space: normal;
       }
-      td:last-child { border-bottom: 0; }
+      td { min-width: 0; font-size: 13px; }
+      td.index { display: none; }
+      td.location { grid-column: 1 / -1; font-size: 14px; padding: 12px 9px; }
+      td:nth-child(3), td:nth-child(5), td:nth-child(7) { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 4px; }
+      td:nth-child(4), td:nth-child(6), td:nth-child(8) { text-align: right; }
+      td:nth-child(9) { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+      td:nth-child(10), td:nth-child(11) { border-bottom: 0; }
+      td:nth-child(10)::before, td:nth-child(11)::before { display: block; font-size: 12px; margin-bottom: 3px; }
+      .toolbar select, .toolbar input[type="date"], .multi-filter > summary, button, .multi-option { min-height: 44px; }
+      .multi-option { align-items: center; font-size: 14px; }
+      .multi-option input { width: 18px; height: 18px; }
+      .multi-options { max-height: min(280px, 45vh); }
       td::before { color: var(--muted); font-weight: 400; }
-      td:nth-child(1)::before { content: "#"; }
-      td:nth-child(2)::before { content: "Lokalizacja"; }
-      td:nth-child(3)::before { content: "Top 1 firma"; }
-      td:nth-child(4)::before { content: "Top 1 PLN/d"; }
-      td:nth-child(5)::before { content: "Top 2 firma"; }
-      td:nth-child(6)::before { content: "Top 2 PLN/d"; }
-      td:nth-child(7)::before { content: "Top 3 firma"; }
-      td:nth-child(8)::before { content: "Top 3 PLN/d"; }
+      td:nth-child(3)::before { content: "Top 1"; }
+      td:nth-child(5)::before { content: "Top 2"; }
+      td:nth-child(7)::before { content: "Top 3"; }
       td:nth-child(9)::before { content: "MM PLN/d"; }
       td:nth-child(10)::before { content: "Pozycja MM"; }
       td:nth-child(11)::before { content: "Tańsze oferty"; }
@@ -927,19 +991,22 @@ function buildHtmlReport(payload, options = {}) {
   </style>
 </head>
 <body data-offer-view="all">
-  <h1>Kontrola cen DiscoverCars</h1>
-  <div class="meta">Wygenerowano: ${escapeHtml(formatDateTime(generatedAt, timeZone))} · strefa ${escapeHtml(timeZone)}</div>
+  <header class="report-heading"><h1>Kontrola cen DiscoverCars</h1>
+  <nav class="report-nav" aria-label="Raporty"><a href="https://prejsik.github.io/discovercars-tool/manual-reports/index.html">Raporty ręczne i pliki Excel</a></nav>
+  <div class="meta">Wygenerowano: ${escapeHtml(formatDateTime(generatedAt, timeZone))} · strefa ${escapeHtml(timeZone)}${minStartDate ? `<span class="report-range">Start najmu: ${escapeHtml(minStartDate.split("-").reverse().join("."))} – ${escapeHtml(maxStartDate.split("-").reverse().join("."))}</span>` : ""}</div>
+  </header>
   ${buildQualityBanner(options.quality)}
-  <div class="summary" aria-label="Podsumowanie raportu">
-    <span><strong>${scenarios.length}</strong> ${polishPlural(scenarios.length, "scenariusz", "scenariusze", "scenariuszy")}</span>
-    <span><strong>${locationChecks}</strong> ${polishPlural(locationChecks, "sprawdzenie", "sprawdzenia", "sprawdzeń")} lokalizacji</span>
-    <span><strong>${missingMm}</strong> bez MM Cars Rental</span>
-    <span><strong>${errorCount}</strong> ${polishPlural(errorCount, "błąd", "błędy", "błędów")}</span>
-    <span><strong>${highTop1Count}</strong> ze stawką Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d</span>
+  <div class="summary" role="region" aria-label="Podsumowanie bieżącego widoku">
+    <span class="summary-label" id="summary-view">Wszystkie auta · Lotniska</span>
+    <span><strong id="summary-scenarios">${scenarios.length}</strong> <span id="summary-scenarios-label">scenariuszy</span></span>
+    <span><strong id="summary-checks">${locationChecks}</strong> <span id="summary-checks-label">sprawdzeń lokalizacji</span></span>
+    <span><strong id="summary-missing">${missingMm}</strong> bez MM Cars Rental</span>
+    <span><strong>${errorCount}</strong> ${polishPlural(errorCount, "błąd", "błędy", "błędów")} w całym raporcie</span>
+    <span><strong id="summary-high">${highTop1Count}</strong> ze stawką Top1 &gt; ${PRICING_RULES.top1HighRateThresholdPlnDay} PLN/d</span>
   </div>
   <details class="legend-panel">
     <summary>Legenda oznaczeń</summary>
-    <div class="legend">
+    <div class="legend" role="region" aria-label="Znaczenie oznaczeń">
       <span><span class="badge mm">MM Cars Rental</span> oferta MM Cars Rental</span>
       <span><span class="badge mm mm-close">Blisko wyższej pozycji</span> do 10 PLN/d więcej od wyżej sklasyfikowanej firmy</span>
       <span><span class="badge mm mm-top1-gap">Top1: +10 PLN/d</span> druga firma jest droższa o 10–19,99 PLN/d</span>
@@ -959,12 +1026,15 @@ function buildHtmlReport(payload, options = {}) {
     ${buildMultiFilter("filter-state", "Stan MM", mmStateOptions)}
     ${buildMultiFilter("filter-top1", "Kontrola Top1", top1Options)}
     <div class="toolbar-actions">
-      <button id="copy-view" type="button" aria-live="polite">Kopiuj widok</button>
+      <button id="copy-view" type="button">Kopiuj widok</button>
       <button id="reset-filters" type="button">Wyczyść filtry</button>
     </div>
   </div>
+  <div class="date-error" id="date-error" role="alert" hidden></div>
+  <div class="view-feedback t-toast" id="view-feedback" role="status" aria-live="polite"></div>
+  <div class="copy-fallback" id="copy-fallback" hidden><label>Link do widoku<input id="view-link" type="url" readonly></label></div>
   <div class="results-status" id="results-status" role="status" aria-live="polite"></div>
-  <div class="empty-state" id="empty-state" hidden>Brak wyników dla wybranych filtrów.</div>
+  <div class="empty-state" id="empty-state" hidden role="region" aria-label="Wyniki filtrowania"><p id="empty-message">Brak wyników dla wybranych filtrów.</p><button type="button" id="empty-reset">Wyczyść filtry</button></div>
   <main id="report-results"></main>
   <div class="report-actions"><button id="load-more" type="button" hidden>Pokaż kolejne</button></div>
   <script type="application/json" id="report-data">${serializeInlineJson(reportData)}</script>
@@ -980,6 +1050,9 @@ function buildHtmlReport(payload, options = {}) {
     const filterToggle = document.getElementById("toggle-filters");
     const resultsStatus = document.getElementById("results-status");
     const emptyState = document.getElementById("empty-state");
+    const dateError = document.getElementById("date-error");
+    const viewFeedback = document.getElementById("view-feedback");
+    const copyFallback = document.getElementById("copy-fallback");
     const loadMoreControl = document.getElementById("load-more");
     const reportResults = document.getElementById("report-results");
     const multiControls = ["filter-location", "filter-duration", "filter-state", "filter-top1"].map((id) => document.getElementById(id));
@@ -991,6 +1064,15 @@ function buildHtmlReport(payload, options = {}) {
     let matchingScenariosCache = [];
     let matchingRowsCache = 0;
     let renderedScenarioCount = 0;
+    let feedbackTimer;
+
+    function polishPlural(value, one, few, many) {
+      const number = Math.abs(Number(value));
+      if (number === 1) return one;
+      const lastDigit = number % 10;
+      const lastTwoDigits = number % 100;
+      return lastDigit >= 2 && lastDigit <= 4 && !(lastTwoDigits >= 12 && lastTwoDigits <= 14) ? few : many;
+    }
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1151,6 +1233,9 @@ function buildHtmlReport(payload, options = {}) {
       }
       renderedScenarioCount = shownSections;
       emptyState.hidden = matchingScenariosCache.length > 0;
+      document.getElementById("empty-message").textContent = dateError.hidden
+        ? "Brak wyników dla wybranych filtrów."
+        : "Nie można wyświetlić wyników dla nieprawidłowego zakresu dat.";
       loadMoreControl.hidden = shownSections >= matchingScenariosCache.length;
       loadMoreControl.textContent = "Pokaż kolejne " + Math.min(
         scenarioPageSize,
@@ -1158,7 +1243,22 @@ function buildHtmlReport(payload, options = {}) {
       );
       resultsStatus.textContent = matchingScenariosCache.length
         ? "Scenariusze: " + shownSections + "/" + matchingScenariosCache.length + " · pasujące wiersze: " + matchingRowsCache
-        : "Brak pasujących scenariuszy";
+        : dateError.hidden ? "Brak pasujących scenariuszy" : "Nieprawidłowy zakres dat";
+    }
+
+    function validateDates() {
+      const reversed = dateFromControl.value && dateToControl.value && dateFromControl.value > dateToControl.value;
+      const outOfRange = [dateFromControl, dateToControl].filter((input) => input.value
+        && ((reportMinDate && input.value < reportMinDate) || (reportMaxDate && input.value > reportMaxDate)));
+      const message = reversed ? "Data końcowa nie może być wcześniejsza niż data początkowa."
+        : outOfRange.length ? "Daty poza zakresem raportu: " + reportMinDate + " – " + reportMaxDate + "." : "";
+      dateError.hidden = !message;
+      dateError.textContent = message;
+      [dateFromControl, dateToControl].forEach((input) => {
+        input.setAttribute("aria-describedby", "date-error");
+        input.setAttribute("aria-invalid", String(Boolean(reversed || outOfRange.includes(input))));
+      });
+      return !message;
     }
 
     function applyFilters(resetLimit = true) {
@@ -1170,6 +1270,7 @@ function buildHtmlReport(payload, options = {}) {
       document.body.dataset.offerView = offerView;
       const dateFrom = dateFromControl.value;
       const dateTo = dateToControl.value;
+      const datesValid = validateDates();
       const selectedLocations = selectedValues(multiControls[0]);
       const selectedDurations = selectedValues(multiControls[1]);
       const selectedStates = selectedValues(multiControls[2]);
@@ -1178,8 +1279,10 @@ function buildHtmlReport(payload, options = {}) {
 
       const matchingScenarios = [];
       let matchingRows = 0;
+      let missingCount = 0;
+      let highCount = 0;
       for (const scenario of reportData.scenarios) {
-        const scenarioMatch = (!dateFrom || scenario.date >= dateFrom)
+        const scenarioMatch = datesValid && (!dateFrom || scenario.date >= dateFrom)
           && (!dateTo || scenario.date <= dateTo)
           && (!selectedDurations.size || selectedDurations.has(scenario.duration));
         if (!scenarioMatch) continue;
@@ -1197,11 +1300,28 @@ function buildHtmlReport(payload, options = {}) {
         if (rows.length > 0) {
           matchingScenarios.push({ scenario, rows });
           matchingRows += rows.length;
+          rows.forEach((row) => {
+            const view = offerView === "all" ? row[3] : row[2];
+            missingCount += Number(view[15] === "missing");
+            highCount += Number(Boolean(view[16]));
+          });
         }
       }
 
       matchingScenariosCache = matchingScenarios;
       matchingRowsCache = matchingRows;
+      document.getElementById("summary-view").textContent = transmissionControl.selectedOptions[0].textContent
+        + " · " + locationTypeControl.selectedOptions[0].textContent + activeFilterSuffix();
+      document.getElementById("summary-scenarios").textContent = matchingScenarios.length;
+      document.getElementById("summary-scenarios-label").textContent = polishPlural(matchingScenarios.length, "scenariusz", "scenariusze", "scenariuszy");
+      document.getElementById("summary-checks").textContent = matchingRows;
+      document.getElementById("summary-checks-label").textContent = polishPlural(matchingRows, "sprawdzenie", "sprawdzenia", "sprawdzeń") + " lokalizacji";
+      document.getElementById("summary-missing").textContent = missingCount;
+      document.getElementById("summary-high").textContent = highCount;
+      copyFallback.hidden = true;
+      viewFeedback.textContent = "";
+      clearTimeout(feedbackTimer);
+      viewFeedback.classList.remove("is-open");
       renderedScenarioCount = 0;
       renderScenarioPage(false);
       updateCompactFilterToggle(toolbar.hidden);
@@ -1253,22 +1373,47 @@ function buildHtmlReport(payload, options = {}) {
       });
     });
     resetControl.addEventListener("click", resetFilters);
+    document.getElementById("empty-reset").addEventListener("click", () => {
+      resetFilters();
+      (toolbar.hidden ? filterToggle : transmissionControl).focus();
+    });
     copyViewControl.addEventListener("click", async () => {
+      clearTimeout(feedbackTimer);
+      copyViewControl.disabled = true;
       try {
+        if (location.protocol === "file:") throw new Error("local-file");
         await navigator.clipboard.writeText(window.location.href);
-        copyViewControl.textContent = "Link skopiowany";
+        viewFeedback.textContent = "Link do wybranego widoku skopiowany.";
       } catch {
-        copyViewControl.textContent = "Nie udało się skopiować";
+        if (location.protocol === "file:") {
+          viewFeedback.textContent = "To lokalny plik. Do udostępnienia potrzebna jest opublikowana wersja raportu.";
+        } else {
+          viewFeedback.textContent = "Schowek jest niedostępny. Link do widoku:";
+          copyFallback.hidden = false;
+          const input = document.getElementById("view-link");
+          input.value = window.location.href;
+          input.focus();
+          input.select();
+        }
+      } finally {
+        viewFeedback.classList.add("is-open");
+        feedbackTimer = window.setTimeout(() => viewFeedback.classList.remove("is-open"), 5000);
+        copyViewControl.disabled = false;
       }
-      window.setTimeout(() => { copyViewControl.textContent = "Kopiuj widok"; }, 1800);
     });
     filterToggle.addEventListener("click", () => {
       toolbar.hidden = !toolbar.hidden;
       updateCompactFilterToggle(toolbar.hidden);
     });
     loadMoreControl.addEventListener("click", () => {
+      const previousCount = renderedScenarioCount;
       visibleScenarioLimit += scenarioPageSize;
       renderScenarioPage(true);
+      const nextHeading = reportResults.children[previousCount]?.querySelector("h2");
+      if (nextHeading) {
+        nextHeading.tabIndex = -1;
+        nextHeading.focus();
+      }
     });
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".multi-filter")) {
@@ -1277,7 +1422,9 @@ function buildHtmlReport(payload, options = {}) {
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
+        const active = document.activeElement.closest(".multi-filter[open]");
         multiControls.forEach((control) => { control.open = false; });
+        if (active) active.querySelector("summary").focus();
       }
     });
     compactViewport.addEventListener("change", syncCompactLayout);

@@ -1067,7 +1067,7 @@ runTest("buildHtmlReport defaults to all cars and airports with optional automat
   assert.match(html, /id="filter-date-from"/);
   assert.match(html, /id="filter-date-to"/);
   assert.match(html, /id="reset-filters"/);
-  assert.match(html, /id="copy-view"[^>]*aria-live="polite"/);
+  assert.match(html, /id="view-feedback"[^>]*aria-live="polite"/);
   assert.match(html, /id="toggle-filters"[^>]*aria-controls="report-filters"/);
   assert.match(html, /id="results-status"[^>]*aria-live="polite"/);
   assert.match(html, /id="empty-state" hidden/);

@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DiscoverCars report</title>
+  <link rel="icon" href="data:,">
   <style>
+    .archive-nav a { display: inline-flex; align-items: center; min-height: 44px; color: #9dccff; text-underline-offset: 3px; }
+    .archive-nav a:focus-visible { outline: 3px solid #79b8ff; outline-offset: 3px; }
     :root {
       --bg: #0b0d10;
       --panel: #11151b;
@@ -16,7 +19,7 @@
       --yellow-text: #253040;
       --blue-bg: #1e5bd7;
       --blue-text: #ffffff;
-      --orange-bg: #d96b00;
+      --orange-bg: #a44800;
       --orange-text: #ffffff;
       --magenta-bg: #a61e74;
       --magenta-text: #ffffff;
@@ -297,6 +300,8 @@
   </style>
 </head>
 <body data-offer-view="all">
+  <nav class="archive-nav" aria-label="Raporty"><a href="https://prejsik.github.io/discovercars-tool/manual-reports/index.html">Wróć do raportów ręcznych</a></nav>
+  <main>
   <h1>DiscoverCars report</h1>
   <div class="meta">Generated at: 2026-07-11T10:55:32.017Z | Time zone: Europe/Warsaw</div>
   <div class="quality-banner quality-degraded"><strong>Raport zawiera ostrzezenia kontroli jakosci.</strong> Niepelne chunki scrapera po retry: 1. Validation WARNING: Pominiete rekomendacje (131). Validation WARNING: Cele rankingowe nieosiagalne po finalnej stawce (556).</div>
@@ -40488,6 +40493,7 @@
     </table>
     
   </section>
+  </main>
   <script>
     const transmissionControl = document.getElementById("filter-transmission");
     const locationTypeControl = document.getElementById("filter-location-type");
