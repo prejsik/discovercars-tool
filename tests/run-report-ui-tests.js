@@ -81,6 +81,8 @@ async function run() {
     assert.match(await page.locator("#results-status").innerText(), /Scenariusze: 30\/30/);
     assert.equal(await page.locator("#report-filters").getAttribute("hidden"), "");
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
+    await page.locator(".scenario").first().scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector("tbody tr")?.innerText.includes("Manual Competitor"));
     assert.match(await page.locator("tbody tr").first().innerText(), /Manual Competitor/);
 
     await page.locator("#toggle-filters").click();
@@ -122,6 +124,8 @@ async function run() {
     await page.locator("#empty-reset").click();
     assert.equal(await page.locator("#date-error").isVisible(), false);
     assert.equal(await page.locator(".scenario:visible").count(), 20);
+    assert.equal(await page.locator(".offer-view-automatic").count(), 0, "Do not render the inactive transmission view");
+    assert.equal(await page.locator(".scenario").first().evaluate((element) => getComputedStyle(element).contentVisibility), "auto");
     assert.equal(await page.locator("#summary-checks").innerText(), "30");
     await page.selectOption("#filter-location-type", "all");
     assert.equal(await page.locator("#summary-checks").innerText(), "60");
@@ -159,6 +163,22 @@ async function run() {
     assert.equal(await page.locator("#filter-duration .t-dropdown").evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
     await page.keyboard.press("Escape");
 
+    await page.locator("#load-more").click();
+    assert.equal(await page.locator(".scenario").count(), 30);
+    await page.emulateMedia({ media: "print" });
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const printedSections = await page.locator(".scenario").evaluateAll(elements => elements.map(element => ({
+      visibility: getComputedStyle(element).contentVisibility,
+      text: element.querySelector("tbody tr").innerText
+    })));
+    assert.equal(printedSections.length, 30, "Print layout must preserve every loaded scenario");
+    assert.ok(printedSections.every(section => section.visibility === "visible" && section.text.includes("Manual Competitor")));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.locator(".scenario").count(), 30, "Returning from print must preserve pagination");
+
     const signalFixture = buildFixture();
     signalFixture.scenarios = [signalFixture.scenarios[0]];
     const automatic = signalFixture.scenarios[0].offer_views_by_location[signalFixture.locations[0]].automatic;
@@ -170,6 +190,7 @@ async function run() {
     assert.equal(await page.locator("#summary-missing").innerText(), "0");
     assert.equal(await page.locator("#summary-high").innerText(), "0");
     await page.selectOption("#filter-transmission", "automatic");
+    assert.equal(await page.locator(".offer-view-all").count(), 0, "Remove the previous view when switching transmission");
     assert.equal(await page.locator("#summary-missing").innerText(), "1");
     assert.equal(await page.locator("#summary-high").innerText(), "1");
     await page.selectOption("#filter-location-type", "all");
@@ -179,6 +200,9 @@ async function run() {
       await page.reload();
       assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true, `Overflow at ${width}px`);
     }
+    await page.emulateMedia({ media: "print" });
+    await page.reload();
+    assert.equal(await page.locator(".scenario").count(), 1, "Opening directly in print media must render results");
     assert.deepEqual(browserErrors, []);
   } finally {
     await browser.close();

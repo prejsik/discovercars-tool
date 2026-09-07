@@ -806,6 +806,12 @@ function buildHtmlReport(payload, options = {}) {
       padding-top: 8px;
       border-top: 1px solid var(--line);
       overflow-x: visible;
+      content-visibility: auto;
+      contain-intrinsic-block-size: auto calc(60px + var(--scenario-row-count) * 28px);
+    }
+
+    @media print {
+      .scenario { content-visibility: visible; contain-intrinsic-block-size: none; }
     }
 
     h2 {
@@ -953,7 +959,7 @@ function buildHtmlReport(payload, options = {}) {
       .multi-options { max-width: calc(100vw - 20px); }
       .filter-field:nth-of-type(even) .multi-options { left: auto; right: 0; }
       .results-status { margin-top: 0; }
-      .scenario { margin-bottom: 26px; }
+      .scenario { margin-bottom: 26px; contain-intrinsic-block-size: auto calc(42px + var(--scenario-row-count) * 288px); }
       table, tbody, tr, td { display: block; width: 100%; }
       table { border: 0; background: transparent; }
       colgroup, thead { display: none; }
@@ -1102,16 +1108,17 @@ function buildHtmlReport(payload, options = {}) {
       return '<span class="' + classes + '"' + titleAttributes + ">" + safeContent + "</span>";
     }
 
-    function dualCell(automaticContent, allContent, automaticClass = "", allClass = "", automaticTitle = "", allTitle = "") {
+    function viewCell(mode, content, className = "", title = "") {
       return '<td class="view-cell">'
-        + viewSpan("automatic", automaticContent, automaticClass, automaticTitle)
-        + viewSpan("all", allContent, allClass, allTitle)
+        + viewSpan(mode, content, className, title)
         + "</td>";
     }
 
     function buildRow(row, index) {
       const automatic = row[2];
       const all = row[3];
+      const mode = transmissionControl.value;
+      const view = mode === "all" ? all : automatic;
       return '<tr class="' + (index % 2 === 0 ? "even" : "odd")
         + '" data-location="' + escapeHtml(row[0])
         + '" data-location-type="' + row[1]
@@ -1121,15 +1128,15 @@ function buildHtmlReport(payload, options = {}) {
         + '" data-top1-high-all="' + all[16] + '">'
         + '<td class="index">' + (index + 1) + "</td>"
         + '<td class="location">' + escapeHtml(row[0]) + "</td>"
-        + dualCell(automatic[0], all[0], automatic[1], all[1])
-        + dualCell(automatic[2], all[2], automatic[3], all[3], automatic[4], all[4])
-        + dualCell(automatic[5], all[5], automatic[6], all[6])
-        + dualCell(automatic[7], all[7])
-        + dualCell(automatic[8], all[8], automatic[9], all[9])
-        + dualCell(automatic[10], all[10])
-        + dualCell(automatic[11], all[11], automatic[12], all[12])
-        + dualCell(automatic[13], all[13], "rank-cell", "rank-cell")
-        + dualCell(automatic[14], all[14], "count-cell", "count-cell")
+        + viewCell(mode, view[0], view[1])
+        + viewCell(mode, view[2], view[3], view[4])
+        + viewCell(mode, view[5], view[6])
+        + viewCell(mode, view[7])
+        + viewCell(mode, view[8], view[9])
+        + viewCell(mode, view[10])
+        + viewCell(mode, view[11], view[12])
+        + viewCell(mode, view[13], "rank-cell")
+        + viewCell(mode, view[14], "count-cell")
         + "</tr>";
     }
 
@@ -1141,7 +1148,7 @@ function buildHtmlReport(payload, options = {}) {
 
     function buildScenarioTable(scenario, rows) {
       const safeTitle = escapeHtml(scenario.title);
-      return '<section class="scenario" data-date="' + escapeHtml(scenario.date) + '" data-duration="' + escapeHtml(scenario.duration) + '">'
+      return '<section class="scenario" style="--scenario-row-count: ' + rows.length + '" data-date="' + escapeHtml(scenario.date) + '" data-duration="' + escapeHtml(scenario.duration) + '">'
         + "<h2>" + safeTitle + "</h2>"
         + '<table aria-label="Porównanie cen: ' + safeTitle + '"><colgroup><col class="col-index"><col class="col-location"><col class="col-company"><col class="col-rate"><col class="col-company"><col class="col-rate"><col class="col-company"><col class="col-rate"><col class="col-mm-rate"><col class="col-rank"><col class="col-count"></colgroup>'
         + '<thead><tr><th scope="col">#</th><th scope="col">Lokalizacja</th><th scope="col">Top 1 firma</th><th scope="col">Top 1 PLN/d</th><th scope="col">Top 2 firma</th><th scope="col">Top 2 PLN/d</th><th scope="col">Top 3 firma</th><th scope="col">Top 3 PLN/d</th><th scope="col">MM PLN/d</th><th scope="col" title="Pozycja MM Cars Rental w rankingu firm">Pozycja MM</th><th scope="col" title="Liczba pojedynczych ofert tańszych od oferty MM Cars Rental">Tańsze oferty</th></tr></thead>'
@@ -1164,9 +1171,14 @@ function buildHtmlReport(payload, options = {}) {
       filterToggle.setAttribute("aria-expanded", String(!collapsed));
     }
 
+    let appliedCompactLayout = null;
     function syncCompactLayout() {
+      const compact = compactViewport.matches;
+      // Print media can cross the breakpoint without changing the on-screen view.
+      if (appliedCompactLayout !== null && (window.matchMedia("print").matches || compact === appliedCompactLayout)) return;
+      appliedCompactLayout = compact;
       visibleScenarioLimit = scenarioPageSize;
-      toolbar.hidden = compactViewport.matches;
+      toolbar.hidden = compact;
       updateCompactFilterToggle(toolbar.hidden);
       applyFilters(false);
     }
