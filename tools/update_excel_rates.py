@@ -863,6 +863,13 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
     rules = config.get("minimum_rates") or {}
+    zone = normalize_code(target.get("zone"))
+    overrides = {normalize_code(key): value for key, value in (rules.get("zone_overrides_pln_day") or {}).items()}
+    if zone in overrides:
+        minimum = parse_number(overrides[zone])
+        if minimum is None or not math.isfinite(minimum) or minimum < 0:
+            raise ValueError(f"Invalid minimum rate override for zone {zone}.")
+        return minimum, f"Minimum dla strefy {zone}: {format_rate_for_comment(minimum)} PLN brutto/dzien."
     minimum = parse_number(rules.get("global_min_pln_day")) or 0
     reason = f"Minimum globalne: {format_rate_for_comment(minimum)} PLN brutto/dzien." if minimum else ""
 
@@ -1103,6 +1110,13 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
             parts.append(
                 f"{start_date}-{end_date}, duration {min_days}-{max_days}: {format_rate_for_comment(min_rate)} PLN"
             )
+
+    zone_overrides = rules.get("zone_overrides_pln_day") or {}
+    if zone_overrides:
+        parts.append("Wyjatki strefowe zastepuja pozostale minima: " + ", ".join(
+            f"{normalize_code(zone)}: {format_rate_for_comment(parse_number(rate))} PLN"
+            for zone, rate in zone_overrides.items()
+        ))
 
     if bands:
         return "Floor cenowy chroni przed rekomendacja i zmiana ponizej: " + "; ".join(parts) + "."

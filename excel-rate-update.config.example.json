@@ -55,6 +55,12 @@
   "pricing_rules_file": "pricing-rules.config.example.json",
   "minimum_rates": {
     "global_min_pln_day": 0,
+    "zone_overrides_pln_day": {
+      "KRDW": 39,
+      "KRGA": 39,
+      "KRLO": 39,
+      "KRTI": 39
+    },
     "bands": [
       { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 1, "max_days": 7, "min_pln_day": 70 },
       { "start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 8, "max_days": 20, "min_pln_day": 115 },

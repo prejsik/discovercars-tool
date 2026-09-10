@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "be37af71fd6764db2409f785d8325966a92838eb912bd0124e2d85bbd3c489a9",
-  "confirmed_at": "2026-09-02T15:16:25+02:00",
+  "workbook_sha256": "17632c1797c443b11d5631d68448403e26ed0b0ce91ea41622101e15ef82aeaa",
+  "confirmed_at": "2026-09-10T20:27:49+02:00",
   "confirmed_by": "user",
-  "note": "User supplied the INCLUSIVE POA workbook as the new DiscoverCars baseline for recommendations and import files on 2026-09-02. It includes the current class set and rates. Live verification is produced by the mandatory daily sanity check."
+  "note": "User designated MM Cars Rental Rental Rates ( INCLUSIVE FP ) 10-Sep-26 (2).xlsx as the new baseline for the next scheduled DiscoverCars run on 2026-09-10. The supplied workbook is preserved byte-for-byte. PDAH and FVMD rates remain excluded from updates. Live verification is produced by the mandatory daily sanity check."
 }

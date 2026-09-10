@@ -481,6 +481,10 @@ Minimalne stawki przy aktualizacji Excela:
 - od `2026-09-01` do `2027-01-31` dla duration `1-35` stawka nie spada ponizej `50 PLN brutto/dzien`,
 - dla `2026-08-31` nie jest stosowany dodatkowy floor okresowy.
 
+Wyjatek dla Krakowa: `minimum_rates.zone_overrides_pln_day` ustawia minimum `39 PLN brutto/dzien` dla `KRDW`, `KRGA`, `KRLO` i `KRTI`, zastepujac pozostale minima dla tych stref. Nie wymusza obnizki do 39 PLN i nie znosi ochrony klas, dat swiatecznych ani zakazu zmian duration od 8 dni.
+
+`PDAH` i `FVMD` zachowuja stawki z potwierdzonego pliku bazowego we wszystkich przedzialach; rekomendacje, parytet i floor nie moga ich zmieniac.
+
 Domyslnie updater zmienia wszystkie grupy poza `FVMD`, `SWAV`, `CFAV`, `EDAV` i `PDAH`. `CFAV`, `EDAV` i `PDAH` sa kopiowane z pliku bazowego bez zmian: nie obejmuja ich rekomendacje scrapera, stale stawki, kopiowanie z innych klas, korekty grupowe ani parytet cen. `SWAV` moze byc tylko podswietlany kontrolnie ponizej `150 PLN/dzien`.
 
 Wycofane opcje `fixed_rate_groups`, `mirrored_rate_groups` i `competitor_evidence_sheet` nie sa juz obslugiwane. Stare konfiguracje z aktywna wartoscia tych opcji sa odrzucane przed otwarciem Excela; puste wartosci pozostaja zgodne. Ceny konkurentow sa widoczne w `Recommendations Review`.

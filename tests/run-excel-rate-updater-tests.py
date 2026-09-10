@@ -19,10 +19,12 @@ from tools.update_excel_rates import (  # noqa: E402
     build_change_statistics,
     build_targets,
     build_validation_rows,
+    calculate_target_base_rate,
     get_duration_columns,
     get_delta_fill,
     get_import_row_limit,
     get_minimum_rate,
+    get_floor_legend_text,
     highlight_excluded_group_rates,
     load_baseline_confirmation,
     load_config,
@@ -242,6 +244,14 @@ def main():
         example_config,
     )
     assert_equal(september_floor, 50, "floor from September 2026")
+    for zone in ("KRDW", "KRGA", "KRLO", "KRTI"):
+        target = {"zone": zone, "target_date": date(2026, 9, 20), "rental_days": 2,
+                  "duration_min_days": 2, "duration_max_days": 2, "suggested_rate_pln_day": 30}
+        assert_equal(get_minimum_rate(target, example_config)[0], 39, f"Krakow floor for {zone}")
+        assert_equal(calculate_target_base_rate(target, 90, example_config)[0], 39, f"Krakow update clamped for {zone}")
+        assert_equal(get_minimum_rate({**target, "zone": "WALO"}, example_config)[0], 50, "other cities keep their floor")
+    floor_legend = get_floor_legend_text(example_config)
+    assert "39 PLN" in floor_legend and "KRLO" in floor_legend and "KRTI" in floor_legend
     august_gap_floor, _ = get_minimum_rate(
         {"target_date": date(2026, 8, 31), "duration_min_days": 1, "duration_max_days": 35},
         example_config,
@@ -313,6 +323,7 @@ def main():
             "CFAV": [140, 141, 142, 143, 144, 145],
             "EDAV": [150, 151, 152, 153, 154, 155],
             "PDAH": [160, 161, 162, 163, 164, 165],
+            "FVMD": [260, 261, 262, 263, 264, 265],
         }
         build_minimal_workbook(
             frozen_workbook_path,
@@ -360,14 +371,14 @@ def main():
         for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
             assert_equal(frozen_ws.cell(frozen_rows[group], 10).value, 222, f"{group} follows the recommendation")
         assert_equal(frozen_ws.cell(frozen_rows["EDMV"], 10).value, 223, "EDMV premium remains active")
-        for group in ("CFAV", "EDAV", "PDAH"):
+        for group in ("CFAV", "EDAV", "PDAH", "FVMD"):
             row = frozen_rows[group]
             assert_equal(
                 [frozen_ws.cell(row, col).value for col in range(9, 15)],
                 frozen_group_rates[group],
                 f"{group} remains unchanged from baseline",
             )
-        assert not ({"CFAV", "EDAV", "PDAH"} & {str(change["group"]) for change in frozen_summary["changes"]})
+        assert not ({"CFAV", "EDAV", "PDAH", "FVMD"} & {str(change["group"]) for change in frozen_summary["changes"]})
         frozen_book.close()
 
         holiday_workbook_path = temporary_path / "holiday-protection.xlsx"
