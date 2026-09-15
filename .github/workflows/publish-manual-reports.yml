@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/publish-manual-reports.yml"
+      - "tools/manual_report_message.py"
       - "manual-reports/**"
   workflow_dispatch:
 
@@ -136,7 +137,7 @@ jobs:
           fi
 
           if [[ "$DEPLOY_OUTCOME" == "success" ]]; then
-            message=$(printf 'DiscoverCars: reczne raporty HTML sa opublikowane.\n\nLista raportow:\n%s\n\nGitHub Actions run:\n%s\n' "$INDEX_URL" "$RUN_URL")
+            message=$(python3 tools/manual_report_message.py --index=manual-reports/index.html --url="$INDEX_URL")
           else
             message=$(printf 'DiscoverCars: publikacja recznych raportow nie powiodla sie.\n\nStatus wdrozenia: %s\nGitHub Actions run:\n%s\n' "${DEPLOY_OUTCOME:-brak danych}" "$RUN_URL")
           fi
