@@ -46,7 +46,7 @@ DEFAULT_CONFIG = {
     "apply_groups": "all",
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
-    "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+    "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
     "protected_rate_periods": [],
     "excluded_group_highlights": {
         "SWAV": 150,

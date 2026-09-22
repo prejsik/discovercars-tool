@@ -204,7 +204,7 @@ def main():
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
     assert_equal(
         example_config["excluded_groups"],
-        ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+        ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
         "excluded and unchanged groups",
     )
     assert_equal(example_config["max_import_rows"], 28000, "broker import row limit")
@@ -324,6 +324,7 @@ def main():
             "EDAV": [150, 151, 152, 153, 154, 155],
             "PDAH": [160, 161, 162, 163, 164, 165],
             "FVMD": [260, 261, 262, 263, 264, 265],
+            "PDAV": [400, 350, 300, 290, 260, 250],
         }
         build_minimal_workbook(
             frozen_workbook_path,
@@ -371,14 +372,14 @@ def main():
         for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
             assert_equal(frozen_ws.cell(frozen_rows[group], 10).value, 222, f"{group} follows the recommendation")
         assert_equal(frozen_ws.cell(frozen_rows["EDMV"], 10).value, 223, "EDMV premium remains active")
-        for group in ("CFAV", "EDAV", "PDAH", "FVMD"):
+        for group in ("CFAV", "EDAV", "PDAH", "FVMD", "PDAV"):
             row = frozen_rows[group]
             assert_equal(
                 [frozen_ws.cell(row, col).value for col in range(9, 15)],
                 frozen_group_rates[group],
                 f"{group} remains unchanged from baseline",
             )
-        assert not ({"CFAV", "EDAV", "PDAH", "FVMD"} & {str(change["group"]) for change in frozen_summary["changes"]})
+        assert not ({"CFAV", "EDAV", "PDAH", "FVMD", "PDAV"} & {str(change["group"]) for change in frozen_summary["changes"]})
         frozen_book.close()
 
         holiday_workbook_path = temporary_path / "holiday-protection.xlsx"

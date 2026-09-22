@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "8067e55483a86df5d0d84be702bfb8ee399f03d47fca816163454babf157353f",
+  "workbook_sha256": "e4ef5d581397207131da9858340f35d8f567cf2a74045e2db57374535db32b1c",
   "confirmed_at": "2026-09-22",
   "confirmed_by": "user",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 22-Sep-26.xlsx",
-  "note": "User designated this INCLUSIVE POA workbook as the new baseline for future rate updates on 2026-09-22. Preserve the supplied bytes, rates, formatting and package heading. The internal workbook path retains its historical inclusive-fp filename for compatibility. Existing pricing rules, excluded classes and holiday protection remain unchanged."
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 22-Sep-26 (1).xlsx",
+  "note": "User designated this INCLUSIVE FP workbook as the new baseline on 2026-09-22, superseding the earlier POA baseline. Preserve the supplied bytes, rates, formatting and package heading. PDAH must retain baseline rates without recommendation changes; PDAV protection requested previously also remains in force. Other pricing rules, excluded classes and holiday protection remain unchanged."
 }

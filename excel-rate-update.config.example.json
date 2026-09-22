@@ -17,7 +17,7 @@
   "apply_groups": "all",
   "max_import_rows": 28000,
   "max_recommendation_duration_days": 7,
-  "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH"],
+  "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
   "excluded_group_highlights": {
     "SWAV": 150
   },
