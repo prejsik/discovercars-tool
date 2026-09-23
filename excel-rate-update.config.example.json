@@ -55,6 +55,10 @@
   "pricing_rules_file": "pricing-rules.config.example.json",
   "minimum_rates": {
     "global_min_pln_day": 0,
+    "scoped_overrides": [
+      { "zones": ["KRTI", "KRLO"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 2, "max_days": 2, "min_pln_day": 30 },
+      { "zones": ["KRTI", "KRLO"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 3, "max_days": 4, "min_pln_day": 30 }
+    ],
     "zone_overrides_pln_day": {
       "KRDW": 39,
       "KRGA": 39,

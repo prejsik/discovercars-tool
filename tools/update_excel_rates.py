@@ -864,6 +864,24 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
     rules = config.get("minimum_rates") or {}
     zone = normalize_code(target.get("zone"))
+    group = normalize_code(target.get("group"))
+    duration_min = int(parse_number(target.get("duration_min_days")) or parse_number(target.get("rental_days")) or 0)
+    duration_max = int(parse_number(target.get("duration_max_days")) or duration_min)
+    scoped_rates = []
+    for override in rules.get("scoped_overrides") or []:
+        if (
+            zone in {normalize_code(item) for item in override.get("zones", [])}
+            and group in {normalize_code(item) for item in override.get("groups", [])}
+            and duration_min == override.get("min_days")
+            and duration_max == override.get("max_days")
+        ):
+            rate = parse_number(override.get("min_pln_day"))
+            if rate is None or not math.isfinite(rate) or rate < 0:
+                raise ValueError(f"Invalid scoped minimum rate for {zone}/{group}.")
+            scoped_rates.append(rate)
+    if scoped_rates:
+        minimum = max(scoped_rates)
+        return minimum, f"Minimum dla {zone}/{group}, duration {duration_min}-{duration_max}: {format_rate_for_comment(minimum)} PLN brutto/dzien."
     overrides = {normalize_code(key): value for key, value in (rules.get("zone_overrides_pln_day") or {}).items()}
     if zone in overrides:
         minimum = parse_number(overrides[zone])
@@ -1117,6 +1135,14 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
             f"{normalize_code(zone)}: {format_rate_for_comment(parse_number(rate))} PLN"
             for zone, rate in zone_overrides.items()
         ))
+
+    for override in rules.get("scoped_overrides") or []:
+        parts.append(
+            "Wyjatek nadrzedny: strefy " + ", ".join(override["zones"])
+            + "; klasy " + ", ".join(override["groups"])
+            + f"; duration {override['min_days']}-{override['max_days']}: {format_rate_for_comment(override['min_pln_day'])} PLN"
+            + " (nie znosi wykluczen klas ani ochrony dat)"
+        )
 
     if bands:
         return "Floor cenowy chroni przed rekomendacja i zmiana ponizej: " + "; ".join(parts) + "."
@@ -2148,7 +2174,7 @@ def build_city_top1_airport_rate_caps(
                             reference_adjustment = get_group_rate_adjustment(reference_group, config)
                             current_rate = parse_number(ws.cell(airport_rows[reference_group], rate_col).value)
                             current_base = None if current_rate is None else current_rate - reference_adjustment
-                            projected_base, _, _, _ = calculate_target_base_rate(airport_target, current_base, config)
+                            projected_base, _, _, _ = calculate_target_base_rate({**airport_target, "group": reference_group}, current_base, config)
                             for group in candidate_groups:
                                 if group in airport_rows:
                                     projected_rates[group] = projected_base + get_group_rate_adjustment(group, config)
@@ -2720,7 +2746,7 @@ def apply_updates(
             group_adjustment = get_group_rate_adjustment(group, config)
             current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
             base_rate, suggested_rate, minimum_rate, minimum_reason = calculate_target_base_rate(
-                target,
+                {**target, "group": group},
                 current_base_equivalent,
                 config,
             )

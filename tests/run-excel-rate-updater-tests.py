@@ -202,6 +202,14 @@ def main():
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    for zone in ("KRLO", "KRTI", "KRDW", "KRGA", "WALO"):
+        for group in ("CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAV", "PDAH", "FVMD"):
+            for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20), (21, 35)):
+                target = {"zone": zone, "group": group, "target_date": date(2026, 9, 28), "duration_min_days": low, "duration_max_days": high}
+                scoped = zone in {"KRLO", "KRTI"} and group in {"CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"} and (low, high) in {(2, 2), (3, 4)}
+                expected = 30 if scoped else 50 if zone == "WALO" else 39
+                assert_equal(get_minimum_rate(target, example_config)[0], expected, f"scoped floor {zone}/{group}/{low}-{high}")
+    assert "Wyjatek nadrzedny" in get_floor_legend_text(example_config)
     assert_equal(
         example_config["excluded_groups"],
         ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
@@ -381,6 +389,35 @@ def main():
             )
         assert not ({"CFAV", "EDAV", "PDAH", "FVMD", "PDAV"} & {str(change["group"]) for change in frozen_summary["changes"]})
         frozen_book.close()
+
+        scoped_path = temporary_path / "scoped-floor.xlsx"
+        scoped_json = temporary_path / "scoped-floor.json"
+        scoped_output = temporary_path / "scoped-floor-output.xlsx"
+        scoped_groups = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAV", "PDAH"]
+        build_minimal_workbook(scoped_path, [
+            [group, None, None, zone, "09-06-26", "28-09-26", "28-09-26", "28-09-26", *([100] * 6)]
+            for zone in ("KRLO", "KRTI") for group in scoped_groups
+        ])
+        scoped_json.write_text(json.dumps({"recommendations": [
+            {"action": "decrease", "recommendation_type": "top3_small_decrease", "location": "Krakow Test", "start_date": "2026-09-28", "rental_days": days, "suggested_rate_pln_day": 20, "benchmark_rate_pln_day": 21}
+            for days in (2, 3, 4)
+        ]}), encoding="utf-8")
+        scoped_config = merge_config({
+            "minimum_rates": example_config["minimum_rates"],
+            "excluded_groups": example_config["excluded_groups"],
+            "group_price_parity": example_config["group_price_parity"],
+            "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
+            "location_zones": {"Krakow Test": ["KRLO", "KRTI"]},
+            "pickup_date_expansion": {"enabled": False},
+            "city_top1_airport_cap": {"enabled": False},
+        })
+        apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
+        scoped_book = openpyxl.load_workbook(scoped_output)
+        for row in scoped_book["Sheet1"].iter_rows(min_row=5, values_only=True):
+            expected = 100 if row[0] in {"EDAV", "PDAV", "PDAH"} else 31 if row[0] == "EDMV" else 30
+            assert_equal(row[9:11], (expected, expected), f"scoped applied floor {row[0]}/{row[3]}")
+            assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "unaffected duration bands")
+        scoped_book.close()
 
         holiday_workbook_path = temporary_path / "holiday-protection.xlsx"
         holiday_recommendations_path = temporary_path / "holiday-protection-recommendations.json"
