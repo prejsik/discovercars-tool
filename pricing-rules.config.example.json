@@ -1,5 +1,16 @@
 {
   "pricing": {
+    "priorityTop1Rules": [{
+      "id": "krakow-airport-autumn-2026",
+      "locations": ["Krakow Airport (KRK)"],
+      "zones": ["KRLO", "KRTI"],
+      "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
+      "startDate": "2026-09-24",
+      "endDate": "2026-10-25",
+      "durationBands": [[2, 2], [3, 4]],
+      "transmission": "automatic",
+      "minimumRatePlnDay": 30
+    }],
     "top1GapThresholdPlnDay": 10,
     "top1RaiseBufferPlnDay": 1,
     "top1UndercutThresholdPlnDay": 10,

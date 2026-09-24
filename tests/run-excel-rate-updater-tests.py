@@ -419,6 +419,20 @@ def main():
             assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "unaffected duration bands")
         scoped_book.close()
 
+        priority_payload = json.loads(scoped_json.read_text())
+        for item in priority_payload["recommendations"]:
+            item["priority_rule_id"] = "krakow-airport-autumn-2026"
+            item["recommendation_type"] = "force_top1_undercut"
+        scoped_json.write_text(json.dumps(priority_payload), encoding="utf-8")
+        priority_summary = apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
+        priority_book = openpyxl.load_workbook(scoped_output)
+        for row in priority_book["Sheet1"].iter_rows(min_row=5, values_only=True):
+            expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] == "EDMV" else 30
+            assert_equal(row[9:11], (expected, expected), f"priority floor and scoped EDAV permission {row[0]}/{row[3]}")
+            assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "priority leaves other bands unchanged")
+        assert not any(v["status"] == "FAIL" for v in priority_summary["validation"])
+        priority_book.close()
+
         holiday_workbook_path = temporary_path / "holiday-protection.xlsx"
         holiday_recommendations_path = temporary_path / "holiday-protection-recommendations.json"
         holiday_output_path = temporary_path / "holiday-protection-output.xlsx"

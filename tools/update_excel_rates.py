@@ -550,6 +550,20 @@ def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
     return normalize_code(group) in excluded
 
 
+def priority_top1_applies(target: dict[str, Any], group: Any, config: dict[str, Any]) -> bool:
+    for rule in config.get("_priority_top1_rules", []):
+        pickup = parse_date_value(target.get("target_date") or target.get("pickup_date"))
+        band = [target.get("duration_min_days"), target.get("duration_max_days")]
+        if (target.get("priority_rule_id") == rule["id"]
+            and normalize_code(target.get("zone")) in rule["zones"]
+            and normalize_code(group) in rule["groups"]
+            and pickup is not None
+            and parse_date_value(rule["startDate"]) <= pickup <= parse_date_value(rule["endDate"])
+            and band in rule["durationBands"]):
+            return True
+    return False
+
+
 def get_protected_rate_periods(config: dict[str, Any]) -> list[tuple[date, date]]:
     periods: list[tuple[date, date]] = []
     for item in config.get("protected_rate_periods") or []:
@@ -862,6 +876,9 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 
 
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
+    if priority_top1_applies(target, target.get("group"), config):
+        rule = next(r for r in config["_priority_top1_rules"] if r["id"] == target["priority_rule_id"])
+        return float(rule["minimumRatePlnDay"]), "Priorytet top1: minimum 30 PLN brutto/dzien."
     rules = config.get("minimum_rates") or {}
     zone = normalize_code(target.get("zone"))
     group = normalize_code(target.get("group"))
@@ -1356,6 +1373,14 @@ def write_changed_positions_sheet(
             ("FFC7CE", "Male obnizenie top3", f"Obnizka ponizej {top3_limit} PLN/dzien pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel to {undercut_buffer} PLN ponizej tej oferty."),
             ("F4B183", "Przebicie top1", f"MM Cars Rental jest top2 i brakuje mniej niz {undercut_limit} PLN/dzien, zeby zostac top1; rekomendacja ustawia cene {undercut_buffer} PLN ponizej obecnego top1."),
         ]
+    for rule in pricing_rules.get("priorityTop1Rules", []):
+        color, label, description = recommendation_legend_items[-1]
+        recommendation_legend_items[-1] = (color, label, description + " Priorytet top1 - automaty: " +
+            f"{rule['startDate']}-{rule['endDate']} wlacznie; strefy {', '.join(rule['zones'])}; "
+            f"klasy {', '.join(rule['groups'])}; duration "
+            + ', '.join(f"{lo}-{hi}" for lo, hi in rule['durationBands'])
+            + f" dni. Cel: 1 PLN ponizej konkurencji, bez progu obnizki 10 PLN; floor {rule['minimumRatePlnDay']} PLN. "
+            + "EDAV moze byc zmieniana tylko w tym wyjatku, poza nim pozostaje chroniona. Kontrola danych i ochrona dat pozostaja aktywne.")
     legend_items = [
         *recommendation_legend_items,
         ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
@@ -1664,6 +1689,7 @@ def build_validation_rows(
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
         for change in changes
         if normalize_code(change.get("group")) in excluded_groups
+        and not priority_top1_applies(change, change.get("group"), config)
     ]
     missing_benchmark = sorted({
         str(change.get("scenario_id") or change.get("cell"))
@@ -2653,6 +2679,7 @@ def apply_updates(
     import_output_path: Path | None = None,
 ) -> dict[str, Any]:
     input_workbook_sha256 = sha256_file(workbook_path)
+    config = {**config, "_priority_top1_rules": get_pricing_rules(config).get("priorityTop1Rules", [])}
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -2726,7 +2753,7 @@ def apply_updates(
         if not row_targets:
             continue
 
-        if group_is_excluded(group, config):
+        if group_is_excluded(group, config) and not any(priority_top1_applies(t, group, config) for t in row_targets):
             excluded_group_highlight_count += highlight_excluded_group_rates(
                 ws,
                 row,
@@ -2741,6 +2768,11 @@ def apply_updates(
             continue
 
         for target in row_targets:
+            priority = priority_top1_applies(target, group, config)
+            if target.get("priority_rule_id") and not priority:
+                continue
+            if group_is_excluded(group, config) and not priority:
+                continue
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
             group_adjustment = get_group_rate_adjustment(group, config)
@@ -2782,6 +2814,7 @@ def apply_updates(
             broker_markup_multiplier = parse_number(target.get("broker_markup_multiplier")) or 1
             predicted_site_rate = round(new_rate * broker_markup_multiplier, 2)
             change = {
+                "priority_rule_id": target.get("priority_rule_id"),
                 "action": actual_action,
                 "recommendation_action": target["action"],
                 "recommendation_type": target.get("recommendation_type", ""),

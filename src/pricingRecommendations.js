@@ -138,7 +138,14 @@ function listOfferCurrencies(offers) {
 }
 
 function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex }) {
-  const locationData = getScenarioLocationData(scenario, location);
+  const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
+    rule.locations.includes(location)
+    && scenario.start_date >= rule.startDate && scenario.start_date <= rule.endDate
+    && rule.durationBands.some(([low, high]) => scenario.rental_days >= low && scenario.rental_days <= high)
+  );
+  const locationData = priorityRule
+    ? scenario.offer_views_by_location?.[location]?.[priorityRule.transmission]
+    : getScenarioLocationData(scenario, location);
   const topOffers = Array.isArray(locationData?.top_3) ? locationData.top_3.filter(Boolean) : [];
   const mmOffer = locationData?.mm_cars_rental || topOffers.find((offer) => isMmCarsProvider(offer?.provider_name)) || null;
   const top1 = topOffers[0] || null;
@@ -154,6 +161,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const sourceValidation = scenario?.source_validation_by_location?.[location] || { status: "api_unverified", reasons: [] };
 
   const base = {
+    ...(priorityRule ? { priority_rule_id: priorityRule.id, transmission: priorityRule.transmission } : {}),
     scenario_id: scenario.scenario_id || null,
     location,
     start_date: scenario.start_date || null,
@@ -213,7 +221,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     );
   }
 
-  if (options.forceTop1) {
+  if (options.forceTop1 || priorityRule) {
     const benchmarkOffer = mmRank === 1 ? top2 : top1;
     const benchmarkRate = toDailyRate(benchmarkOffer);
     if (!benchmarkOffer || benchmarkRate == null) {
@@ -230,7 +238,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
     const target = roundRate(benchmarkRate - options.undercutBufferPlnDay, options);
     const change = mmRate == null ? null : target - mmRate;
-    if (change != null && Math.abs(change) < options.minChangePlnDay) {
+    if (!priorityRule && change != null && Math.abs(change) < options.minChangePlnDay) {
       return buildNoopRecommendation(base, "MM Cars Rental jest juz w wymaganym przedziale top1.", options, target);
     }
 
