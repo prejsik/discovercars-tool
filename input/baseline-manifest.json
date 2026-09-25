@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "6294f1322cb6f0a7273a94bedebc3084a0943706b7d864b4a2583db7849a3de7",
-  "confirmed_at": "2026-09-24",
+  "workbook_sha256": "6b906fcc56a6c9ced87a0955c64cec43866c5d3a15c92ba8835e6bd66994e467",
+  "confirmed_at": "2026-09-25",
   "confirmed_by": "user",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 24-Sep-26.xlsx",
-  "note": "User confirmed this workbook contains rates currently imported at the broker and designated it as the new baseline on 2026-09-24. Preserve its exact bytes and rates. PDAH and PDAV remain protected. EDAV may change only under the explicit KRLO/KRTI automatic Top1 priority for pickup 2026-09-24 through 2026-10-25 and duration bands 2-2 and 3-4. Other exclusions and holiday protections remain unchanged."
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 25-Sep-26.xlsx",
+  "note": "User designated this workbook as the current DiscoverCars baseline on 2026-09-25 and authorized publishing it to main. Preserve its exact bytes and rates. This baseline update does not change pricing rules, exclusions or holiday protections; these remain defined in the pricing configuration and updater."
 }
