@@ -1,15 +1,27 @@
 {
   "pricing": {
     "priorityTop1Rules": [{
-      "id": "krakow-airport-autumn-2026",
-      "locations": ["Krakow Airport (KRK)"],
-      "zones": ["KRLO", "KRTI"],
+      "id": "all-locations-autumn-2026-short",
+      "locations": ["*"],
+      "zones": ["*"],
       "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
       "startDate": "2026-09-24",
       "endDate": "2026-10-25",
       "durationBands": [[2, 2], [3, 4]],
       "transmission": "automatic",
-      "minimumRatePlnDay": 30
+      "minimumRatePlnDay": 30,
+      "premiumReservePlnDay": 1
+    }, {
+      "id": "all-locations-autumn-2026-week",
+      "locations": ["*"],
+      "zones": ["*"],
+      "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
+      "startDate": "2026-09-24",
+      "endDate": "2026-10-25",
+      "durationBands": [[5, 7]],
+      "transmission": "automatic",
+      "minimumRatePlnDay": 40,
+      "premiumReservePlnDay": 1
     }],
     "top1GapThresholdPlnDay": 10,
     "top1RaiseBufferPlnDay": 1,

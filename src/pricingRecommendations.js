@@ -139,7 +139,7 @@ function listOfferCurrencies(offers) {
 
 function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex }) {
   const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
-    rule.locations.includes(location)
+    (rule.locations.includes("*") || rule.locations.includes(location))
     && scenario.start_date >= rule.startDate && scenario.start_date <= rule.endDate
     && rule.durationBands.some(([low, high]) => scenario.rental_days >= low && scenario.rental_days <= high)
   );
@@ -221,7 +221,27 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     );
   }
 
-  if (options.forceTop1 || priorityRule) {
+  if (priorityRule) {
+    const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
+    const minimumImport = priorityRule.minimumRatePlnDay + (priorityRule.premiumReservePlnDay || 0);
+    const competitors = topOffers.filter((offer) => !isMmCarsProvider(offer.provider_name));
+    for (const [index, competitor] of competitors.entries()) {
+      const rate = toDailyRate(competitor);
+      if (rate == null) continue;
+      const siteTarget = roundRate(rate - options.undercutBufferPlnDay, options);
+      if (roundRate(siteTarget / calibration.multiplier, options) < minimumImport) continue;
+      const targetRank = index + 1;
+      return buildActiveRecommendation({base, options,
+        action: mmRate != null && siteTarget > mmRate ? "increase" : "decrease",
+        recommendationType: targetRank === 1 ? (mmRank === 1 ? "force_top1_maintain" : "force_top1_undercut") : "priority_top3",
+        targetRank,
+        reason: `Najwyzsza osiagalna pozycja przy floor: top${targetRank}; cel 1 PLN ponizej konkurenta, bez limitu obnizki 10 PLN.`,
+        benchmarkOffer: competitor, siteTarget});
+    }
+    return buildNoopRecommendation(base, "Brak potwierdzonego celu w top3 przy wymaganym floor i narzucie brokera; zachowaj stawke bazowa.", options, null, "floor_blocks_top3");
+  }
+
+  if (options.forceTop1) {
     const benchmarkOffer = mmRank === 1 ? top2 : top1;
     const benchmarkRate = toDailyRate(benchmarkOffer);
     if (!benchmarkOffer || benchmarkRate == null) {

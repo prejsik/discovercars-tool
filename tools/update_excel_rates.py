@@ -107,6 +107,7 @@ DEFAULT_CONFIG = {
         "top1_undercut": "F4B183",
         "force_top1_maintain": "9DC3E6",
         "force_top1_undercut": "F4B183",
+        "priority_top3": "FFC7CE",
     },
     "min_excel_change_pln_day": 0.01,
     "colors": {
@@ -555,7 +556,7 @@ def priority_top1_applies(target: dict[str, Any], group: Any, config: dict[str, 
         pickup = parse_date_value(target.get("target_date") or target.get("pickup_date"))
         band = [target.get("duration_min_days"), target.get("duration_max_days")]
         if (target.get("priority_rule_id") == rule["id"]
-            and normalize_code(target.get("zone")) in rule["zones"]
+            and ("*" in rule["zones"] or normalize_code(target.get("zone")) in rule["zones"])
             and normalize_code(group) in rule["groups"]
             and pickup is not None
             and parse_date_value(rule["startDate"]) <= pickup <= parse_date_value(rule["endDate"])
@@ -644,7 +645,7 @@ def target_matches_recommendation_types(target: dict[str, Any], recommendation_t
 
 
 def get_force_top1_base_offset(target: dict[str, Any], config: dict[str, Any]) -> float:
-    if target.get("recommendation_type") not in {"force_top1_maintain", "force_top1_undercut"}:
+    if target.get("recommendation_type") not in {"force_top1_maintain", "force_top1_undercut", "priority_top3"}:
         return 0
     parity = get_group_price_parity(config)
     if parity is None:
@@ -820,6 +821,9 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
             "10 PLN/dzien. Cel jest ustawiony 1 PLN ponizej top2: "
             f"{benchmark_provider} ({benchmark_rate} PLN)."
         )
+    elif recommendation_type == "priority_top3":
+        target_rank = int(parse_number(change.get("target_rank")) or 3)
+        reason = f"Top1 nieosiagalne przy floor. Cel top{target_rank}, 1 PLN ponizej konkurenta {benchmark_provider} ({benchmark_rate} PLN), bez limitu obnizki 10 PLN."
     elif recommendation_type == "top3_small_decrease":
         target_rank = int(parse_number(change.get("target_rank")) or 3)
         reason = (
@@ -856,7 +860,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
         outcome = "spojnosc stawek grup bazowych oraz korekta skonfigurowanych grup premium."
     elif recommendation_type == "top1_gap":
         outcome = "utrzymanie top1 przy cenie 1 PLN ponizej top2."
-    elif recommendation_type == "top3_small_decrease":
+    elif recommendation_type in {"top3_small_decrease", "priority_top3"}:
         target_rank = int(parse_number(change.get("target_rank")) or 3)
         outcome = f"top{target_rank} przy cenie 1 PLN ponizej rywala z top{target_rank}."
     elif recommendation_type == "top1_undercut":
@@ -878,7 +882,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
     if priority_top1_applies(target, target.get("group"), config):
         rule = next(r for r in config["_priority_top1_rules"] if r["id"] == target["priority_rule_id"])
-        return float(rule["minimumRatePlnDay"]), "Priorytet top1: minimum 30 PLN brutto/dzien."
+        return float(rule["minimumRatePlnDay"]), f"Priorytet top1: minimum {rule['minimumRatePlnDay']} PLN brutto/dzien."
     rules = config.get("minimum_rates") or {}
     zone = normalize_code(target.get("zone"))
     group = normalize_code(target.get("group"))
@@ -1317,6 +1321,8 @@ def get_review_status(changes: list[dict[str, Any]]) -> str:
 
 def get_recommendation_label_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
+    if recommendation_type == "priority_top3":
+        return f"Priorytet top{int(parse_number(change.get('target_rank')) or 3)} przy floor"
     if recommendation_type == "group_parity":
         return "Ujednolicenie grup"
     if recommendation_type == "top1_gap":
@@ -1376,11 +1382,11 @@ def write_changed_positions_sheet(
     for rule in pricing_rules.get("priorityTop1Rules", []):
         color, label, description = recommendation_legend_items[-1]
         recommendation_legend_items[-1] = (color, label, description + " Priorytet top1 - automaty: " +
-            f"{rule['startDate']}-{rule['endDate']} wlacznie; strefy {', '.join(rule['zones'])}; "
+            f"{rule['startDate']}-{rule['endDate']} wlacznie; strefy {'wszystkie lokalizacje' if '*' in rule['zones'] else ', '.join(rule['zones'])}; "
             f"klasy {', '.join(rule['groups'])}; duration "
             + ', '.join(f"{lo}-{hi}" for lo, hi in rule['durationBands'])
             + f" dni. Cel: 1 PLN ponizej konkurencji, bez progu obnizki 10 PLN; floor {rule['minimumRatePlnDay']} PLN. "
-            + "EDAV moze byc zmieniana tylko w tym wyjatku, poza nim pozostaje chroniona. Kontrola danych i ochrona dat pozostaja aktywne.")
+            + "Gdy floor blokuje top1, wybierane jest najwyzsze osiagalne top2/top3 bez limitu obnizki 10 PLN. Gdy brak celu w top3, stawka bazowa zostaje. EDAV moze byc zmieniana tylko w tym wyjatku, poza nim pozostaje chroniona. Priorytet zastepuje limit miasto/lotnisko 130%. Kontrola danych i ochrona dat pozostaja aktywne.")
     legend_items = [
         *recommendation_legend_items,
         ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
@@ -2042,8 +2048,10 @@ def build_targets(
                     + "; increases are capped at the current workbook rate."
                 ),
             })
+        priority_rank = max((int(item.get("target_rank") or 1) for item in active), default=1) if representative.get("priority_rule_id") else None
         targets[zone][target_date].append({
             **representative,
+            **({"target_rank": priority_rank, "recommendation_type": "priority_top3" if priority_rank > 1 else representative.get("recommendation_type")} if priority_rank else {}),
             "zone": zone,
             "target_date": target_date,
             "rate_col": representative["rate_col"],
@@ -2172,6 +2180,8 @@ def build_city_top1_airport_rate_caps(
             continue
         for target_date, row_targets in targets_by_date.items():
             for city_target in row_targets:
+                if city_target.get("priority_rule_id") in {r["id"] for r in config.get("_priority_top1_rules", [])}:
+                    continue
                 rate_col = city_target.get("rate_col")
                 if not isinstance(rate_col, int) or not target_matches_recommendation_types(city_target, recommendation_types):
                     continue

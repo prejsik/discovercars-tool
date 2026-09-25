@@ -202,6 +202,8 @@ def main():
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    import runpy
+    runpy.run_path(str(ROOT / "tests/run-priority-fallback-tests.py"))
     for zone in ("KRLO", "KRTI", "KRDW", "KRGA", "WALO"):
         for group in ("CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAV", "PDAH", "FVMD"):
             for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20), (21, 35)):
@@ -421,7 +423,7 @@ def main():
 
         priority_payload = json.loads(scoped_json.read_text())
         for item in priority_payload["recommendations"]:
-            item["priority_rule_id"] = "krakow-airport-autumn-2026"
+            item["priority_rule_id"] = "all-locations-autumn-2026-short"
             item["recommendation_type"] = "force_top1_undercut"
         scoped_json.write_text(json.dumps(priority_payload), encoding="utf-8")
         priority_summary = apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
@@ -432,6 +434,28 @@ def main():
             assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "priority leaves other bands unchanged")
         assert not any(v["status"] == "FAIL" for v in priority_summary["validation"])
         priority_book.close()
+
+        build_minimal_workbook(scoped_path, [
+            [group, None, None, zone, "09-06-26", "25-10-26", "25-10-26", "25-10-26", *([100] * 6)]
+            for zone in ("KRLO", "WA1", "TO1") for group in scoped_groups
+        ])
+        scoped_config["location_zones"] = {"Priority Test": ["KRLO", "WA1", "TO1"]}
+        scoped_config["city_top1_airport_cap"] = example_config["city_top1_airport_cap"]
+        scoped_config["city_zone_airport_zones"] = {"WA1": ["WALO"]}
+        scoped_json.write_text(json.dumps({"recommendations": [
+            {"priority_rule_id": "all-locations-autumn-2026-short" if days <= 4 else "all-locations-autumn-2026-week",
+             "action": "decrease", "recommendation_type": "force_top1_undercut", "location": "Priority Test",
+             "start_date": "2026-10-25", "rental_days": days, "suggested_rate_pln_day": 20, "benchmark_rate_pln_day": 21}
+            for days in range(2, 8)
+        ]}), encoding="utf-8")
+        all_city_summary = apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
+        all_city_book = openpyxl.load_workbook(scoped_output)
+        for row in all_city_book["Sheet1"].iter_rows(min_row=5, values_only=True):
+            expected = (100, 100, 100) if row[0] in {"PDAV", "PDAH"} else (31, 31, 41) if row[0] == "EDMV" else (30, 30, 40)
+            assert_equal(row[9:12], expected, f"all-city short/week floors {row[0]}/{row[3]}")
+            assert_equal((row[8], *row[12:14]), (100, 100, 100), "no changes for 1 or 8+ days")
+        assert not any(v["status"] == "FAIL" for v in all_city_summary["validation"])
+        all_city_book.close()
 
         holiday_workbook_path = temporary_path / "holiday-protection.xlsx"
         holiday_recommendations_path = temporary_path / "holiday-protection-recommendations.json"
