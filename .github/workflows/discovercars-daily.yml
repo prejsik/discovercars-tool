@@ -22,6 +22,9 @@ on:
     - cron: "17 20 * * *"
     - cron: "47 20 * * *"
     - cron: "17 21 * * *"
+    # 10:00 Europe/Warsaw: the gate selects summer or winter UTC time.
+    - cron: "0 8 * * *"
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       locations:
@@ -124,6 +127,17 @@ jobs:
 
           echo "Schedule expression: $trigger_schedule"
           echo "Scheduled UTC trigger maps to Warsaw: $intended_warsaw_time"
+
+          if [[ "$trigger_schedule" == "0 8 * * *" || "$trigger_schedule" == "0 9 * * *" ]]; then
+            if [[ "$intended_warsaw_hour" == "10" ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "run_type=full" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "run_type=skip" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
 
           warsaw_hour="$(TZ=Europe/Warsaw date +%H)"
           if (( 10#$warsaw_hour >= 18 )); then
@@ -232,6 +246,9 @@ jobs:
           else
             default_locations=$(node -e "const {getDailyLocations}=require('./src/locationRegistry'); process.stdout.write(getDailyLocations().join(','));")
             default_rolling_days="$SCHEDULE_ROLLING_DAYS"
+            if [[ "${{ github.event_name }}" == "schedule" && ( "${{ github.event.schedule }}" == "0 8 * * *" || "${{ github.event.schedule }}" == "0 9 * * *" ) ]]; then
+              default_rolling_days="30"
+            fi
             default_durations="$SCHEDULE_DURATIONS"
             default_speed_mode="$SCHEDULE_SPEED_MODE"
           fi
@@ -939,7 +956,9 @@ jobs:
           (
             (steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure') != 'failure' ||
             github.event_name != 'schedule' ||
-            github.event.schedule == '17 21 * * *'
+            github.event.schedule == '17 21 * * *' ||
+            github.event.schedule == '0 8 * * *' ||
+            github.event.schedule == '0 9 * * *'
           )
         shell: bash
         env:
