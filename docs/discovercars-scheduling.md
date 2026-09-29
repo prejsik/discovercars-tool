@@ -6,7 +6,7 @@
 - Day: 30 pickup dates, 09:07 and 09:37 Europe/Warsaw (summer/winter windows are filtered).
 - Same production scraper, locations, durations 2-14, Excel quality checks, Pages and Telegram secrets.
 - GitHub cron is best effort, not a guarantee of results by 14:30.
-- The whole workflow remains serialized to protect shared Pages publishing. A running job may delay another slot.
+- The whole workflow remains serialized to protect shared Pages publishing. `queue: max` preserves pending attempts instead of replacing the previous pending attempt. A running job may delay another slot.
 
 Each scheduled attempt has an explicit slot/date identity. A successful no-op has no publication marker and cannot suppress a retry. A completion marker is uploaded only after successful Pages deployment, Excel artifact upload and final quality checks. API errors fail closed rather than starting an unchecked duplicate. Artifacts expire after seven days; duplicate checks only inspect the last three days.
 

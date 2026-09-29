@@ -6,6 +6,8 @@ const path=require('node:path');
 const http=require('node:http');
 
 async function main() {
+  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/discovercars-daily.yml'),'utf8');
+  assert.match(workflow,/concurrency:\s+group: discovercars-pages-site\s+cancel-in-progress: false\s+queue: max/,'Fallback triggers must not cancel a pending scheduled run');
   const night = resolveSchedule({ event: 'schedule', cron: '17 20 * * *', createdAt: '2026-09-29T00:23:53Z', now: '2026-09-29T00:32:07Z' });
   assert.equal(night.key, 'night-2026-09-29');
   assert.equal(night.rollingDays, 60);

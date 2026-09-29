@@ -70,6 +70,7 @@ permissions:
 concurrency:
   group: discovercars-pages-site
   cancel-in-progress: false
+  queue: max
 
 env:
   # Scheduled run defaults: all configured city and airport points, next 60 pickup dates, rental durations 2..14.
