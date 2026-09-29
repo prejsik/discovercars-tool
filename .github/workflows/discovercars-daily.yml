@@ -1,4 +1,5 @@
 name: DiscoverCars daily run
+run-name: DiscoverCars ${{ inputs.schedule_slot || github.event.schedule || github.event_name }} ${{ inputs.report_date || '' }}
 
 on:
   push:
@@ -12,21 +13,33 @@ on:
       - "pricing-rules.config.example.json"
       - "src/**"
       - "tools/update_excel_rates.py"
+      - "tools/dispatch_daily_scraper.js"
+      - "tests/**"
+      - "deploy/**"
       - "package.json"
       - "package-lock.json"
   # GitHub cron uses UTC and can be delayed by several hours. These evening
   # windows target the next Warsaw-morning report with fallback chances, while
-  # the gate below keeps only one real full run per report date once a scheduled
-  # run is already queued, running, or completed successfully.
+  # the gate below deduplicates each slot/date using active claims and publication
+  # evidence, never the successful status of a skipped workflow.
   schedule:
     - cron: "17 20 * * *"
     - cron: "47 20 * * *"
     - cron: "17 21 * * *"
-    # 10:00 Europe/Warsaw: the gate selects summer or winter UTC time.
-    - cron: "0 8 * * *"
-    - cron: "0 9 * * *"
+    # Approximately 09:00 Warsaw, plus a retry; cron remains a best-effort fallback.
+    - cron: "7 7 * * *"
+    - cron: "37 7 * * *"
+    - cron: "7 8 * * *"
+    - cron: "37 8 * * *"
   workflow_dispatch:
     inputs:
+      schedule_slot:
+        description: "External scheduler only: day (30 days) or night (60 days); blank for a manual run"
+        type: string
+        default: ""
+      report_date:
+        description: "External scheduler report date in Warsaw, YYYY-MM-DD"
+        default: ""
       locations:
         description: "Comma-separated locations for the test run"
         required: true
@@ -76,6 +89,8 @@ jobs:
     timeout-minutes: 360
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
+      schedule_key: ${{ steps.gate.outputs.schedule_key }}
+      schedule_slot: ${{ steps.gate.outputs.schedule_slot }}
       run_started_epoch: ${{ steps.gate.outputs.run_started_epoch }}
       run_type: ${{ steps.options.outputs.run_type }}
       locations: ${{ steps.options.outputs.locations }}
@@ -90,92 +105,24 @@ jobs:
       page_url: ${{ steps.pages-status.outputs.page_url }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check Warsaw schedule gate
         id: gate
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          run_started_epoch="$(date +%s)"
-          run_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
-          warsaw_date="$(TZ=Europe/Warsaw date +%Y-%m-%d)"
-          warsaw_now="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
-          trigger_schedule="${{ github.event.schedule }}"
+        run: node src/discovercarsSchedule.js
 
-          echo "run_started_epoch=$run_started_epoch" >> "$GITHUB_OUTPUT"
-          echo "run_started_warsaw=$run_started_warsaw" >> "$GITHUB_OUTPUT"
-          echo "warsaw_now=$warsaw_now" >> "$GITHUB_OUTPUT"
-          echo "Warsaw time now: $warsaw_now"
-
-          if [[ "${{ github.event_name }}" != "schedule" ]]; then
-            echo "Non-scheduled run requested, bypassing schedule gate."
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              echo "run_type=manual" >> "$GITHUB_OUTPUT"
-            else
-              echo "run_type=push-smoke" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
-          scheduled_minute="${trigger_schedule%% *}"
-          schedule_tail="${trigger_schedule#* }"
-          scheduled_hour="${schedule_tail%% *}"
-          utc_date="$(date -u +%Y-%m-%d)"
-          intended_warsaw_hour="$(TZ=Europe/Warsaw date -d "$utc_date $scheduled_hour:$scheduled_minute UTC" +%H)"
-          intended_warsaw_time="$(TZ=Europe/Warsaw date -d "$utc_date $scheduled_hour:$scheduled_minute UTC" '+%Y-%m-%d %H:%M:%S %Z')"
-
-          echo "Schedule expression: $trigger_schedule"
-          echo "Scheduled UTC trigger maps to Warsaw: $intended_warsaw_time"
-
-          if [[ "$trigger_schedule" == "0 8 * * *" || "$trigger_schedule" == "0 9 * * *" ]]; then
-            if [[ "$intended_warsaw_hour" == "10" ]]; then
-              echo "should_run=true" >> "$GITHUB_OUTPUT"
-              echo "run_type=full" >> "$GITHUB_OUTPUT"
-            else
-              echo "should_run=false" >> "$GITHUB_OUTPUT"
-              echo "run_type=skip" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
-          warsaw_hour="$(TZ=Europe/Warsaw date +%H)"
-          if (( 10#$warsaw_hour >= 18 )); then
-            target_report_date="$(TZ=Europe/Warsaw date -d 'tomorrow' +%Y-%m-%d)"
-          else
-            target_report_date="$warsaw_date"
-          fi
-          duplicate_window_start_utc="$(date -u -d '36 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
-          workflow_runs_url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions/workflows/discovercars-daily.yml/runs"
-          if ! existing_runs_json=$(curl --fail --silent --show-error --get \
-              --header "Accept: application/vnd.github+json" \
-              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --data-urlencode "event=schedule" \
-              --data-urlencode "created=>${duplicate_window_start_utc}" \
-              --data-urlencode "per_page=30" \
-              "$workflow_runs_url"); then
-            echo "::warning::Unable to query previous workflow runs; continuing with this scheduled run."
-            existing_runs_json='{"workflow_runs":[]}'
-          fi
-          duplicate_summary="$(
-            printf '%s' "$existing_runs_json" | CURRENT_RUN_ID="$GITHUB_RUN_ID" TARGET_REPORT_DATE="$target_report_date" python3 -c 'import json, os, sys; from datetime import datetime, timedelta; from zoneinfo import ZoneInfo; current=str(os.environ.get("CURRENT_RUN_ID","")); target=os.environ.get("TARGET_REPORT_DATE",""); warsaw=ZoneInfo("Europe/Warsaw"); report_date=lambda r: (lambda dt: (dt.date() + (timedelta(days=1) if dt.hour >= 18 else timedelta())).isoformat())(datetime.fromisoformat(str(r.get("created_at","")).replace("Z","+00:00")).astimezone(warsaw)); runs=json.load(sys.stdin).get("workflow_runs", []); match=next((r for r in runs if str(r.get("id")) != current and report_date(r) == target and (r.get("status") in ("queued","in_progress","waiting","requested","pending") or (r.get("status") == "completed" and r.get("conclusion") == "success"))), None); label="" if match is None else ("completed/success" if match.get("status") == "completed" else str(match.get("status"))); sys.stdout.write("" if match is None else str(match.get("id")) + " " + label + " target=" + target + " " + str(match.get("html_url")))'
-          )"
-
-          echo "Target Warsaw morning report date: $target_report_date"
-          if [[ -n "$duplicate_summary" ]]; then
-            echo "A scheduled DiscoverCars run for this report date already exists: $duplicate_summary"
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "run_type=skip" >> "$GITHUB_OUTPUT"
-          else
-            echo "This scheduled trigger is the first successful/active Warsaw morning run window, running scraper."
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "run_type=full" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout repository
-        if: steps.gate.outputs.should_run == 'true'
-        uses: actions/checkout@v4
+      - name: Record scheduled run claim
+        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-schedule-claim-${{ steps.gate.outputs.schedule_key }}
+          path: output/schedule-context.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Setup Node.js
         if: steps.gate.outputs.should_run == 'true'
@@ -219,11 +166,11 @@ jobs:
         run: python -m pip install "openpyxl>=3.1,<4"
 
       - name: Run regression tests
-        if: steps.gate.outputs.should_run == 'true' && github.event_name != 'schedule'
+        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key == ''
         run: npm run test:all
 
       - name: Run scheduled Excel preflight
-        if: steps.gate.outputs.should_run == 'true' && github.event_name == 'schedule'
+        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key != ''
         run: python tests/run-excel-rate-updater-tests.py
 
       - name: Resolve run options
@@ -237,6 +184,7 @@ jobs:
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
           RUN_TYPE: ${{ steps.gate.outputs.run_type }}
+          SCHEDULE_ROLLING_OVERRIDE: ${{ steps.gate.outputs.rolling_days }}
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
             default_locations="$PUSH_TEST_LOCATIONS"
@@ -246,9 +194,7 @@ jobs:
           else
             default_locations=$(node -e "const {getDailyLocations}=require('./src/locationRegistry'); process.stdout.write(getDailyLocations().join(','));")
             default_rolling_days="$SCHEDULE_ROLLING_DAYS"
-            if [[ "${{ github.event_name }}" == "schedule" && ( "${{ github.event.schedule }}" == "0 8 * * *" || "${{ github.event.schedule }}" == "0 9 * * *" ) ]]; then
-              default_rolling_days="30"
-            fi
+            default_rolling_days="${SCHEDULE_ROLLING_OVERRIDE:-$default_rolling_days}"
             default_durations="$SCHEDULE_DURATIONS"
             default_speed_mode="$SCHEDULE_SPEED_MODE"
           fi
@@ -258,6 +204,14 @@ jobs:
           start_dates="${INPUT_START_DATES:-}"
           durations="${INPUT_DURATIONS:-$default_durations}"
           speed_mode="${INPUT_SPEED_MODE:-$default_speed_mode}"
+          # Scheduler dispatch must not inherit the manual smoke-test defaults.
+          if [[ -n "$SCHEDULE_ROLLING_OVERRIDE" ]]; then
+            locations="$default_locations"
+            rolling_days="$SCHEDULE_ROLLING_OVERRIDE"
+            start_dates=""
+            durations="$SCHEDULE_DURATIONS"
+            speed_mode="$SCHEDULE_SPEED_MODE"
+          fi
 
           location_count=0
           IFS=',' read -ra location_items <<< "$locations"
@@ -957,8 +911,7 @@ jobs:
             (steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure') != 'failure' ||
             github.event_name != 'schedule' ||
             github.event.schedule == '17 21 * * *' ||
-            github.event.schedule == '0 8 * * *' ||
-            github.event.schedule == '0 9 * * *'
+            needs.scrape.outputs.schedule_slot == 'day'
           )
         shell: bash
         env:
@@ -1005,3 +958,12 @@ jobs:
             exit 1
           fi
           echo "Final quality status: $QUALITY_STATUS"
+
+      - name: Record published scheduled report
+        if: success() && needs.scrape.outputs.schedule_key != '' && steps.pages-deployment.outcome == 'success' && steps.upload-excel.outcome == 'success' && steps.quality.outputs.status != 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-schedule-published-${{ needs.scrape.outputs.schedule_key }}
+          path: output/run-manifest.json
+          if-no-files-found: error
+          retention-days: 7

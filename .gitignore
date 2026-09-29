@@ -39,6 +39,12 @@
 !tests/**
 !tools/
 !tools/**
+!docs/
+!docs/discovercars-scheduling.md
+!docs/dom-benchmark.md
+!deploy/
+!deploy/discovercars-scheduler.service
+!deploy/discovercars-scheduler.timer
 
 # Always keep generated/heavy content out of Git.
 node_modules/

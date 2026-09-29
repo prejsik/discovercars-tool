@@ -1,0 +1,17 @@
+[Unit]
+Description=Dispatch and verify DiscoverCars daytime scraper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=discovercars-scheduler
+WorkingDirectory=/opt/discovercars-tool
+EnvironmentFile=/etc/discovercars-scheduler.env
+ExecStart=/usr/bin/node /opt/discovercars-tool/tools/dispatch_daily_scraper.js
+TimeoutStartSec=20min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+

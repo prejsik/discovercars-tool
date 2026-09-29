@@ -1,0 +1,392 @@
+name: DiscoverCars DOM verification benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Completed DiscoverCars daily run ID with a retained checkpoint artifact"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  DOM_GROUP_LIMIT: "8"
+  DOM_SHARD_COUNT: "4"
+  DOM_CONCURRENCY: "1"
+  DOM_TIMEOUT_MS: "45000"
+  DOM_MAX_DURATION_MS: "840000"
+  DOM_PROCESS_TIMEOUT_SECONDS: "900"
+  DOM_SPEED_MODE: "fast"
+
+jobs:
+  prepare:
+    name: Prepare one bounded benchmark input
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      input_sha256: ${{ steps.sample.outputs.input_sha256 }}
+      verifier_options_sha256: ${{ steps.sample.outputs.verifier_options_sha256 }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Download source checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-checkpoint-${{ inputs.source_run_id }}
+          path: benchmark/source-checkpoint
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - id: sample
+        name: Select deterministic sample and create four shards
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::source_run_id must contain digits only."
+            exit 1
+          fi
+
+          mapfile -t candidates < <(find benchmark/source-checkpoint -type f -name pricing-recommendations.json -print)
+          if [[ "${#candidates[@]}" -ne 1 ]]; then
+            echo "::error::Expected exactly one pricing-recommendations.json in the source checkpoint; found ${#candidates[@]}."
+            exit 1
+          fi
+
+          mkdir -p benchmark/input/shards
+          node src/domVerificationBenchmark.js prepare \
+            --input="${candidates[0]}" \
+            --output=benchmark/input/benchmark-input.json \
+            --manifest=benchmark/input/manifest.json \
+            --shards-dir=benchmark/input/shards \
+            --group-limit="${DOM_GROUP_LIMIT}" \
+            --shard-count="${DOM_SHARD_COUNT}" \
+            --source-run-id="$SOURCE_RUN_ID"
+
+          node -e '
+            const fs = require("node:fs");
+            const manifest = JSON.parse(fs.readFileSync("benchmark/input/manifest.json", "utf8"));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `input_sha256=${manifest.benchmark_input_sha256}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `verifier_options_sha256=${manifest.verifier_options_sha256}\n`);
+          '
+
+      - name: Upload immutable benchmark input
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-input-${{ github.run_id }}
+          path: benchmark/input
+          if-no-files-found: error
+          retention-days: 2
+
+  same_runner:
+    name: Same runner - four verifier workers
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 180s npx playwright install chromium; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then sleep $((attempt * 10)); fi
+          done
+          exit 1
+
+      - name: Download benchmark input
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-input-${{ github.run_id }}
+          path: benchmark/input
+
+      - name: Verify benchmark input hash
+        shell: bash
+        env:
+          EXPECTED_INPUT_SHA256: ${{ needs.prepare.outputs.input_sha256 }}
+        run: |
+          node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const actual = crypto.createHash("sha256").update(fs.readFileSync("benchmark/input/benchmark-input.json")).digest("hex");
+            if (actual !== process.env.EXPECTED_INPUT_SHA256) throw new Error(`Input SHA-256 mismatch: ${actual}`);
+          '
+
+      - name: Run four verifier workers concurrently
+        shell: bash
+        env:
+          INPUT_SHA256: ${{ needs.prepare.outputs.input_sha256 }}
+          VERIFIER_OPTIONS_SHA256: ${{ needs.prepare.outputs.verifier_options_sha256 }}
+        run: |
+          mkdir -p benchmark/same-runner/results benchmark/same-runner/work
+
+          run_shard() {
+            local shard="$1"
+            local started completed exit_code
+            started="$(node -e 'process.stdout.write(String(Date.now()))')"
+            set +e
+            timeout --kill-after=30s "${DOM_PROCESS_TIMEOUT_SECONDS}s" node src/verifyActiveRecommendationsDom.js \
+              --input="benchmark/input/shards/shard-${shard}-input.json" \
+              --output="benchmark/same-runner/results/shard-${shard}-output.json" \
+              --work-dir="benchmark/same-runner/work/shard-${shard}" \
+              --concurrency="${DOM_CONCURRENCY}" \
+              --max-duration-ms="${DOM_MAX_DURATION_MS}" \
+              --timeout="${DOM_TIMEOUT_MS}" \
+              --speed-mode="${DOM_SPEED_MODE}" \
+              > "benchmark/same-runner/results/shard-${shard}-summary.json" \
+              2> "benchmark/same-runner/results/shard-${shard}-stderr.log"
+            exit_code="$?"
+            set -e
+            completed="$(node -e 'process.stdout.write(String(Date.now()))')"
+            node -e '
+              const fs = require("node:fs");
+              const [arm, shard, inputHash, optionsHash, started, completed, exitCode, file] = process.argv.slice(1);
+              fs.writeFileSync(file, `${JSON.stringify({
+                arm,
+                shard: Number(shard),
+                input_sha256: inputHash,
+                verifier_options_sha256: optionsHash,
+                started_epoch_ms: Number(started),
+                completed_epoch_ms: Number(completed),
+                elapsed_ms: Number(completed) - Number(started),
+                exit_code: Number(exitCode)
+              }, null, 2)}\n`);
+            ' "same_runner" "$shard" "$INPUT_SHA256" "$VERIFIER_OPTIONS_SHA256" "$started" "$completed" "$exit_code" "benchmark/same-runner/results/shard-${shard}-timing.json"
+          }
+
+          pids=()
+          for shard in 0 1 2 3; do
+            run_shard "$shard" &
+            pids+=("$!")
+          done
+          for pid in "${pids[@]}"; do wait "$pid"; done
+
+      - name: Upload same-runner outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-same-${{ github.run_id }}
+          path: benchmark/same-runner/results
+          if-no-files-found: warn
+          retention-days: 2
+
+  separate_runners:
+    name: Separate runner - shard ${{ matrix.shard }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 180s npx playwright install chromium; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then sleep $((attempt * 10)); fi
+          done
+          exit 1
+
+      - name: Download benchmark input
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-input-${{ github.run_id }}
+          path: benchmark/input
+
+      - name: Verify benchmark input hash
+        shell: bash
+        env:
+          EXPECTED_INPUT_SHA256: ${{ needs.prepare.outputs.input_sha256 }}
+        run: |
+          node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const actual = crypto.createHash("sha256").update(fs.readFileSync("benchmark/input/benchmark-input.json")).digest("hex");
+            if (actual !== process.env.EXPECTED_INPUT_SHA256) throw new Error(`Input SHA-256 mismatch: ${actual}`);
+          '
+
+      - name: Run verifier shard
+        shell: bash
+        env:
+          INPUT_SHA256: ${{ needs.prepare.outputs.input_sha256 }}
+          VERIFIER_OPTIONS_SHA256: ${{ needs.prepare.outputs.verifier_options_sha256 }}
+        run: |
+          shard="${{ matrix.shard }}"
+          result_dir="benchmark/separate-runners/shard-${shard}"
+          mkdir -p "$result_dir" "benchmark/separate-runners/work/shard-${shard}"
+          started="$(node -e 'process.stdout.write(String(Date.now()))')"
+          set +e
+          timeout --kill-after=30s "${DOM_PROCESS_TIMEOUT_SECONDS}s" node src/verifyActiveRecommendationsDom.js \
+            --input="benchmark/input/shards/shard-${shard}-input.json" \
+            --output="${result_dir}/shard-${shard}-output.json" \
+            --work-dir="benchmark/separate-runners/work/shard-${shard}" \
+            --concurrency="${DOM_CONCURRENCY}" \
+            --max-duration-ms="${DOM_MAX_DURATION_MS}" \
+            --timeout="${DOM_TIMEOUT_MS}" \
+            --speed-mode="${DOM_SPEED_MODE}" \
+            > "${result_dir}/shard-${shard}-summary.json" \
+            2> "${result_dir}/shard-${shard}-stderr.log"
+          exit_code="$?"
+          set -e
+          completed="$(node -e 'process.stdout.write(String(Date.now()))')"
+          node -e '
+            const fs = require("node:fs");
+            const [arm, shard, inputHash, optionsHash, started, completed, exitCode, file] = process.argv.slice(1);
+            fs.writeFileSync(file, `${JSON.stringify({
+              arm,
+              shard: Number(shard),
+              input_sha256: inputHash,
+              verifier_options_sha256: optionsHash,
+              started_epoch_ms: Number(started),
+              completed_epoch_ms: Number(completed),
+              elapsed_ms: Number(completed) - Number(started),
+              exit_code: Number(exitCode)
+            }, null, 2)}\n`);
+          ' "separate_runners" "$shard" "$INPUT_SHA256" "$VERIFIER_OPTIONS_SHA256" "$started" "$completed" "$exit_code" "${result_dir}/shard-${shard}-timing.json"
+          if [[ "$exit_code" -ne 0 ]]; then
+            echo "::warning::DOM benchmark shard ${shard} exited with status ${exit_code}; merge will fail closed."
+          fi
+
+      - name: Upload separate-runner output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-separate-${{ github.run_id }}-${{ matrix.shard }}
+          path: benchmark/separate-runners/shard-${{ matrix.shard }}
+          if-no-files-found: warn
+          retention-days: 2
+
+  report:
+    name: Merge and compare benchmark arms
+    needs: [prepare, same_runner, separate_runners]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Download benchmark input
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-input-${{ github.run_id }}
+          path: benchmark/input
+
+      - name: Download same-runner outputs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-same-${{ github.run_id }}
+          path: benchmark/results/same-runner
+
+      - name: Download separate-runner outputs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: discovercars-dom-benchmark-separate-${{ github.run_id }}-*
+          path: benchmark/results/separate-runners
+          merge-multiple: true
+
+      - name: Merge both arms with the production shard merger
+        shell: bash
+        run: |
+          mkdir -p benchmark/results/same-runner benchmark/results/separate-runners benchmark/report
+          node src/recommendationDomShards.js merge \
+            --base=benchmark/input/benchmark-input.json \
+            --shards-dir=benchmark/results/same-runner \
+            --output=benchmark/report/same-runner-merged.json \
+            --shard-count="${DOM_SHARD_COUNT}" \
+            | tee benchmark/report/same-runner-merge-summary.json
+          node src/recommendationDomShards.js merge \
+            --base=benchmark/input/benchmark-input.json \
+            --shards-dir=benchmark/results/separate-runners \
+            --output=benchmark/report/separate-runners-merged.json \
+            --shard-count="${DOM_SHARD_COUNT}" \
+            | tee benchmark/report/separate-runners-merge-summary.json
+
+      - name: Build timing, completeness, and classification report
+        run: |
+          cp benchmark/input/manifest.json benchmark/report/manifest.json
+          node src/domVerificationBenchmark.js compare \
+            --manifest=benchmark/input/manifest.json \
+            --same-runner=benchmark/report/same-runner-merged.json \
+            --separate-runners=benchmark/report/separate-runners-merged.json \
+            --same-runner-timings=benchmark/results/same-runner \
+            --separate-runner-timings=benchmark/results/separate-runners \
+            --output=benchmark/report/benchmark-report.json \
+            --markdown=benchmark/report/benchmark-report.md
+
+      - name: Check benchmark structural quality
+        run: |
+          node -e '
+            const report = require("./benchmark/report/benchmark-report.json");
+            const valid = report.quality.same_source_input_hash
+              && report.quality.same_verifier_options
+              && report.arms.same_runner.structural_quality_passed
+              && report.arms.separate_runners.structural_quality_passed;
+            if (!valid) throw new Error("DOM benchmark structural quality checks failed; inspect the report artifact.");
+          '
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-benchmark-report-${{ github.run_id }}
+          path: benchmark/report
+          if-no-files-found: warn
+          retention-days: 2

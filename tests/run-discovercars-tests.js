@@ -672,8 +672,8 @@ runTest("scheduled daily runs skip Node tests and retain the date-sensitive Exce
   const regressionStep = workflow.match(/- name: Run regression tests[\s\S]*?(?=\n      - name:)/)?.[0] || "";
   const excelPreflightStep = workflow.match(/- name: Run scheduled Excel preflight[\s\S]*?(?=\n      - name:)/)?.[0] || "";
 
-  assert.match(regressionStep, /github\.event_name != 'schedule'/);
-  assert.match(excelPreflightStep, /github\.event_name == 'schedule'/);
+  assert.match(regressionStep, /steps\.gate\.outputs\.schedule_key == ''/);
+  assert.match(excelPreflightStep, /steps\.gate\.outputs\.schedule_key != ''/);
   assert.match(excelPreflightStep, /python tests\/run-excel-rate-updater-tests\.py/);
 });
 
