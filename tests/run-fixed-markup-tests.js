@@ -58,7 +58,13 @@ for (const [rates,rank,importRate] of [ [[70,90,100],1,40], [[50,70,100],2,40], 
   assert.equal(item.markup_evidence,undefined);
   if(rank) assert.equal(item.predicted_site_rate_pln_day,69);
 }
-assert.equal(buildPricingRecommendations(scenario([100,120,140],8),options).decisions[0].data_quality_status,'duration_excluded');
+for (const days of [8,14,20]) {
+  const item=buildPricingRecommendations(scenario([100,120,140],days),{...options,forceTop1:true}).decisions[0];
+  assert.equal(item.data_quality_status,'ok');
+  assert.equal(item.suggested_rate_pln_day,87);
+  assert.equal(item.broker_markup_amount_pln_day,12);
+}
+assert.equal(buildPricingRecommendations(scenario([100,120,140],21),options).decisions[0].data_quality_status,'duration_excluded');
 const old={location:'WALO',start_date:'2026-10-01',rental_days:2,action:'decrease',broker_markup_multiplier:1,
   ...fixedMarkupFields(resolve({location:'WALO',rental_days:2},fixed))};
 for(const changes of [{broker_markup_amount_pln_day:28},{broker_markup_model:'percentage'},

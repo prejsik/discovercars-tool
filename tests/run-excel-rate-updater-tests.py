@@ -209,7 +209,8 @@ def main():
             for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20), (21, 35)):
                 target = {"zone": zone, "group": group, "target_date": date(2026, 9, 28), "duration_min_days": low, "duration_max_days": high}
                 scoped = zone in {"KRLO", "KRTI"} and group in {"CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"} and (low, high) in {(2, 2), (3, 4)}
-                expected = 30 if scoped else 50 if zone == "WALO" else 39
+                long_band = (low, high) == (8, 20) and group in {"CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"}
+                expected = 40 if long_band else 30 if scoped else 50 if zone == "WALO" else 39
                 assert_equal(get_minimum_rate(target, example_config)[0], expected, f"scoped floor {zone}/{group}/{low}-{high}")
     assert "Wyjatek nadrzedny" in get_floor_legend_text(example_config)
     assert_equal(
@@ -248,7 +249,7 @@ def main():
         "holiday rate protection periods",
     )
     assert_equal(example_config["city_top1_airport_cap"]["max_multiplier"], 1.3, "city-airport cap")
-    assert_equal(example_config["max_recommendation_duration_days"], 7, "maximum recommendation duration")
+    assert_equal(example_config["max_recommendation_duration_days"], 20, "maximum recommendation duration")
     september_floor, _ = get_minimum_rate(
         {"target_date": date(2026, 9, 1), "duration_min_days": 1, "duration_max_days": 35},
         example_config,
@@ -282,15 +283,15 @@ def main():
             "recommendation_type": "top1_undercut",
             "location": "Warsaw Train Station",
             "start_date": "2026-09-20",
-            "rental_days": 8,
+            "rental_days": 21,
             "suggested_rate_pln_day": 80,
         }],
-        {8: (13, "8-20", 8, 20)},
+        {21: (14, "21-35", 21, 35)},
         example_config,
     )
-    assert_equal(bool(duration_targets), False, "duration 8 target is blocked")
-    assert_equal(len(duration_skipped), 1, "duration 8 skip count")
-    assert "Maximum recommendation duration is 7 days" in duration_skipped[0]["skip_reason"]
+    assert_equal(bool(duration_targets), False, "duration 21 target is blocked")
+    assert_equal(len(duration_skipped), 1, "duration 21 skip count")
+    assert "Maximum recommendation duration is 20 days" in duration_skipped[0]["skip_reason"]
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_path = Path(temporary_dir)
@@ -699,6 +700,8 @@ def main():
             {
                 "location_zones": {"Warsaw": ["WA1"]},
                 "max_recommendation_duration_days": 35,
+                "duration_band_evidence_max_days": None,
+                "minimum_rates": {"scoped_overrides": []},
             }
         )
 

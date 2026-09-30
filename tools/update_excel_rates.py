@@ -45,7 +45,8 @@ DEFAULT_CONFIG = {
     "location_zones": {},
     "apply_groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
-    "max_recommendation_duration_days": 7,
+    "max_recommendation_duration_days": 20,
+    "duration_band_evidence_max_days": {"8-20": 14},
     "broker_markup_learning": {"enabled": False},
     "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
     "protected_rate_periods": [],
@@ -82,6 +83,9 @@ DEFAULT_CONFIG = {
     "pricing_rules_file": "pricing-rules.config.example.json",
     "minimum_rates": {
         "global_min_pln_day": 0,
+        "scoped_overrides": [
+            {"zones": ["*"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 8, "max_days": 20, "min_pln_day": 40},
+        ],
         "bands": [
             {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 1, "max_days": 7, "min_pln_day": 70},
             {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 8, "max_days": 20, "min_pln_day": 115},
@@ -674,7 +678,7 @@ def calculate_target_base_rate(
     suggested_rate = float(target["suggested_rate_pln_day"]) - get_force_top1_base_offset(target, config)
     base_rate = max(suggested_rate, minimum_rate)
     if (
-        target.get("duration_band_coverage_complete") is False
+        target.get("duration_band_required_coverage_complete", target.get("duration_band_coverage_complete")) is False
         and current_base_equivalent is not None
         and base_rate > current_base_equivalent
         and minimum_rate <= current_base_equivalent
@@ -928,7 +932,7 @@ def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[fl
     scoped_rates = []
     for override in rules.get("scoped_overrides") or []:
         if (
-            zone in {normalize_code(item) for item in override.get("zones", [])}
+            ("*" in override.get("zones", []) or zone in {normalize_code(item) for item in override.get("zones", [])})
             and group in {normalize_code(item) for item in override.get("groups", [])}
             and duration_min == override.get("min_days")
             and duration_max == override.get("max_days")
@@ -1196,7 +1200,7 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
 
     for override in rules.get("scoped_overrides") or []:
         parts.append(
-            "Wyjatek nadrzedny: strefy " + ", ".join(override["zones"])
+            "Wyjatek nadrzedny: strefy " + ("wszystkie" if "*" in override["zones"] else ", ".join(override["zones"]))
             + "; klasy " + ", ".join(override["groups"])
             + f"; duration {override['min_days']}-{override['max_days']}: {format_rate_for_comment(override['min_pln_day'])} PLN"
             + " (nie znosi wykluczen klas ani ochrony dat)"
@@ -1256,6 +1260,8 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         if max_duration > 0
         else ""
     )
+    for band, evidence_max in (config.get("duration_band_evidence_max_days") or {}).items():
+        duration_rule += f" Kolumna {band} dni jest zmieniana na podstawie scenariuszy do {evidence_max} dni; zmiana obejmuje caly przedzial, a pozostale duration nie sa weryfikowane. Brak danych w wymaganym zakresie blokuje zmiany tej kolumny, rowniez parytet."
     return (
         f"Zmiany dozwolone tylko dla klas: {format_group_list(sorted(resolve_apply_groups(config, None)))}. "
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
@@ -2093,15 +2099,27 @@ def build_targets(
         covered_duration_days = sorted({int(parse_number(item.get("rental_days")) or 0) for item in candidates})
         expected_duration_days = list(range(int(representative["duration_min_days"]), int(representative["duration_max_days"]) + 1))
         missing_duration_days = [duration for duration in expected_duration_days if duration not in covered_duration_days]
-        if missing_duration_days:
+        evidence_max = parse_number((config.get("duration_band_evidence_max_days") or {}).get(representative["duration_band"], representative["duration_max_days"]))
+        if (
+            evidence_max is None
+            or not math.isfinite(evidence_max)
+            or not evidence_max.is_integer()
+            or not representative["duration_min_days"] <= evidence_max <= representative["duration_max_days"]
+        ):
+            raise ValueError(f"Invalid evidence duration limit for band {representative['duration_band']}.")
+        required_missing_days = [duration for duration in missing_duration_days if duration <= evidence_max]
+        if required_missing_days:
+            block_band = representative["duration_band"] in (config.get("duration_band_evidence_max_days") or {})
             skipped.append({
                 **representative,
                 "skip_reason": (
                     f"Duration band {representative['duration_band']} lacks scenarios for "
-                    + ",".join(str(item) for item in missing_duration_days)
-                    + "; increases are capped at the current workbook rate."
+                    + ",".join(str(item) for item in required_missing_days)
+                    + ("; the entire band remains unchanged." if block_band else "; increases are capped at the current workbook rate.")
                 ),
             })
+            if block_band:
+                continue
         priority_rank = max((int(item.get("target_rank") or 1) for item in active), default=1) if representative.get("priority_rule_id") else None
         targets[zone][target_date].append({
             **representative,
@@ -2131,6 +2149,7 @@ def build_targets(
             "covered_duration_days": covered_duration_days,
             "missing_duration_days": missing_duration_days,
             "duration_band_coverage_complete": not missing_duration_days,
+            "duration_band_required_coverage_complete": not required_missing_days,
         })
 
     return targets, skipped
@@ -2951,6 +2970,7 @@ def apply_updates(
                 "covered_duration_days": target.get("covered_duration_days", []),
                 "missing_duration_days": target.get("missing_duration_days", []),
                 "duration_band_coverage_complete": target.get("duration_band_coverage_complete", True),
+                "duration_band_required_coverage_complete": target.get("duration_band_required_coverage_complete", True),
                 **constraint_evaluation,
             }
 

@@ -10,7 +10,7 @@ const DEFAULT_PRICING_RULES = Object.freeze({
   minChangePlnDay: 0.5,
   roundingIncrementPlnDay: 0.01,
   top1HighRateThresholdPlnDay: 150,
-  maxRecommendationRentalDays: 7
+  maxRecommendationRentalDays: 20
 });
 
 function loadPricingRules(configPath = process.env.PRICING_RULES_CONFIG) {

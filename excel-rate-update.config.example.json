@@ -16,7 +16,8 @@
   },
   "apply_groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
   "max_import_rows": 28000,
-  "max_recommendation_duration_days": 7,
+  "max_recommendation_duration_days": 20,
+  "duration_band_evidence_max_days": { "8-20": 14 },
   "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
   "excluded_group_highlights": {
     "SWAV": 150
@@ -58,6 +59,7 @@
   "minimum_rates": {
     "global_min_pln_day": 0,
     "scoped_overrides": [
+      { "zones": ["*"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 8, "max_days": 20, "min_pln_day": 40 },
       { "zones": ["KRTI", "KRLO"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 2, "max_days": 2, "min_pln_day": 30 },
       { "zones": ["KRTI", "KRLO"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 3, "max_days": 4, "min_pln_day": 30 }
     ],

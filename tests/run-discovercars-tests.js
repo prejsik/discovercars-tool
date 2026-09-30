@@ -1473,29 +1473,37 @@ runTest("buildPricingRecommendations forceTop1 uses competitor top1 when MM is m
   assert.match(output.recommendations[0].reason, /nie jest widoczne/);
 });
 
-runTest("buildPricingRecommendations does not recommend changes from duration 8", () => {
+runTest("buildPricingRecommendations updates duration 8-20 but excludes duration 21", () => {
+  for (const days of [8, 14, 20, 21]) {
   const output = buildPricingRecommendations({
     locations: ["Krakow"],
     scenarios: [{
       scenario_id: "2026-09-20-8",
       start_date: "2026-09-20",
-      rental_days: 8,
+      rental_days: days,
       top_3_plus_mm_by_location: {
         Krakow: {
           top_3: [
-            { provider_name: "MM Cars Rental", total_price: 800, currency: "PLN", rental_days: 8 },
-            { provider_name: "Competitor A", total_price: 960, currency: "PLN", rental_days: 8 }
+            { provider_name: "MM Cars Rental", total_price: 100*days, currency: "PLN", rental_days: days },
+            { provider_name: "Competitor A", total_price: 120*days, currency: "PLN", rental_days: days }
           ],
-          mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 800, currency: "PLN", rental_days: 8 }
+          mm_cars_rental: { provider_name: "MM Cars Rental", total_price: 100*days, currency: "PLN", rental_days: days }
         }
       }
     }]
   });
 
-  assert.equal(output.recommendation_count, 0);
-  assert.equal(output.decisions[0].action, "hold");
-  assert.equal(output.decisions[0].data_quality_status, "duration_excluded");
-  assert.match(output.decisions[0].reason, /od 8 dni/);
+  if (days <= 20) {
+    assert.equal(output.recommendation_count, 1);
+    assert.equal(output.decisions[0].action, "increase");
+    assert.equal(output.decisions[0].site_target_rate_pln_day, 119);
+  } else {
+    assert.equal(output.recommendation_count, 0);
+    assert.equal(output.decisions[0].action, "hold");
+    assert.equal(output.decisions[0].data_quality_status, "duration_excluded");
+    assert.match(output.decisions[0].reason, /od 21 dni/);
+  }
+  }
 });
 
 runTest("buildPricingRecommendations raises MM top1 when top2 gap is exactly 10 PLN per day", () => {

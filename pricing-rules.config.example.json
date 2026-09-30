@@ -31,7 +31,7 @@
     "minChangePlnDay": 0.5,
     "roundingIncrementPlnDay": 0.01,
     "top1HighRateThresholdPlnDay": 150,
-    "maxRecommendationRentalDays": 7,
+    "maxRecommendationRentalDays": 20,
     "brokerMarkupCalibration": {
       "enabled": true,
       "manualOnly": true,
