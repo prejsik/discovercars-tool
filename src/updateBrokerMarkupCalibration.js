@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { mergeBrokerMarkupCalibration } = require("./brokerMarkupCalibration");
+const { currentLearningObservations } = require("./currentBrokerMarkup");
 
 function readJsonIfExists(filePath) {
   if (!filePath) {
@@ -70,6 +71,27 @@ function summarizeSanityCheck(sanityCheck) {
   };
 }
 
+function loadCalibrationInputForUpdate({
+  baseConfig = {},
+  previousPath,
+  frozenPath = path.join(__dirname, "..", "input", "broker-markup-frozen.json")
+} = {}) {
+  const basePricing = baseConfig.pricing || baseConfig;
+  if (basePricing.brokerMarkupCalibration?.manualOnly !== true) {
+    return readJsonIfExists(previousPath);
+  }
+
+  const resolvedFrozenPath = path.resolve(frozenPath);
+  if (!fs.existsSync(resolvedFrozenPath)) {
+    throw new Error(`Frozen broker markup calibration is required in manual-only mode: ${resolvedFrozenPath}`);
+  }
+  const frozenCalibration = readJsonIfExists(resolvedFrozenPath);
+  if (frozenCalibration.brokerMarkupCalibration?.manualOnly !== true) {
+    throw new Error(`Frozen broker markup calibration must set manualOnly=true: ${resolvedFrozenPath}`);
+  }
+  return frozenCalibration;
+}
+
 function buildCalibrationUpdate({
   baseConfig = {},
   previousCalibration = {},
@@ -80,77 +102,85 @@ function buildCalibrationUpdate({
 } = {}) {
   const basePricing = baseConfig.pricing || baseConfig;
   const current = mergeBrokerMarkupCalibration(basePricing.brokerMarkupCalibration, previousCalibration);
+  if (current.manualOnly && current.model === 'fixed_amount') {
+    return {schema_version:2, status:'fixed_user_approved', brokerMarkupCalibration:current,
+      learning:{enabled:false, reason:'manual_only', observation_count:0}};
+  }
   const observations = getExcelObservations(excelSummary);
   const minMultiplier = current.minMultiplier || 1;
   const maxMultiplier = current.maxMultiplier || 1.25;
   const learningAlpha = clamp(asNumber(alpha) ?? 0.35, 0.01, 1);
   const minimumSamples = Math.max(1, Number.parseInt(minSamples, 10) || 3);
 
-  const next = {
-    enabled: current.enabled,
-    defaultMultiplier: current.defaultMultiplier,
-    minMultiplier,
-    maxMultiplier,
-    locationMultipliers: { ...(current.locationMultipliers || {}) },
-    durationMultipliers: { ...(current.durationMultipliers || {}) },
-    locationDurationMultipliers: JSON.parse(JSON.stringify(current.locationDurationMultipliers || {}))
-  };
+  const next = current.manualOnly
+    ? JSON.parse(JSON.stringify(current))
+    : {
+        enabled: current.enabled,
+        defaultMultiplier: current.defaultMultiplier,
+        minMultiplier,
+        maxMultiplier,
+        locationMultipliers: { ...(current.locationMultipliers || {}) },
+        durationMultipliers: { ...(current.durationMultipliers || {}) },
+        locationDurationMultipliers: JSON.parse(JSON.stringify(current.locationDurationMultipliers || {}))
+      };
 
   const globalObserved = robustObservedMultiplier(observations);
-  if (globalObserved && Number(observations?.count || 0) >= minimumSamples) {
-    next.defaultMultiplier = blendMultiplier(
-      next.defaultMultiplier,
-      globalObserved,
-      learningAlpha,
-      minMultiplier,
-      maxMultiplier
-    );
-  }
-
-  for (const [location, summary] of Object.entries(observations?.by_location || {})) {
-    const observed = robustObservedMultiplier(summary);
-    if (!observed || Number(summary?.count || 0) < minimumSamples) {
-      continue;
+  if (!current.manualOnly) {
+    if (globalObserved && Number(observations?.count || 0) >= minimumSamples) {
+      next.defaultMultiplier = blendMultiplier(
+        next.defaultMultiplier,
+        globalObserved,
+        learningAlpha,
+        minMultiplier,
+        maxMultiplier
+      );
     }
-    next.locationMultipliers[location] = blendMultiplier(
-      next.locationMultipliers[location],
-      observed,
-      learningAlpha,
-      minMultiplier,
-      maxMultiplier
-    );
-  }
 
-  for (const [duration, summary] of Object.entries(observations?.by_duration || {})) {
-    const observed = robustObservedMultiplier(summary);
-    if (!observed || Number(summary?.count || 0) < minimumSamples) {
-      continue;
-    }
-    next.durationMultipliers[duration] = blendMultiplier(
-      next.durationMultipliers[duration],
-      observed,
-      learningAlpha,
-      minMultiplier,
-      maxMultiplier
-    );
-  }
-
-  for (const [location, durationSummaries] of Object.entries(observations?.by_location_duration || {})) {
-    next.locationDurationMultipliers[location] = {
-      ...(next.locationDurationMultipliers[location] || {})
-    };
-    for (const [duration, summary] of Object.entries(durationSummaries || {})) {
+    for (const [location, summary] of Object.entries(observations?.by_location || {})) {
       const observed = robustObservedMultiplier(summary);
       if (!observed || Number(summary?.count || 0) < minimumSamples) {
         continue;
       }
-      next.locationDurationMultipliers[location][duration] = blendMultiplier(
-        next.locationDurationMultipliers[location][duration],
+      next.locationMultipliers[location] = blendMultiplier(
+        next.locationMultipliers[location],
         observed,
         learningAlpha,
         minMultiplier,
         maxMultiplier
       );
+    }
+
+    for (const [duration, summary] of Object.entries(observations?.by_duration || {})) {
+      const observed = robustObservedMultiplier(summary);
+      if (!observed || Number(summary?.count || 0) < minimumSamples) {
+        continue;
+      }
+      next.durationMultipliers[duration] = blendMultiplier(
+        next.durationMultipliers[duration],
+        observed,
+        learningAlpha,
+        minMultiplier,
+        maxMultiplier
+      );
+    }
+
+    for (const [location, durationSummaries] of Object.entries(observations?.by_location_duration || {})) {
+      next.locationDurationMultipliers[location] = {
+        ...(next.locationDurationMultipliers[location] || {})
+      };
+      for (const [duration, summary] of Object.entries(durationSummaries || {})) {
+        const observed = robustObservedMultiplier(summary);
+        if (!observed || Number(summary?.count || 0) < minimumSamples) {
+          continue;
+        }
+        next.locationDurationMultipliers[location][duration] = blendMultiplier(
+          next.locationDurationMultipliers[location][duration],
+          observed,
+          learningAlpha,
+          minMultiplier,
+          maxMultiplier
+        );
+      }
     }
   }
 
@@ -160,7 +190,7 @@ function buildCalibrationUpdate({
     learning: {
       alpha: learningAlpha,
       minimum_samples: minimumSamples,
-      source: observations ? "excel-rate-update-summary" : "previous-or-static",
+      source: observations ? (observations.source || "excel-rate-update-summary") : "previous-or-static",
       observation_count: observations?.count || 0,
       input_workbook_sha256: excelSummary?.input_workbook_sha256 || null,
       observed_robust_multiplier: globalObserved,
@@ -189,11 +219,21 @@ function parseArgs(argv) {
 function runCli(argv) {
   const args = parseArgs(argv);
   const outputPath = args.output || path.join("output", "broker-markup-calibration.json");
+  const baseConfig = readJsonIfExists(args.base);
+  const manualOnly = (baseConfig.pricing || baseConfig).brokerMarkupCalibration?.manualOnly === true;
+  const excelSummary = manualOnly ? {} : readJsonIfExists(args["excel-summary"]);
+  if (!manualOnly && args["current-recommendations"]) {
+    if (!fs.existsSync(path.resolve(args["current-recommendations"]))) throw new Error('Current markup evidence is missing.');
+    excelSummary.broker_markup_observations = currentLearningObservations(readJsonIfExists(args["current-recommendations"]));
+  }
   const update = buildCalibrationUpdate({
-    baseConfig: readJsonIfExists(args.base),
-    previousCalibration: readJsonIfExists(args.previous),
-    excelSummary: readJsonIfExists(args["excel-summary"]),
-    sanityCheck: readJsonIfExists(args["sanity-check"]),
+    baseConfig,
+    previousCalibration: loadCalibrationInputForUpdate({
+      baseConfig,
+      previousPath: args.previous
+    }),
+    excelSummary,
+    sanityCheck: manualOnly ? {} : readJsonIfExists(args["sanity-check"]),
     alpha: asNumber(args.alpha) ?? 0.35,
     minSamples: asNumber(args["min-samples"]) ?? 3
   });
@@ -208,5 +248,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildCalibrationUpdate
+  buildCalibrationUpdate,
+  loadCalibrationInputForUpdate
 };

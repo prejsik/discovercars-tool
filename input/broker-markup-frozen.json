@@ -1,0 +1,235 @@
+{
+  "schema_version": 2,
+  "status": "fixed_user_approved",
+  "frozen_at": "2026-09-30",
+  "note": "Conservative user-approved PLN/day estimates, not guaranteed broker fees. Change only on explicit user request; no automatic measurement or learning.",
+  "assumptions": {
+    "proxy_zones": [
+      "GD1",
+      "WA1",
+      "WA2"
+    ],
+    "extrapolated_bands": [
+      "1",
+      "21-35"
+    ],
+    "partial_observation_band": {
+      "8-20": "Measured durations 8-14; extended by agreement."
+    },
+    "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference."
+  },
+  "brokerMarkupCalibration": {
+    "enabled": true,
+    "manualOnly": true,
+    "model": "fixed_amount",
+    "baseGroups": [
+      "CDMV",
+      "CFAV",
+      "CGAV",
+      "CWAV",
+      "CWMR",
+      "EDAV",
+      "EDMV"
+    ],
+    "groupSupplementsPlnDay": {
+      "FVMD": 10,
+      "PDAH": 10,
+      "PDAV": 10,
+      "SWAV": 10
+    },
+    "zoneLocations": {
+      "BYLO": "Bydgoszcz Airport (BZG)",
+      "GD1": "Gdansk Downtown",
+      "GDLO": "Gdansk Airport (GDN)",
+      "KA1": "Katowice Downtown",
+      "KALO": "Katowice Airport (KTW)",
+      "KRDW": "Krakow Train Station",
+      "KRGA": "Galeria Krakowska Shopping Mall",
+      "KRLO": "Krakow Airport (KRK)",
+      "KRTI": "Krakow Airport (KRK)",
+      "LO1": "Lodz Downtown",
+      "LOLO": "Lodz Lublinek Airport (LCJ)",
+      "LU1": "Lubin Downtown",
+      "OL1": "Olsztyn Downtown",
+      "OP1": "Opole Downtown",
+      "PO1": "Poznan Downtown",
+      "POLO": "Poznan Airport (POZ)",
+      "TO1": "Torun Downtown",
+      "WA1": "Warsaw West Train Station",
+      "WA2": "Warsaw Train Station",
+      "WALO": "Warsaw Chopin Airport (WAW)",
+      "WR1": "Wroclaw Downtown",
+      "WRLO": "Wroclaw Airport (WRO)"
+    },
+    "locationDurationAmounts": {
+      "Bydgoszcz Airport (BZG)": {
+        "1": 38,
+        "2": 28,
+        "3-4": 15,
+        "5-7": 13,
+        "8-20": 11,
+        "21-35": 11
+      },
+      "Gdansk Downtown": {
+        "1": 41,
+        "2": 31,
+        "3-4": 15,
+        "5-7": 11,
+        "8-20": 13,
+        "21-35": 13
+      },
+      "Gdansk Airport (GDN)": {
+        "1": 41,
+        "2": 31,
+        "3-4": 15,
+        "5-7": 10,
+        "8-20": 13,
+        "21-35": 13
+      },
+      "Katowice Downtown": {
+        "1": 70,
+        "2": 60,
+        "3-4": 44,
+        "5-7": 41,
+        "8-20": 44,
+        "21-35": 44
+      },
+      "Katowice Airport (KTW)": {
+        "1": 39,
+        "2": 29,
+        "3-4": 14,
+        "5-7": 8,
+        "8-20": 12,
+        "21-35": 12
+      },
+      "Krakow Train Station": {
+        "1": 36,
+        "2": 26,
+        "3-4": 10,
+        "5-7": 6,
+        "8-20": 9,
+        "21-35": 9
+      },
+      "Galeria Krakowska Shopping Mall": {
+        "1": 40,
+        "2": 30,
+        "3-4": 14,
+        "5-7": 11,
+        "8-20": 14,
+        "21-35": 14
+      },
+      "Krakow Airport (KRK)": {
+        "1": 46,
+        "2": 36,
+        "3-4": 20,
+        "5-7": 15,
+        "8-20": 18,
+        "21-35": 18
+      },
+      "Lodz Downtown": {
+        "1": 41,
+        "2": 31,
+        "3-4": 16,
+        "5-7": 19,
+        "8-20": 15,
+        "21-35": 15
+      },
+      "Lodz Lublinek Airport (LCJ)": {
+        "1": 37,
+        "2": 27,
+        "3-4": 10,
+        "5-7": 8,
+        "8-20": 11,
+        "21-35": 11
+      },
+      "Lubin Downtown": {
+        "1": 43,
+        "2": 33,
+        "3-4": 18,
+        "5-7": 17,
+        "8-20": 16,
+        "21-35": 16
+      },
+      "Olsztyn Downtown": {
+        "1": 36,
+        "2": 26,
+        "3-4": 11,
+        "5-7": 9,
+        "8-20": 9,
+        "21-35": 9
+      },
+      "Opole Downtown": {
+        "1": 36,
+        "2": 26,
+        "3-4": 11,
+        "5-7": 9,
+        "8-20": 9,
+        "21-35": 9
+      },
+      "Poznan Downtown": {
+        "1": 37,
+        "2": 27,
+        "3-4": 11,
+        "5-7": 8,
+        "8-20": 10,
+        "21-35": 10
+      },
+      "Poznan Airport (POZ)": {
+        "1": 36,
+        "2": 26,
+        "3-4": 10,
+        "5-7": 5,
+        "8-20": 8,
+        "21-35": 8
+      },
+      "Torun Downtown": {
+        "1": 36,
+        "2": 26,
+        "3-4": 12,
+        "5-7": 10,
+        "8-20": 10,
+        "21-35": 10
+      },
+      "Warsaw West Train Station": {
+        "1": 39,
+        "2": 29,
+        "3-4": 14,
+        "5-7": 10,
+        "8-20": 12,
+        "21-35": 12
+      },
+      "Warsaw Train Station": {
+        "1": 39,
+        "2": 29,
+        "3-4": 14,
+        "5-7": 10,
+        "8-20": 12,
+        "21-35": 12
+      },
+      "Warsaw Chopin Airport (WAW)": {
+        "1": 39,
+        "2": 29,
+        "3-4": 14,
+        "5-7": 8,
+        "8-20": 12,
+        "21-35": 12
+      },
+      "Wroclaw Downtown": {
+        "1": 36,
+        "2": 26,
+        "3-4": 10,
+        "5-7": 6,
+        "8-20": 9,
+        "21-35": 9
+      },
+      "Wroclaw Airport (WRO)": {
+        "1": 41,
+        "2": 31,
+        "3-4": 15,
+        "5-7": 10,
+        "8-20": 13,
+        "21-35": 13
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { resolveBrokerMarkupCalibration, fixedMarkupFields } = require("./brokerMarkupCalibration");
 
 function listRecommendations(payload) {
   if (Array.isArray(payload)) {
@@ -67,12 +68,46 @@ function mergePricingRecommendations(basePayload, updatePayload, now = new Date(
 
   const merged = [];
   let replacedCount = 0;
+  let frozenCalibrationBlockedCount = 0;
+  const frozenCalibration = updatePayload?.options?.brokerMarkupCalibration;
   for (const item of baseRecommendations) {
     if (updateByKey.has(recommendationKey(item))) {
       replacedCount += 1;
       continue;
     }
-    merged.push(item);
+    const expected = frozenCalibration?.manualOnly === true
+      ? resolveBrokerMarkupCalibration(item, frozenCalibration)
+      : null;
+    const previousMultiplier = Number(item.broker_markup_multiplier ?? 1);
+    const fixedMismatch = expected?.model === 'fixed_amount' && (
+      item.broker_markup_model !== expected.model
+      || item.broker_markup_amount_pln_day !== expected.amountPlnDay
+      || JSON.stringify(Object.entries(item.broker_markup_group_supplements_pln_day || {}).sort())
+        !== JSON.stringify(Object.entries(expected.groupSupplementsPlnDay).sort())
+    );
+    if (expected && (fixedMismatch || !Number.isFinite(previousMultiplier) || Math.abs(previousMultiplier - expected.multiplier) > 0.000001)) {
+      frozenCalibrationBlockedCount += 1;
+      merged.push({
+        ...item,
+        action: "hold",
+        reason: "Starsza rekomendacja korzystala z innego narzutu niz zamrozony model. Wymaga ponownego przeliczenia.",
+        data_quality_status: "markup_needs_review",
+        suggested_rate_pln_day: null,
+        maximum_import_rate_pln_day: null,
+        site_cap_rate_pln_day: null,
+        site_target_rate_pln_day: null,
+        predicted_site_rate_pln_day: null,
+        target_rank: null,
+        change_pln_day: 0,
+        previous_broker_markup_multiplier: item.broker_markup_multiplier ?? null,
+        broker_markup_multiplier: expected.multiplier,
+        broker_markup_percent: expected.percent,
+        broker_markup_source: expected.source,
+        ...fixedMarkupFields(expected)
+      });
+    } else {
+      merged.push(item);
+    }
   }
   merged.push(...updateRecommendations);
   merged.sort(compareRecommendations);
@@ -93,7 +128,8 @@ function mergePricingRecommendations(basePayload, updatePayload, now = new Date(
       replaced_count: replacedCount,
       final_count: merged.length,
       covered_scope_count: updateByKey.size,
-      decision_aware: decisionAware
+      decision_aware: decisionAware,
+      frozen_calibration_blocked_count: frozenCalibrationBlockedCount
     },
     recommendation_count: countActiveRecommendations(publishedRecommendations),
     skipped_count: Number(basePayload?.skipped_count || 0) + Number(updatePayload?.skipped_count || 0),

@@ -331,7 +331,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "Scrape quality status: $status"
 
-      - name: Restore broker markup calibration
+      - name: Load fixed broker markup and previous recommendations
         id: broker-calibration
         if: steps.gate.outputs.should_run == 'true' && always()
         shell: bash
@@ -353,13 +353,6 @@ jobs:
           if [[ "$status" == "200" ]]; then
             page_url=$(node -e "const fs = require('fs'); const data = JSON.parse(fs.readFileSync('/tmp/pages-calibration.json', 'utf8')); process.stdout.write(data.html_url || '');")
             page_base="${page_url%/}"
-            if [[ -n "$page_base" ]] && curl --fail --silent --show-error --location "$page_base/latest-excel/broker-markup-calibration.json" --output output/broker-markup-calibration-input.json; then
-              echo "Restored previous broker markup calibration."
-              echo "calibration_args=--calibration=output/broker-markup-calibration-input.json" >> "$GITHUB_OUTPUT"
-            else
-              echo "No previous broker markup calibration found; static pricing config will be used."
-              echo "calibration_args=" >> "$GITHUB_OUTPUT"
-            fi
             if [[ -n "$page_base" ]]; then
               curl --fail --silent --show-error --location \
                 "$page_base/latest-full/pricing-recommendations.json" \
@@ -375,9 +368,13 @@ jobs:
                 || rm -f output/previous-dom-recommendation-verification-summary.json
             fi
           else
-            echo "GitHub Pages is unavailable; static pricing config will be used."
-            echo "calibration_args=" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages is unavailable; previous recommendations will not be restored."
           fi
+
+          node -e "const c=require('./input/broker-markup-frozen.json'); if(c.brokerMarkupCalibration?.manualOnly !== true || c.brokerMarkupCalibration?.model !== 'fixed_amount') throw new Error('Missing fixed broker markup');"
+          cp input/broker-markup-frozen.json output/broker-markup-calibration-input.json
+          echo "calibration_args=--calibration=output/broker-markup-calibration-input.json" >> "$GITHUB_OUTPUT"
+          echo "Using fixed PLN/day markup; automatic measurement and learning are disabled."
 
       - name: Generate pricing recommendations
         if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
@@ -592,61 +589,22 @@ jobs:
             echo "::warning::Final pricing recommendations are missing; Excel import workbook skipped."
           fi
 
-      - name: Run MM rate sanity check
-        if: needs.scrape.outputs.should_run == 'true' && always()
-        shell: bash
-        env:
-          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
-        run: |
-          if [[ "$RUN_TYPE" == "push-smoke" ]]; then
-            echo "Skipping MM sanity check for push smoke run."
-            exit 0
-          fi
-          if [[ -f output/final-pricing-recommendations.json && -f output/excel-rate-update-summary.json ]]; then
-            node src/mmRateSanityCheck.js \
-              --recommendations=output/final-pricing-recommendations.json \
-              --excel-summary=output/excel-rate-update-summary.json \
-              --output=output/mm-rate-sanity-check.json \
-              --work-dir=output/mm-rate-sanity-live \
-              --sample-size=13 \
-              --threshold=10 \
-              --min-markup-multiplier=1 \
-              --max-markup-multiplier=1.2 \
-              --speed-mode="${{ needs.scrape.outputs.speed_mode }}"
-          else
-            echo "::error::Final recommendations or Excel summary are missing; mandatory MM sanity check cannot run."
-            exit 1
-          fi
-
-      - name: Update broker markup calibration
+      - name: Publish fixed broker markup snapshot
         if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         run: |
-          node src/updateBrokerMarkupCalibration.js \
-            --base=pricing-rules.config.example.json \
-            --previous=output/broker-markup-calibration-input.json \
-            --excel-summary=output/excel-rate-update-summary.json \
-            --sanity-check=output/mm-rate-sanity-check.json \
-            --output=output/broker-markup-calibration.json
+          cp input/broker-markup-frozen.json output/broker-markup-calibration.json
 
       - name: Generate quality alerts
         id: quality
         if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
-        env:
-          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
         run: |
-          sanity_args=()
-          if [[ "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ]]; then
-            sanity_args+=(--require-sanity)
-          fi
           node src/workflowQualityAlerts.js \
             --results=output/results-latest.json \
             --recommendations=output/final-pricing-recommendations.json \
             --excel-summary=output/excel-rate-update-summary.json \
-            --sanity-check=output/mm-rate-sanity-check.json \
             --locations="${{ needs.scrape.outputs.locations }}" \
-            "${sanity_args[@]}" \
             --output=output/quality-alerts.json
           status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/quality-alerts.json','utf8')); process.stdout.write(d.status || 'failure');")
           echo "status=$status" >> "$GITHUB_OUTPUT"

@@ -2,9 +2,11 @@ const fs = require("fs");
 const path = require("path");
 const {
   mergeBrokerMarkupCalibration,
-  resolveBrokerMarkupCalibration
+  resolveBrokerMarkupCalibration,
+  siteToImportRate, importToSiteRate, fixedMarkupFields
 } = require("./brokerMarkupCalibration");
 const { DEFAULT_PRICING_RULES } = require("./pricingRules");
+const { buildCurrentMarkupEvidence, hasMarkupConflict, keyOf: markupKey } = require("./currentBrokerMarkup");
 const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
 
 const DEFAULT_OPTIONS = {
@@ -74,6 +76,10 @@ function listScenarioLocations(rootPayload, scenario) {
 
 function buildNoopRecommendation(base, reason, options, siteCapRate = null, dataQualityStatus = "ok") {
   const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
+  if (dataQualityStatus === 'floor_blocks_top3' && base.markup_evidence && base.markup_evidence.status !== 'supported') {
+    dataQualityStatus = 'markup_needs_review';
+    reason = 'Historyczny narzut blokuje cel rankingowy, ale nie zostal potwierdzony dla aktualnej klasy i taryfy. Zachowaj stawke bazowa i zweryfikuj przelicznik.';
+  }
   const fallbackSiteCap = Number(base.mm_rate_pln_day);
   const resolvedSiteCap = Number.isFinite(Number(siteCapRate))
     ? Number(siteCapRate)
@@ -82,18 +88,20 @@ function buildNoopRecommendation(base, reason, options, siteCapRate = null, data
       : null;
   const maximumImportRate = resolvedSiteCap == null
     ? null
-    : roundRate(resolvedSiteCap / calibration.multiplier, options);
+    : roundRate(siteToImportRate(resolvedSiteCap, calibration), options);
 
   return {
     ...base,
     action: "hold",
     reason,
     suggested_rate_pln_day: null,
-    site_cap_rate_pln_day: resolvedSiteCap == null ? null : Number(resolvedSiteCap.toFixed(2)),
-    maximum_import_rate_pln_day: maximumImportRate,
+    site_cap_rate_pln_day: dataQualityStatus === 'markup_needs_review' || resolvedSiteCap == null ? null : Number(resolvedSiteCap.toFixed(2)),
+    maximum_import_rate_pln_day: dataQualityStatus === 'markup_needs_review' ? null : maximumImportRate,
     broker_markup_multiplier: calibration.multiplier,
     broker_markup_percent: calibration.percent,
     broker_markup_source: calibration.source,
+    ...fixedMarkupFields(calibration),
+    ...(base.markup_evidence ? { broker_markup_confidence: calibration.source === 'current-exact-scenario' ? 'supported_current' : 'historical_unverified' } : {}),
     data_quality_status: dataQualityStatus,
     change_pln_day: 0
   };
@@ -102,8 +110,8 @@ function buildNoopRecommendation(base, reason, options, siteCapRate = null, data
 function buildActiveRecommendation({ base, options, action, recommendationType, targetRank, reason, benchmarkOffer, siteTarget }) {
   const benchmarkRate = toDailyRate(benchmarkOffer);
   const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
-  const suggestedImportRate = roundRate(siteTarget / calibration.multiplier, options);
-  const predictedSiteRate = Number((suggestedImportRate * calibration.multiplier).toFixed(2));
+  const suggestedImportRate = roundRate(siteToImportRate(siteTarget, calibration), options);
+  const predictedSiteRate = Number(importToSiteRate(suggestedImportRate, calibration).toFixed(2));
   const mmRate = base.mm_rate_pln_day == null ? null : Number(base.mm_rate_pln_day);
   const siteChange = Number.isFinite(mmRate) ? siteTarget - mmRate : null;
 
@@ -123,6 +131,8 @@ function buildActiveRecommendation({ base, options, action, recommendationType, 
     broker_markup_multiplier: calibration.multiplier,
     broker_markup_percent: calibration.percent,
     broker_markup_source: calibration.source,
+    ...fixedMarkupFields(calibration),
+    ...(base.markup_evidence ? { broker_markup_confidence: calibration.source === 'current-exact-scenario' ? 'supported_current' : 'historical_unverified' } : {}),
     data_quality_status: "ok",
     change_pln_day: siteChange == null ? null : Number(siteChange.toFixed(2))
   };
@@ -137,7 +147,7 @@ function listOfferCurrencies(offers) {
   )];
 }
 
-function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex }) {
+function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex, markupEvidence }) {
   const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
     (rule.locations.includes("*") || rule.locations.includes(location))
     && scenario.start_date >= rule.startDate && scenario.start_date <= rule.endDate
@@ -161,6 +171,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const sourceValidation = scenario?.source_validation_by_location?.[location] || { status: "api_unverified", reasons: [] };
 
   const base = {
+    ...(markupEvidence ? { markup_evidence: markupEvidence } : {}),
     ...(priorityRule ? { priority_rule_id: priorityRule.id, transmission: priorityRule.transmission } : {}),
     scenario_id: scenario.scenario_id || null,
     location,
@@ -190,6 +201,10 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       || rootPayload.run_id
       || null
   };
+  if (markupEvidence) {
+    base.markup_evidence = { ...markupEvidence,
+      historical_multiplier: resolveBrokerMarkupCalibration({location, rental_days:base.rental_days}, options.brokerMarkupCalibration).multiplier };
+  }
 
   const maxRecommendationRentalDays = Number(options.maxRecommendationRentalDays);
   if (
@@ -221,6 +236,12 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     );
   }
 
+  if (hasMarkupConflict(base.markup_evidence)) {
+    return buildNoopRecommendation(base,
+      'Cena MM na stronie nie potwierdza zgodnosci klasy/taryfy z baza. Narzut wymaga wyjasnienia; zachowaj stawke bazowa.',
+      options, null, 'markup_needs_review');
+  }
+
   if (priorityRule) {
     const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
     const minimumImport = priorityRule.minimumRatePlnDay + (priorityRule.premiumReservePlnDay || 0);
@@ -229,7 +250,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       const rate = toDailyRate(competitor);
       if (rate == null) continue;
       const siteTarget = roundRate(rate - options.undercutBufferPlnDay, options);
-      if (roundRate(siteTarget / calibration.multiplier, options) < minimumImport) continue;
+      if (roundRate(siteToImportRate(siteTarget, calibration), options) < minimumImport) continue;
       const targetRank = index + 1;
       return buildActiveRecommendation({base, options,
         action: mmRate != null && siteTarget > mmRate ? "increase" : "decrease",
@@ -388,6 +409,8 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  const evidence = options.brokerMarkupCalibration?.manualOnly === true
+    ? new Map() : buildCurrentMarkupEvidence(payload, options.currentBaseline, options.calibrationNow);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, options);
   const scenarios = normalizeScenarios(payload);
   const recommendations = [];
@@ -401,7 +424,8 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         scenario,
         location,
         options,
-        top1SignalIndex
+        top1SignalIndex,
+        markupEvidence: evidence.get(markupKey(location, scenario.start_date, scenario.rental_days))
       });
       decisions.push(recommendation);
 
@@ -420,7 +444,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
   return {
     generated_at: new Date().toISOString(),
     source_generated_at: payload?.generated_at || null,
-    options,
+    options: Object.fromEntries(Object.entries(options).filter(([key]) => !['currentBaseline', 'calibrationNow'].includes(key))),
     recommendation_count: recommendations.filter((item) => item.action !== "hold").length,
     skipped_count: skipped.length,
     decisions,
@@ -448,6 +472,10 @@ function parseArgs(argv) {
     }
     if (arg.startsWith("--calibration=")) {
       args.calibrationPath = arg.slice("--calibration=".length);
+      continue;
+    }
+    if (arg.startsWith("--baseline-index=")) {
+      args.baselineIndexPath = arg.slice("--baseline-index=".length);
       continue;
     }
     if (!args.inputPath) {
@@ -479,11 +507,17 @@ function runCli(argv) {
   const payload = loadJson(args.inputPath);
   const config = args.configPath ? loadJson(args.configPath) : {};
   const configPricing = config.pricing || config;
-  const learnedCalibration = args.calibrationPath && fs.existsSync(path.resolve(args.calibrationPath))
+  const learnedCalibration = configPricing.brokerMarkupCalibration?.manualOnly === true
+    ? loadJson(path.join(__dirname, '..', 'input', 'broker-markup-frozen.json'))
+    : args.calibrationPath && fs.existsSync(path.resolve(args.calibrationPath))
     ? loadJson(args.calibrationPath)
     : {};
+  if (configPricing.brokerMarkupCalibration?.manualOnly === true && learnedCalibration.brokerMarkupCalibration?.manualOnly !== true) {
+    throw new Error('Frozen broker markup calibration must set manualOnly=true.');
+  }
   const output = buildPricingRecommendations(payload, {
     ...configPricing,
+    currentBaseline: args.baselineIndexPath ? loadJson(args.baselineIndexPath) : undefined,
     brokerMarkupCalibration: mergeBrokerMarkupCalibration(configPricing.brokerMarkupCalibration, learnedCalibration),
     includeNoop: args.includeNoop || Boolean(config.includeNoop)
   });

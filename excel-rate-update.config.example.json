@@ -73,7 +73,7 @@
     ]
   },
   "broker_markup_learning": {
-    "enabled": true,
+    "enabled": false,
     "min_multiplier": 1,
     "max_multiplier": 1.2
   },

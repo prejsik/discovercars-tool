@@ -46,6 +46,7 @@ DEFAULT_CONFIG = {
     "apply_groups": "all",
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
+    "broker_markup_learning": {"enabled": False},
     "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
     "protected_rate_periods": [],
     "excluded_group_highlights": {
@@ -682,15 +683,41 @@ def classify_actual_action(old_rate: float | None, new_rate: float, fallback_act
     return "hold"
 
 
+def predict_site_rate(rate: float, item: dict[str, Any]) -> float:
+    multiplier = parse_number(item.get("broker_markup_multiplier")) or 1
+    amount = parse_number(item.get("broker_markup_amount_pln_day")) or 0
+    return round(rate * multiplier + amount, 2)
+
+
+def target_for_group(target: dict[str, Any], group: Any) -> dict[str, Any]:
+    supplement = parse_number((target.get("broker_markup_group_supplements_pln_day") or {}).get(normalize_code(group))) or 0
+    if not supplement:
+        return target
+    adjusted = {**target, "broker_markup_amount_pln_day": (parse_number(target.get("broker_markup_amount_pln_day")) or 0) + supplement}
+    for key in ("suggested_rate_pln_day", "maximum_import_rate_pln_day", "constraint_import_rate_pln_day"):
+        value = parse_number(target.get(key))
+        if value is not None:
+            adjusted[key] = value - supplement
+    if target.get("constraint_items"):
+        adjusted["constraint_items"] = [target_for_group(item, group) for item in target["constraint_items"]]
+    return adjusted
+
+
+def format_broker_markup(change: dict[str, Any]) -> str:
+    amount = parse_number(change.get("broker_markup_amount_pln_day"))
+    if amount is not None:
+        return f"{format_rate_for_comment(amount)} PLN/doba (staly)"
+    return format_percent_for_comment(parse_number(change.get("broker_markup_percent")))
+
+
 def evaluate_target_constraints(target: dict[str, Any], new_rate: float) -> dict[str, Any]:
     constraints = target.get("constraint_items") or [target]
     evaluated: list[dict[str, Any]] = []
     for item in constraints:
-        multiplier = parse_number(item.get("broker_markup_multiplier")) or 1
         site_cap = parse_number(item.get("site_cap_rate_pln_day"))
         if site_cap is None:
             site_cap = parse_number(item.get("site_target_rate_pln_day"))
-        predicted = round(new_rate * multiplier, 2)
+        predicted = predict_site_rate(new_rate, item)
         satisfied = site_cap is not None and predicted <= site_cap + 0.01
         evaluated.append({
             "duration_days": item.get("rental_days"),
@@ -993,8 +1020,8 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
         lines.append(f"Cel na stronie: {format_rate_for_comment(site_target)} PLN")
     if predicted_site_rate is not None:
         lines.append(f"Prognoza na stronie: {format_rate_for_comment(predicted_site_rate)} PLN")
-    if broker_markup_percent is not None:
-        lines.append(f"Szac. narzut brokera: {format_percent_for_comment(broker_markup_percent)}")
+    if format_broker_markup(change):
+        lines.append(f"Przyjety narzut brokera: {format_broker_markup(change)}")
     if change.get("city_top1_airport_cap_active"):
         multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.3
         lines.append(
@@ -1074,8 +1101,8 @@ def build_change_explanation(changes: list[dict[str, Any]]) -> str:
         lines.append(f"Cel na stronie DiscoverCars: {format_rate_for_comment(site_target)} PLN")
     if predicted_site_rate is not None or broker_markup_percent is not None:
         lines.append(
-            "Kalibracja brokera: "
-            f"narzut {format_percent_for_comment(broker_markup_percent) or 'n/a'}, "
+            "Przyjety model brokera: "
+            f"narzut {format_broker_markup(change) or 'n/a'}, "
             f"prognoza na stronie {format_rate_for_comment(predicted_site_rate)} PLN."
         )
     return "\n".join(lines)
@@ -1271,7 +1298,7 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
         notes.append(f"limit oddzialu miejskiego do {format_percent_for_comment(multiplier * 100)} stawki lotniskowej")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
         notes.append("korekta grupy EDMV")
-    if any(parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
+    if any(parse_number(change.get("broker_markup_amount_pln_day")) is not None or parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
         notes.append("uwzgledniono szacowany narzut brokera")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
         notes.append("kierunek po floor rozny od rekomendacji")
@@ -1397,6 +1424,11 @@ def write_changed_positions_sheet(
     ]
     if config.get("city_zone_airport_zones"):
         legend_items.append(("DDEBF7", "Limit miasto vs lotnisko", get_city_top1_airport_cap_legend_text(config)))
+    if any(change.get("broker_markup_model") == "fixed_amount" for change in changes):
+        legend_items.append(("D9EAF7", "Staly narzut brokera",
+            "Prognoza na stronie = stawka importowa + zatwierdzony narzut PLN/doba dla lokalizacji i duration. "
+            "CFAV jak CDMV; FVMD/PDAH/PDAV/SWAV: dodatkowe 10 PLN/doba, bez znoszenia wykluczen klas. "
+            "Narzut jest zalozeniem ostroznym, nie gwarancja prowizji. Bez automatycznych pomiarow i kalibracji; zmiana tylko na polecenie uzytkownika."))
     legend_items.append(("FFFFFF", "Kolory w Sheet1", "Zielony oznacza podwyzke, czerwony obnizke; im mocniejszy kolor, tym wieksza zmiana PLN/dzien. Komentarze sa tylko w kolumnie O tego arkusza."))
     warning = config.get("changed_rate_warning") or {}
     warning_threshold = parse_number(warning.get("below_pln_day"))
@@ -1569,7 +1601,7 @@ def write_recommendations_review_sheet(
             format_grouped_deltas(grouped_changes),
             parse_number(change.get("site_target_rate")),
             parse_number(change.get("predicted_site_rate")),
-            format_percent_for_comment(parse_number(change.get("broker_markup_percent"))),
+            format_broker_markup(change),
             get_recommendation_label_pl(change),
             get_recommendation_outcome_pl(change),
             change.get("benchmark_provider", ""),
@@ -1990,10 +2022,9 @@ def build_targets(
 
         col, duration_band, duration_min_days, duration_max_days = duration_column
         for zone in zones:
-            broker_multiplier = parse_number(item.get("broker_markup_multiplier")) or 1
             site_cap_rate = parse_number(item.get("site_cap_rate_pln_day"))
             if site_cap_rate is None and maximum_rate is not None:
-                site_cap_rate = round(maximum_rate * broker_multiplier, 2)
+                site_cap_rate = predict_site_rate(maximum_rate, item)
             candidates_by_cell[(zone, target_date, col)].append({
                 **item,
                 "zone": zone,
@@ -2063,6 +2094,9 @@ def build_targets(
             "broker_markup_multiplier": controlling.get("broker_markup_multiplier"),
             "broker_markup_percent": controlling.get("broker_markup_percent"),
             "broker_markup_source": controlling.get("broker_markup_source", ""),
+            "broker_markup_model": controlling.get("broker_markup_model"),
+            "broker_markup_amount_pln_day": controlling.get("broker_markup_amount_pln_day"),
+            "broker_markup_group_supplements_pln_day": controlling.get("broker_markup_group_supplements_pln_day", {}),
             "constraint_items": candidates,
             "source_decision_count": len(candidates),
             "source_active_count": len(active),
@@ -2778,6 +2812,7 @@ def apply_updates(
             continue
 
         for target in row_targets:
+            target = target_for_group(target, group)
             priority = priority_top1_applies(target, group, config)
             if target.get("priority_rule_id") and not priority:
                 continue
@@ -2822,7 +2857,7 @@ def apply_updates(
             actual_action = classify_actual_action(old_rate, new_rate, str(target["action"]))
             constraint_evaluation = evaluate_target_constraints(target, new_rate)
             broker_markup_multiplier = parse_number(target.get("broker_markup_multiplier")) or 1
-            predicted_site_rate = round(new_rate * broker_markup_multiplier, 2)
+            predicted_site_rate = predict_site_rate(new_rate, target)
             change = {
                 "priority_rule_id": target.get("priority_rule_id"),
                 "action": actual_action,
@@ -2849,6 +2884,8 @@ def apply_updates(
                 "broker_markup_multiplier": broker_markup_multiplier,
                 "broker_markup_percent": target.get("broker_markup_percent"),
                 "broker_markup_source": target.get("broker_markup_source", ""),
+                "broker_markup_model": target.get("broker_markup_model"),
+                "broker_markup_amount_pln_day": target.get("broker_markup_amount_pln_day"),
                 "minimum_rate_pln_day": minimum_rate,
                 "minimum_reason": minimum_reason if base_rate > suggested_rate else "",
                 "group_adjustment_pln_day": group_adjustment,
