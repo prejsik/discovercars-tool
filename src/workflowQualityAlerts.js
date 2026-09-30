@@ -39,6 +39,17 @@ function listSanityWarnings(payload) {
   return payload.checks.filter((item) => item && item.status !== "OK");
 }
 
+function getExcelErrorMessage(excelSummary) {
+  if (!excelSummary || (excelSummary.status !== "error" && !excelSummary.error)) {
+    return "";
+  }
+  const error = excelSummary.error;
+  const message = typeof error === "string" ? error : error?.message;
+  return String(message || "Generator Excel zakonczyl sie bledem bez komunikatu.")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function hasLocationData(scenario, location) {
   const data = scenario?.top_3_plus_mm_by_location?.[location];
   return Boolean(data && (Array.isArray(data.top_3) && data.top_3.length > 0));
@@ -171,6 +182,7 @@ function buildQualityReport({
   const locations = splitCsv(expectedLocations);
   const scrape = buildScrapeQualityReport({ results, expectedLocations });
   const requireVerifiedSanitySample = Boolean(requireSanity && Number(excelSummary?.change_count || 0) > 0);
+  const excelErrorMessage = getExcelErrorMessage(excelSummary);
 
   if (!results) {
     addBlockingAlert("Brak pliku results-latest.json.");
@@ -232,6 +244,8 @@ function buildQualityReport({
 
   if (!excelSummary) {
     addBlockingAlert("Brak pliku excel-rate-update-summary.json.");
+  } else if (excelErrorMessage) {
+    addBlockingAlert(`Blad generowania pliku Excel: ${excelErrorMessage}`);
   } else {
     if (Number(excelSummary.change_count || 0) === 0) {
       alerts.push("Excel nie zawiera zmian stawek.");
@@ -296,7 +310,7 @@ function buildQualityReport({
   let status = scrape.status;
   const failedExcelValidation = Array.isArray(excelSummary?.validation)
     && excelSummary.validation.some((row) => row?.status === "FAIL");
-  if (!recommendations || !excelSummary || failedExcelValidation || requiredSanityFailed) {
+  if (!recommendations || !excelSummary || excelErrorMessage || failedExcelValidation || requiredSanityFailed) {
     status = "failure";
   } else if (status === "success" && alerts.length) {
     status = "degraded";

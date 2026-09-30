@@ -578,13 +578,50 @@ jobs:
         shell: bash
         run: |
           if [[ -f output/final-pricing-recommendations.json ]]; then
+            excel_summary_tmp="output/excel-rate-update-summary.tmp.json"
+            excel_error_log="output/excel-rate-update-error.log"
+            rm -f "$excel_summary_tmp" "$excel_error_log" output/excel-rate-update-summary.json
+            set +e
             python tools/update_excel_rates.py \
               --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
               --recommendations output/final-pricing-recommendations.json \
               --config excel-rate-update.config.example.json \
               --output output/rates-updated.xlsx \
               --import-output output/rates-import-ready.xlsx \
-              | tee output/excel-rate-update-summary.json
+              >"$excel_summary_tmp" 2>"$excel_error_log"
+            excel_status=$?
+            set -e
+
+            if [[ "$excel_status" -eq 0 ]] && node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!value || typeof value !== "object" || Array.isArray(value)) process.exit(1);' "$excel_summary_tmp"; then
+              mv "$excel_summary_tmp" output/excel-rate-update-summary.json
+              rm -f "$excel_error_log"
+            else
+              if [[ "$excel_status" -eq 0 ]]; then
+                excel_status=1
+                printf '%s\n' "Generator Excel zwrocil puste lub nieprawidlowe podsumowanie JSON." >> "$excel_error_log"
+              fi
+              EXCEL_EXIT_CODE="$excel_status" node <<'NODE'
+          const fs = require("fs");
+          const stderrPath = "output/excel-rate-update-error.log";
+          const stderr = fs.existsSync(stderrPath) ? fs.readFileSync(stderrPath, "utf8").trim() : "";
+          const stderrLines = stderr.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+          const exitCode = Number(process.env.EXCEL_EXIT_CODE) || 1;
+          const message = stderrLines[stderrLines.length - 1] || `Generator Excel zakonczyl sie kodem ${exitCode}.`;
+          const summary = {
+            status: "error",
+            change_count: 0,
+            error: {
+              stage: "excel_generation",
+              exit_code: exitCode,
+              message,
+              stderr_log: "excel-rate-update-error.log"
+            }
+          };
+          fs.writeFileSync("output/excel-rate-update-summary.json", `${JSON.stringify(summary, null, 2)}\n`);
+          NODE
+              rm -f "$excel_summary_tmp" output/rates-updated.xlsx output/rates-import-ready.xlsx
+              echo "::error::Excel generation failed: $(tail -n 1 "$excel_error_log" 2>/dev/null || true)"
+            fi
           else
             echo "::warning::Final pricing recommendations are missing; Excel import workbook skipped."
           fi
@@ -832,6 +869,7 @@ jobs:
             output/rates-updated.xlsx
             output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json
+            output/excel-rate-update-error.log
             output/mm-rate-sanity-check.json
             output/broker-markup-calibration.json
             output/quality-alerts.json

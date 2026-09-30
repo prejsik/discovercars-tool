@@ -688,6 +688,138 @@ runTest("scheduled fallback windows send a Telegram failure only after the final
   assert.match(notifyStep, /github\.event\.schedule == '17 21 \* \* \*'/);
 });
 
+function resolveWorkflowBash() {
+  if (process.platform !== "win32") {
+    return "bash";
+  }
+  const programFiles = process.env.ProgramW6432 || process.env.ProgramFiles || "C:\\Program Files";
+  const candidates = [
+    process.env.GIT_BASH_PATH,
+    path.join(programFiles, "Git", "bin", "bash.exe"),
+    path.join(programFiles, "Git", "usr", "bin", "bash.exe"),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe")
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function extractWorkflowRunScript(stepName) {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8")
+    .replaceAll("\r\n", "\n");
+  const stepMarker = `      - name: ${stepName}\n`;
+  const stepStart = workflow.indexOf(stepMarker);
+  assert.notEqual(stepStart, -1, `Workflow step not found: ${stepName}`);
+  const runMarker = "        run: |\n";
+  const runStart = workflow.indexOf(runMarker, stepStart);
+  assert.notEqual(runStart, -1, `Run script not found for workflow step: ${stepName}`);
+  const scriptStart = runStart + runMarker.length;
+  const nextStep = workflow.indexOf("\n      - name:", scriptStart);
+  const block = workflow.slice(scriptStart, nextStep === -1 ? workflow.length : nextStep + 1);
+  return `${block.split("\n").map((line) => line.startsWith("          ") ? line.slice(10) : line).join("\n").trimEnd()}\n`;
+}
+
+function withExcelWorkflowStep(mode, verify) {
+  const bash = resolveWorkflowBash();
+  assert(bash, "Git Bash is required on Windows to execute the Excel workflow regression test.");
+  const probe = spawnSync(bash, ["--version"], { encoding: "utf8" });
+  assert.equal(probe.status, 0, `Bash is required to execute the Excel workflow regression test: ${probe.error?.message || probe.stderr}`);
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-excel-workflow-"));
+  try {
+    const outputDir = path.join(tempDir, "output");
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(outputDir, "final-pricing-recommendations.json"), "{}\n", "utf8");
+    const pythonStub = `
+python() {
+  case "$EXCEL_STUB_MODE" in
+    failure)
+      : > output/rates-updated.xlsx
+      : > output/rates-import-ready.xlsx
+      printf '%s\\n' 'Traceback (most recent call last):' 'ValueError: floor 150 PLN przekracza cap 130 PLN' >&2
+      return 7
+      ;;
+    success)
+      : > output/rates-updated.xlsx
+      : > output/rates-import-ready.xlsx
+      printf '%s\\n' '{"change_count":2,"validation":[]}'
+      return 0
+      ;;
+    invalid-json)
+      : > output/rates-updated.xlsx
+      : > output/rates-import-ready.xlsx
+      printf '%s\\n' 'not-json'
+      return 0
+      ;;
+    *)
+      printf '%s\\n' "Unknown Excel stub mode: $EXCEL_STUB_MODE" >&2
+      return 99
+      ;;
+  esac
+}
+`;
+    const result = spawnSync(bash, [], {
+      cwd: tempDir,
+      encoding: "utf8",
+      env: { ...process.env, EXCEL_STUB_MODE: mode },
+      input: `${pythonStub}\n${extractWorkflowRunScript("Generate Excel import workbook")}`,
+      maxBuffer: 1024 * 1024
+    });
+    verify({ outputDir, result });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+runTest("Excel workflow turns a generator failure into a structured retained error", () => {
+  withExcelWorkflowStep("failure", ({ outputDir, result }) => {
+    assert.equal(result.status, 0, result.stderr);
+    const summary = JSON.parse(fs.readFileSync(path.join(outputDir, "excel-rate-update-summary.json"), "utf8"));
+    assert.deepEqual(summary, {
+      status: "error",
+      change_count: 0,
+      error: {
+        stage: "excel_generation",
+        exit_code: 7,
+        message: "ValueError: floor 150 PLN przekracza cap 130 PLN",
+        stderr_log: "excel-rate-update-error.log"
+      }
+    });
+    assert.match(fs.readFileSync(path.join(outputDir, "excel-rate-update-error.log"), "utf8"), /Traceback[\s\S]*ValueError: floor 150 PLN przekracza cap 130 PLN/);
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-updated.xlsx")), false);
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx")), false);
+    assert.equal(fs.existsSync(path.join(outputDir, "excel-rate-update-summary.tmp.json")), false);
+  });
+});
+
+runTest("Excel workflow promotes valid generator JSON and keeps completed workbooks", () => {
+  withExcelWorkflowStep("success", ({ outputDir, result }) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(outputDir, "excel-rate-update-summary.json"), "utf8")),
+      { change_count: 2, validation: [] }
+    );
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-updated.xlsx")), true);
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx")), true);
+    assert.equal(fs.existsSync(path.join(outputDir, "excel-rate-update-error.log")), false);
+    assert.equal(fs.existsSync(path.join(outputDir, "excel-rate-update-summary.tmp.json")), false);
+  });
+});
+
+runTest("Excel workflow rejects invalid zero-exit JSON without retaining stale workbooks", () => {
+  withExcelWorkflowStep("invalid-json", ({ outputDir, result }) => {
+    assert.equal(result.status, 0, result.stderr);
+    const summary = JSON.parse(fs.readFileSync(path.join(outputDir, "excel-rate-update-summary.json"), "utf8"));
+    assert.equal(summary.status, "error");
+    assert.equal(summary.change_count, 0);
+    assert.equal(summary.error.stage, "excel_generation");
+    assert.equal(summary.error.exit_code, 1);
+    assert.equal(summary.error.message, "Generator Excel zwrocil puste lub nieprawidlowe podsumowanie JSON.");
+    assert.equal(fs.readFileSync(path.join(outputDir, "excel-rate-update-error.log"), "utf8").trim(), summary.error.message);
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-updated.xlsx")), false);
+    assert.equal(fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx")), false);
+    assert.equal(fs.existsSync(path.join(outputDir, "excel-rate-update-summary.tmp.json")), false);
+  });
+});
+
 runTest("daily workflow checkpoints scraping and verifies four DOM shards before publication", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
   const verificationStep = workflow.match(/- name: Verify active recommendations in DOM[\s\S]*?(?=\n      - name:)/)?.[0] || "";
@@ -1259,6 +1391,60 @@ runTest("Telegram summary highlights a recommendation surge above 100 percent", 
   });
 
   assert.match(message, /ALERT: liczba aktywnych rekomendacji wzrosla o 150% \(2 -> 5\)\./);
+});
+
+runTest("Telegram success summary reports at most three skipped floor-cap bands with exact reasons", () => {
+  const conflicts = Array.from({ length: 5 }, (_, index) => ({
+    zone: `Warsaw City ${index + 1}`,
+    pickup_date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+    duration_band: "1-3",
+    groups: ["CDMV", "EDAV"],
+    skip_reason: `Floor ${150 + index} PLN przekracza cap ${130 + index} PLN.`
+  }));
+  const options = {
+    env: {
+      QUALITY_STATUS: "success",
+      ROLLING_DAYS: "7",
+      DURATIONS: "2,3",
+      PAGE_URL: "https://example.test/report.html",
+      PAGES_EXCEL_URL: "https://example.test/import.xlsx",
+      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+    },
+    excelAvailable: true,
+    recommendations: { recommendations: [] },
+    excelSummary: {
+      change_count: 4,
+      city_top1_airport_cap_conflict_count: 5,
+      city_top1_airport_cap_conflicts: conflicts
+    },
+    qualityAlerts: { alerts: [] }
+  };
+  const message = buildTelegramSummary(options);
+
+  assert.match(message, /^DiscoverCars \| GOTOWE/);
+  assert.match(message, /ALERT CENOWY: pominięto 5 pasm cenowych z powodu konfliktu floor\/cap\./);
+  assert.match(message, /Warsaw City 1 · 01\.10\.2026 · 1-3 dni · grupy CDMV, EDAV: Floor 150 PLN przekracza cap 130 PLN\./);
+  assert.match(message, /Warsaw City 3 · 03\.10\.2026 · 1-3 dni · grupy CDMV, EDAV: Floor 152 PLN przekracza cap 132 PLN\./);
+  assert.match(message, /Pozostałe konflikty: 2\./);
+  assert.doesNotMatch(message, /Warsaw City 4|Warsaw City 5/);
+  assert(message.length < 4096);
+
+  const oversizedMessage = buildTelegramSummary({
+    ...options,
+    excelSummary: {
+      ...options.excelSummary,
+      city_top1_airport_cap_conflicts: conflicts.map((conflict) => ({
+        ...conflict,
+        zone: conflict.zone.repeat(400),
+        pickup_date: "data".repeat(1200),
+        duration_band: "1-3".repeat(1200),
+        groups: ["CDMV".repeat(1000), "EDAV".repeat(1000)],
+        skip_reason: `${conflict.skip_reason} ${"Szczegoly ".repeat(1000)}`
+      }))
+    }
+  });
+  assert.match(oversizedMessage, /Floor 150 PLN przekracza cap 130 PLN\./);
+  assert(oversizedMessage.length < 4096);
 });
 
 runTest("Telegram alerts only when MM is absent everywhere for a start date", () => {
@@ -1883,6 +2069,57 @@ runTest("buildQualityAlerts reports missing city data and workbook warnings", ()
   assert(alerts.some((item) => item.includes("Brak aktywnych rekomendacji")));
   assert(alerts.some((item) => item.includes("Excel nie zawiera zmian")));
   assert(alerts.some((item) => item.includes("Validation WARNING")));
+});
+
+runTest("Excel generator errors block publication with the captured stderr reason", () => {
+  const report = buildQualityReport({
+    expectedLocations: "Warsaw",
+    results: {
+      locations: ["Warsaw"],
+      scenarios: [{
+        results: [{ location: "Warsaw" }],
+        errors: [],
+        top_3_plus_mm_by_location: {
+          Warsaw: {
+            top_3: [{ provider_name: "Other", currency: "PLN" }],
+            mm_cars_rental: { provider_name: "MM Cars Rental", currency: "PLN" }
+          }
+        }
+      }]
+    },
+    recommendations: { recommendations: [{ action: "increase" }] },
+    excelSummary: {
+      status: "error",
+      change_count: 0,
+      error: {
+        stage: "excel_generation",
+        exit_code: 1,
+        message: "ValueError: floor 150 PLN przekracza cap 130 PLN"
+      }
+    }
+  });
+
+  assert.equal(report.status, "failure");
+  assert.deepEqual(report.blocking_alerts, [
+    "Blad generowania pliku Excel: ValueError: floor 150 PLN przekracza cap 130 PLN"
+  ]);
+
+  const message = buildTelegramSummary({
+    env: {
+      QUALITY_STATUS: report.status,
+      ROLLING_DAYS: "7",
+      DURATIONS: "2,3",
+      RUN_URL: "https://example.test/actions/3"
+    },
+    excelAvailable: false,
+    excelSummary: {
+      status: "error",
+      error: { message: "ValueError: floor 150 PLN przekracza cap 130 PLN" }
+    },
+    qualityAlerts: report
+  });
+  assert.match(message, /Powód: Blad generowania pliku Excel: ValueError: floor 150 PLN przekracza cap 130 PLN/);
+  assert.doesNotMatch(message, /Brak pliku excel-rate-update-summary\.json|brak szczegółów/);
 });
 
 runTest("buildScrapeQualityReport distinguishes missing MM from missing top3 and rejects non-PLN", () => {

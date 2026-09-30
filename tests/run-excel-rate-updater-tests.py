@@ -8,6 +8,7 @@ from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1620,22 +1621,151 @@ def main():
             "out-of-range recommendations do not restore removed dates",
         )
 
-        try:
-            apply_updates(
-                workbook_path=city_cap_workbook_path,
+        conflict_rows = [list(row) for row in city_cap_rows]
+        conflict_rows[1][9] = 112
+        for row in conflict_rows:
+            if row[3] == "WALO":
+                row[10] = 150
+        conflict_source = tmpdir / "city-cap-conflict-source.xlsx"
+        build_minimal_workbook(conflict_source, conflict_rows)
+        conflict_source_book = openpyxl.load_workbook(conflict_source)
+        conflict_source_book["Sheet1"]["J5"].fill = PatternFill(fill_type="solid", fgColor="FFF2CC")
+        conflict_source_book["Sheet1"]["J5"].comment = Comment("Original baseline note", "Baseline")
+        conflict_source_book.save(conflict_source)
+        conflict_source_book.close()
+        conflict_recommendations = tmpdir / "city-cap-conflict-recommendations.json"
+        conflict_decisions = json.loads(city_cap_recommendations_path.read_text())["decisions"]
+        conflict_decisions += [
+            {**conflict_decisions[0], "rental_days": days, "suggested_rate_pln_day": 140,
+             "maximum_import_rate_pln_day": 140, "site_cap_rate_pln_day": 141}
+            for days in (3, 4)
+        ]
+        conflict_recommendations.write_text(json.dumps({"decisions": conflict_decisions}), encoding="utf-8")
+        conflict_output = tmpdir / "city-cap-floor-conflict.xlsx"
+        conflict_import = tmpdir / "city-cap-floor-conflict-import.xlsx"
+        conflict_config = merge_config({
+            "location_zones": {"Warsaw Train Station": ["WA1"]},
+            "city_zone_airport_zones": {"WA1": ["WALO"]},
+            "minimum_rates": {"global_min_pln_day": 131},
+        })
+        conflict_summary = apply_updates(
+            workbook_path=conflict_source,
+            recommendations_path=conflict_recommendations,
+            output_path=conflict_output,
+            import_output_path=conflict_import,
+            config=conflict_config,
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(conflict_summary["city_top1_airport_cap_conflict_count"], 1, "conflict counted per band, not per class")
+        assert_equal(conflict_summary["skipped_target_count"], 1, "conflict is a skipped recommendation")
+        conflict = conflict_summary["city_top1_airport_cap_conflicts"][0]
+        assert_equal(conflict["zone"], "WA1", "conflict location")
+        assert "131" in conflict["skip_reason"] and "130" in conflict["skip_reason"]
+        assert_equal(conflict_summary["city_top1_airport_cap_violation_count"], 0, "unchanged conflicts excluded from changed-rate validation")
+        for path in (conflict_output, conflict_import):
+            book = openpyxl.load_workbook(path)
+            sheet = book["Sheet1"]
+            assert_equal(sheet.max_row, 12, "all original rate rows preserved")
+            assert_equal(rgb(sheet["J5"]), "FFF2CC", "skipped cell keeps its baseline fill")
+            assert_equal(sheet["J5"].comment.text, "Original baseline note", "skipped cell has no misleading new recommendation comment")
+            for row_number, original in enumerate(conflict_rows, start=5):
+                assert_equal(sheet.cell(row_number, 10).value, original[9], "conflict preserves original rates despite unequal class prices")
+                expected = 141 if original[0] == "EDMV" else 140
+                if original[3] == "WA1":
+                    assert_equal(sheet.cell(row_number, 11).value, expected, "unaffected duration band still updated")
+            if path == conflict_import:
+                assert_equal(book.sheetnames, ["Sheet1"], "clean import contains only Sheet1")
+            else:
+                review = book["Recommendations Review"]
+                assert any(
+                    review.cell(row, 2).value == "Sprawdz"
+                    and "131" in str(review.cell(row, 3).value)
+                    for row in range(2, review.max_row + 1)
+                ), "conflict visible in recommendations review"
+            book.close()
+        dry_conflict_summary = apply_updates(
+            workbook_path=conflict_source,
+            recommendations_path=conflict_recommendations,
+            output_path=None,
+            config=conflict_config,
+            cli_groups=None,
+            dry_run=True,
+        )
+        assert_equal(dry_conflict_summary["city_top1_airport_cap_conflict_count"], 1, "dry-run also reports conflicts")
+        assert all(change["cell"][0] != "J" for change in dry_conflict_summary["changes"])
+
+        premium_conflict_config = merge_config({
+            "location_zones": {"Warsaw Train Station": ["WA1"]},
+            "city_zone_airport_zones": {"WA1": ["WALO"]},
+            "minimum_rates": {"scoped_overrides": [{
+                "zones": ["WA1"], "groups": ["EDMV"],
+                "min_days": 2, "max_days": 2, "min_pln_day": 131,
+            }]},
+        })
+        premium_conflict_output = tmpdir / "city-cap-premium-conflict.xlsx"
+        premium_conflict_summary = apply_updates(
+            workbook_path=conflict_source,
+            recommendations_path=city_cap_recommendations_path,
+            output_path=premium_conflict_output,
+            config=premium_conflict_config,
+            cli_groups=None,
+            dry_run=False,
+        )
+        assert_equal(premium_conflict_summary["city_top1_airport_cap_conflict_count"], 1, "late premium class conflict detected before base classes are written")
+        premium_conflict_book = openpyxl.load_workbook(premium_conflict_output)
+        for row_number, original in enumerate(conflict_rows, start=5):
+            assert_equal(premium_conflict_book["Sheet1"].cell(row_number, 10).value, original[9], "premium-only conflict preserves the whole parity family")
+        premium_conflict_book.close()
+
+        selected_conflict_output = tmpdir / "city-cap-selected-no-conflict.xlsx"
+        selected_conflict_summary = apply_updates(
+            workbook_path=conflict_source,
+            recommendations_path=city_cap_recommendations_path,
+            output_path=selected_conflict_output,
+            config=premium_conflict_config,
+            cli_groups="CDMV",
+            dry_run=False,
+        )
+        assert_equal(selected_conflict_summary["city_top1_airport_cap_conflict_count"], 0, "unselected premium class cannot block an allowed base-class change")
+        selected_conflict_book = openpyxl.load_workbook(selected_conflict_output)
+        assert_equal(selected_conflict_book["Sheet1"]["J5"].value, 130, "selected base class respects airport cap")
+        assert_equal(selected_conflict_book["Sheet1"]["J8"].value, 91, "unselected premium price preserved")
+        selected_conflict_book.close()
+
+        independent_rows = [list(row) for row in conflict_rows]
+        independent_rows.append(["MDMR", None, None, "WA1", "14-09-26", "15-09-26",
+                                 "15-09-26", "15-09-26", 160, 90, 100, 100, 100, 120])
+        independent_source = tmpdir / "city-cap-independent-class.xlsx"
+        build_minimal_workbook(independent_source, independent_rows)
+        for conflict_group, expected_base, expected_premium, expected_independent in (
+            ("EDMV", 90, 91, 130),
+            ("MDMR", 130, 131, 90),
+        ):
+            independent_output = tmpdir / f"city-cap-independent-{conflict_group}.xlsx"
+            independent_config = merge_config({
+                "apply_groups": ["CDMV", "EDMV", "MDMR"],
+                "location_zones": {"Warsaw Train Station": ["WA1"]},
+                "city_zone_airport_zones": {"WA1": ["WALO"]},
+                "minimum_rates": {"scoped_overrides": [{
+                    "zones": ["WA1"], "groups": [conflict_group],
+                    "min_days": 2, "max_days": 2, "min_pln_day": 131,
+                }]},
+            })
+            independent_summary = apply_updates(
+                workbook_path=independent_source,
                 recommendations_path=city_cap_recommendations_path,
-                output_path=tmpdir / "city-cap-floor-conflict.xlsx",
-                config=merge_config({
-                    "location_zones": {"Warsaw Train Station": ["WA1"]},
-                    "city_zone_airport_zones": {"WA1": ["WALO"]},
-                    "minimum_rates": {"global_min_pln_day": 131},
-                }),
+                output_path=independent_output,
+                config=independent_config,
                 cli_groups=None,
                 dry_run=False,
             )
-            raise AssertionError("city cap and floor conflict should block the workbook")
-        except ValueError as error:
-            assert "conflicts with the configured price floor" in str(error)
+            independent_book = openpyxl.load_workbook(independent_output)
+            assert_equal(independent_book["Sheet1"]["J5"].value, expected_base, "parity family unaffected by an independent-class conflict")
+            assert_equal(independent_book["Sheet1"]["J8"].value, expected_premium, "premium follows selected parity family only")
+            assert_equal(independent_book["Sheet1"]["J13"].value, expected_independent, "independent class unaffected by a parity-family conflict")
+            assert_equal(independent_summary["city_top1_airport_cap_conflict_count"], 1, "independent class conflict counted")
+            independent_book.close()
 
         city_only_workbook_path = tmpdir / "city-cap-missing-airport.xlsx"
         build_minimal_workbook(city_only_workbook_path, city_cap_rows[:len(parity_groups)])

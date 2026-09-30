@@ -111,6 +111,41 @@ function formatAverageChange(value) {
   return `${number > 0 ? "+" : ""}${formatted} PLN/dzień`;
 }
 
+function truncateText(value, maxLength) {
+  const text = String(value || "").trim();
+  return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function buildPriceConflictAlert(excelSummary) {
+  const count = Number(excelSummary?.city_top1_airport_cap_conflict_count || 0);
+  if (!Number.isFinite(count) || count <= 0) {
+    return "";
+  }
+
+  const conflicts = Array.isArray(excelSummary?.city_top1_airport_cap_conflicts)
+    ? excelSummary.city_top1_airport_cap_conflicts.slice(0, 3)
+    : [];
+  const lines = [`ALERT CENOWY: pominięto ${count} pasm cenowych z powodu konfliktu floor/cap.`];
+  for (const conflict of conflicts) {
+    const pickupDate = /^\d{4}-\d{2}-\d{2}$/.test(String(conflict?.pickup_date || ""))
+      ? formatIsoDate(conflict.pickup_date)
+      : truncateText(conflict?.pickup_date || "brak daty", 20);
+    const groups = Array.isArray(conflict?.groups)
+      ? conflict.groups.join(", ")
+      : String(conflict?.groups || "brak danych");
+    const durationBand = truncateText(conflict?.duration_band || "brak danych", 30);
+    const reason = truncateText(conflict?.skip_reason || "brak powodu", 280);
+    lines.push(
+      `${truncateText(conflict?.zone || "brak strefy", 60)} · ${pickupDate} · ${durationBand} dni · grupy ${truncateText(groups, 100)}: ${reason}`
+    );
+  }
+  const omittedCount = Math.max(0, count - conflicts.length);
+  if (omittedCount > 0) {
+    lines.push(`Pozostałe konflikty: ${omittedCount}.`);
+  }
+  return lines.join("\n");
+}
+
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
   const qualityStatus = env.QUALITY_STATUS || "failure";
@@ -148,6 +183,7 @@ function buildTelegramSummary(options = {}) {
   const recommendationSurgeAlert = options.recommendationWorkload?.recommendation_surge
     ? String(options.recommendationWorkload.alert || "ALERT: nietypowy wzrost liczby aktywnych rekomendacji.")
     : "";
+  const priceConflictAlert = buildPriceConflictAlert(options.excelSummary);
 
   if (qualityStatus === "failure") {
     const reason = blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
@@ -157,6 +193,7 @@ function buildTelegramSummary(options = {}) {
       "Excel nie został opublikowany.",
       `Powód: ${reason}`,
       `Zakres: ${rangeLabel(env)}`,
+      ...(priceConflictAlert ? [priceConflictAlert] : []),
       ...(missingMmAlert ? [missingMmAlert] : []),
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
@@ -179,6 +216,7 @@ function buildTelegramSummary(options = {}) {
       "",
       `Powód: ${reason}.`,
       `Zakres: ${rangeLabel(env)}`,
+      ...(priceConflictAlert ? [priceConflictAlert] : []),
       ...(missingMmAlert ? [missingMmAlert] : []),
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
@@ -192,6 +230,7 @@ function buildTelegramSummary(options = {}) {
     `DiscoverCars | ${statusLabel}`,
     "",
     `Zakres: ${rangeLabel(env)}`,
+    ...(priceConflictAlert ? [priceConflictAlert] : []),
     ...(missingMmAlert ? [missingMmAlert] : []),
     ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
     `Rekomendacje: ${recommendations.total} (podwyżki ${recommendations.increases}, obniżki ${recommendations.decreases})`,
