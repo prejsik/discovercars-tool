@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "status": "confirmed_imported",
-  "workbook_sha256": "6b906fcc56a6c9ced87a0955c64cec43866c5d3a15c92ba8835e6bd66994e467",
-  "confirmed_at": "2026-09-25",
+  "workbook_sha256": "6ed88264d4b59c4c0a3a28be37106dc80d9513957e23089a4c327afe93dc9a05",
+  "confirmed_at": "2026-09-29",
   "confirmed_by": "user",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 25-Sep-26.xlsx",
-  "note": "User designated this workbook as the current DiscoverCars baseline on 2026-09-25 and authorized publishing it to main. Preserve its exact bytes and rates. This baseline update does not change pricing rules, exclusions or holiday protections; these remain defined in the pricing configuration and updater."
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 29-Sep-26.xlsx",
+  "note": "User confirmed this workbook is currently imported on DiscoverCars on 2026-09-29. Preserve exact bytes and all rows regardless of filters. Current markup audit is diagnostic only; calibration changes require explicit user confirmation."
 }
