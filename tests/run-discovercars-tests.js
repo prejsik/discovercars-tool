@@ -470,7 +470,10 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   const dailyLocations = getDailyLocations();
   const zones = buildLocationZones();
   const geoOverrides = buildGeoLocationOverrides();
-  assert.equal(dailyLocations.length, 21);
+  assert.equal(dailyLocations.length, 22);
+  assert(dailyLocations.includes("Wroclaw Train Station"));
+  assert.deepEqual(zones["Wroclaw Train Station"], ["WR2"]);
+  assert.deepEqual(zones["Wroclaw Downtown"], ["WR1"]);
   assert(dailyLocations.includes("Galeria Krakowska Shopping Mall"));
   assert(dailyLocations.includes("Bydgoszcz Airport (BZG)"));
   assert(dailyLocations.includes("Lodz Downtown"));
@@ -485,6 +488,7 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   assert.equal(geoOverrides["Galeria Krakowska Shopping Mall"].radiusMeters, 20000);
 
   const config = loadConfig(["--config", "discovercars.config.example.json"]);
+  assert.equal(config.pinnedLocationIds["Wroclaw Train Station"], 8507);
   assert.equal(config.geoLocationOverrides["Galeria Krakowska Shopping Mall"].latitude, 50.0662682);
 });
 
@@ -2227,6 +2231,12 @@ runTest("buildScrapeQualityReport exposes API DOM drift monitoring", () => {
 });
 
 async function runAsyncTests() {
+  const stationConfig = loadConfig(["--config", "discovercars.config.example.json"]);
+  const stationScraper = new DiscoverCarsScraper({ ...stationConfig,
+    locationCandidateCache: new Map([["https://www.discovercars.com|wroclaw train station", [{ placeID: 3459 }]]]) });
+  assert.deepEqual((await stationScraper.resolveLocationCandidates({}, "Wroclaw Train Station")).map(item => item.placeID), [8507]);
+  assert.deepEqual((await stationScraper.resolveLocationCandidatesViaApi("Wroclaw Train Station")).map(item => item.placeID), [8507]);
+  console.log("PASS pinned station uses railway ID, never downtown or a stale autocomplete candidate");
   const originalScraperRun = DiscoverCarsScraper.prototype.run;
   let expiredBudgetScrapeCalls = 0;
   DiscoverCarsScraper.prototype.run = async function runExpiredBudgetProbe() {

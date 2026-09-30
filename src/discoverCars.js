@@ -2,6 +2,8 @@ const crypto = require("crypto");
 const path = require("path");
 const { chromium } = require("playwright");
 const { DiscoverCarsScraper } = require("./discovercars/scraper");
+const { buildPinnedLocationIds } = require("./locationRegistry");
+const PINNED_LOCATION_IDS = buildPinnedLocationIds();
 const {
   dedupeOffers,
   extractOffersFromDom,
@@ -625,6 +627,8 @@ async function scrapeLocationOnce(browser, location, options) {
 }
 
 async function resolveLocationCandidates(page, location) {
+  const pinnedId = PINNED_LOCATION_IDS[location];
+  if (pinnedId) return [{ placeID: pinnedId, place: location }];
   const endpoint = `https://www.discovercars.com/api/v2/autocomplete?location=${encodeURIComponent(location)}`;
   const response = await page.request.get(endpoint).catch(() => null);
   if (!response || !response.ok()) {

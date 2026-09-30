@@ -243,6 +243,14 @@ def load_config(config_path: Path) -> dict[str, Any]:
     config["location_zones"] = location_zones
     config["daily_locations"] = daily_locations
     config["zone_mirrors"] = zone_mirrors
+    zone_seeds = {
+        normalize_code(target): normalize_code(source)
+        for target, source in (registry.get("zone_seeds") or {}).items()
+    }
+    for target, source in zone_seeds.items():
+        if target not in zone_location_labels or source not in zone_location_labels or target == source or source in zone_seeds:
+            raise ValueError(f"Invalid baseline zone seed: {target}/{source}.")
+    config["zone_seeds"] = zone_seeds
     config["city_zone_airport_zones"] = city_zone_airport_zones
     config["zone_location_labels"] = zone_location_labels
     config["location_registry_path"] = str(registry_path)
@@ -2395,6 +2403,31 @@ def write_row_snapshot(ws: Any, row: int, snapshot: dict[str, Any]) -> None:
 
 
 
+def seed_missing_zones(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
+    """Seed an absent zone once; never overwrite an existing zone or mirror its rates."""
+    zone_col = int(config["columns"]["zone"])
+    rows_by_zone: dict[str, list[int]] = defaultdict(list)
+    for row in range(int(config["data_start_row"]), ws.max_row + 1):
+        rows_by_zone[normalize_code(ws.cell(row, zone_col).value)].append(row)
+    pending: list[tuple[str, dict[str, Any]]] = []
+    seeded_zones: dict[str, str] = {}
+    unavailable_sources: dict[str, str] = {}
+    for target, source in (config.get("zone_seeds") or {}).items():
+        if target in rows_by_zone:
+            continue
+        if not rows_by_zone.get(source):
+            unavailable_sources[target] = source
+            continue
+        for row in rows_by_zone[source]:
+            pending.append((target, snapshot_row(ws, row, ws.max_column)))
+        seeded_zones[target] = source
+    for target, snapshot in pending:
+        row = ws.max_row + 1
+        write_row_snapshot(ws, row, snapshot)
+        ws.cell(row, zone_col).value = target
+    return {"seeded_row_count": len(pending), "seeded_zones": seeded_zones, "unavailable_sources": unavailable_sources}
+
+
 def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("pickup_date_expansion") or {}
     if not settings.get("enabled"):
@@ -2402,7 +2435,12 @@ def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
 
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
-    if settings.get("months_ahead") is not None:
+    if settings.get("rolling_days") is not None:
+        rolling_days = settings["rolling_days"]
+        if type(rolling_days) is not int or rolling_days <= 0:
+            raise ValueError("pickup_date_expansion.rolling_days must be a positive integer.")
+        end_date = start_date + timedelta(days=rolling_days - 1)
+    elif settings.get("months_ahead") is not None:
         end_date = add_calendar_months(start_date, int(settings["months_ahead"]))
     else:
         end_date = resolve_config_date(settings.get("end_date", "2027-01-31"), time_zone)
@@ -2782,6 +2820,7 @@ def apply_updates(
         raise ValueError(f"Worksheet '{sheet_name}' not found. Available sheets: {', '.join(workbook.sheetnames)}")
     ws = workbook[sheet_name]
 
+    zone_seed_summary = seed_missing_zones(ws, config)
     expansion_summary = expand_pickup_date_rows(ws, config)
     recommendations, recommendation_out_of_pickup_range_count = filter_recommendations_to_pickup_date_range(
         recommendations,
@@ -3061,6 +3100,7 @@ def apply_updates(
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
+        "zone_seeding": zone_seed_summary,
         "skipped_target_count": len(skipped_targets),
         "accepted_only": accepted_only,
         "accepted_target_count": accepted_target_count,

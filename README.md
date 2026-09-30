@@ -376,7 +376,7 @@ Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowy
 npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
 ```
 
-Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa wszystkich 21 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa wszystkich 22 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
 
 Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
 
@@ -407,7 +407,7 @@ Lokalnie mozna wygenerowac rekomendacje z ostatniego wyniku:
 node src/pricingRecommendations.js output/results-latest.json output/pricing-recommendations.json --config=pricing-rules.config.example.json
 ```
 
-Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje dwa pliki: `rates-import-ready.xlsx` jako plik gotowy do importu z samym `Sheet1` oraz `rates-updated.xlsx` jako pelny raport kontrolny. Glowny arkusz rozwija wszystkie klasy obecne w pliku bazowym na kazdy dzien od dnia uruchomienia do czterech miesiecy kalendarzowych naprzod; starsze i pozniejsze `Pickup start date` sa usuwane. Oba Excele zachowuja te sama siatke `Pickup start date`, rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje w pelnym raporcie. Przed zapisem obowiazuje bezwzgledny limit `28000` wierszy w `Sheet1`; jego przekroczenie blokuje oba pliki.
+Updater Excela bierze rekomendacje, mapuje lokalizacje na strefy z pliku stawek i zapisuje nowy workbook z kolorami. Daily workflow robi to automatycznie na bazie `input/mm-cars-rental-rates-inclusive-fp.xlsx` i publikuje dwa pliki: `rates-import-ready.xlsx` jako plik gotowy do importu z samym `Sheet1` oraz `rates-updated.xlsx` jako pelny raport kontrolny. Glowny arkusz rozwija wszystkie klasy obecne w pliku bazowym na kazdy dzien przez 100 dni od dnia uruchomienia (dzis oraz kolejne 99 dni); starsze i pozniejsze `Pickup start date` sa usuwane. Oba Excele zachowuja te sama siatke `Pickup start date`, rozne grupy i strefy, pozycje bez zmian oraz formatowanie wierszy 1-4 w `Sheet1`; dodatkowy arkusz `Changed Positions` pokazuje tylko zmienione pozycje w pelnym raporcie. Przed zapisem obowiazuje bezwzgledny limit `28000` wierszy w `Sheet1`; jego przekroczenie blokuje oba pliki.
 Booking date jest ignorowany przy dopasowaniu rekomendacji. Dopasowanie odbywa sie po `Pickup start date`, a duration wybiera odpowiednia kolumne `I-N`; `Pickup end date` jest ustawiany na taka sama wartosc jak `Pickup start date`, a `Booking end date` zawsze dostaje taka sama wartosc jak `Pickup end date`.
 Wymaga biblioteki Python `openpyxl` (`pip install openpyxl`), jesli nie jest jeszcze zainstalowana.
 
@@ -436,7 +436,10 @@ Jedynym zrodlem mapowania lokalizacji jest `locations.config.json`. Zawiera prof
 | WA2 | Warsaw Train Station | placeID 8305 |
 | WALO | Warsaw Chopin Airport (WAW) | placeID 1664 |
 | WR1 | Wroclaw Downtown | placeID 3459 |
+| WR2 | Wroclaw Train Station | placeID 8507; osobny scraper dworca |
 | WRLO | Wroclaw Airport (WRO) | placeID 2103 |
+
+Jesli w bazie nie ma WR2, generator kopiuje wszystkie jego wiersze i stawki z WR1 (`zone_seeds`). Istniejace WR2 pozostaje bez zmian podczas tego kopiowania. Rekomendacje dworca zmieniaja tylko WR2 na podstawie jego wlasnego scrapera i standardowych zasad klas, dat i duration. Narzut brokera dla WR2 jest zatwierdzonym zamiennikiem z WR1, bez automatycznej kalibracji. Limit miejskiej stawki wzgledem lotniska odnosi WR2 do WRLO. Potwierdzona baza nie jest automatycznie podmieniana po wygenerowaniu Excela.
 
 Workbook zawiera tez arkusze kontrolne:
 

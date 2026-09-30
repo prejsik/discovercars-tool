@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { buildGeoLocationOverrides, loadLocationRegistry } = require("../locationRegistry");
+const { buildGeoLocationOverrides, buildPinnedLocationIds, loadLocationRegistry } = require("../locationRegistry");
 const {
   makeTimestampForFile,
   normalizeWhitespace,
@@ -288,12 +288,12 @@ function loadConfig(argv) {
   const registryPath = merged.locationRegistryFile
     ? path.resolve(configDir, merged.locationRegistryFile)
     : null;
-  const registryGeoOverrides = registryPath
-    ? buildGeoLocationOverrides(loadLocationRegistry(registryPath))
-    : {};
+  const registry = registryPath ? loadLocationRegistry(registryPath) : null;
+  const registryGeoOverrides = registry ? buildGeoLocationOverrides(registry) : {};
 
   return {
     baseUrl: normalizeWhitespace(merged.baseUrl || "https://www.discovercars.com"),
+    pinnedLocationIds: registry ? buildPinnedLocationIds(registry) : {},
     locations,
     pickupDate: parsedPickupDate.raw,
     pickupDateOptions,

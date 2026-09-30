@@ -86,10 +86,24 @@ function buildGeoLocationOverrides(registry = loadLocationRegistry()) {
   return overrides;
 }
 
+function buildPinnedLocationIds(registry = loadLocationRegistry()) {
+  const ids = {};
+  for (const location of registry.locations) {
+    if (!location.discovercars?.require_place_id) continue;
+    const id = Number(location.discovercars.place_id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw new Error(`Invalid required DiscoverCars place ID: ${location.scraper_label}`);
+    }
+    ids[location.scraper_label] = id;
+  }
+  return ids;
+}
+
 module.exports = {
   DEFAULT_LOCATION_REGISTRY_PATH,
   buildGeoLocationOverrides,
   buildLocationZones,
+  buildPinnedLocationIds,
   getDailyLocations,
   getProfileLocations,
   loadLocationRegistry,

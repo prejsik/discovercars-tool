@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { chromium } = require("playwright");
+const { buildPinnedLocationIds } = require("../locationRegistry");
+const DEFAULT_PINNED_LOCATION_IDS = buildPinnedLocationIds();
 const {
   ensureDir,
   formatMoney,
@@ -113,7 +115,7 @@ function normalizeSpeedMode(value) {
 
 class DiscoverCarsScraper {
   constructor(config) {
-    this.config = config;
+    this.config = { ...config, pinnedLocationIds: config.pinnedLocationIds || DEFAULT_PINNED_LOCATION_IDS };
     this.locationCandidateCache = config.locationCandidateCache || SHARED_LOCATION_CANDIDATE_CACHE;
     this.apiDomDriftState = config.apiDomDriftState || SHARED_API_DOM_DRIFT_STATE;
     this.apiDomTelemetry = {
@@ -753,6 +755,8 @@ class DiscoverCarsScraper {
   }
 
   async resolveLocationCandidates(page, location) {
+    const pinnedId = this.config.pinnedLocationIds?.[location];
+    if (pinnedId) return [{ placeID: pinnedId, place: location }];
     const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
       return [...this.locationCandidateCache.get(cacheKey)];
@@ -784,6 +788,8 @@ class DiscoverCarsScraper {
   }
 
   async resolveLocationCandidatesViaApi(location) {
+    const pinnedId = this.config.pinnedLocationIds?.[location];
+    if (pinnedId) return [{ placeID: pinnedId, place: location }];
     const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
       return [...this.locationCandidateCache.get(cacheKey)];

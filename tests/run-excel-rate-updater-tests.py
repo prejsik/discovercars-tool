@@ -2,7 +2,7 @@ import json
 import sys
 import tempfile
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
@@ -23,6 +23,7 @@ from tools.update_excel_rates import (  # noqa: E402
     get_duration_columns,
     get_delta_fill,
     get_import_row_limit,
+    expand_pickup_date_rows,
     get_minimum_rate,
     get_floor_legend_text,
     highlight_excluded_group_rates,
@@ -31,6 +32,7 @@ from tools.update_excel_rates import (  # noqa: E402
     merge_config,
     parse_date_value,
     parse_number,
+    seed_missing_zones,
     target_matches_recommendation_types,
 )
 
@@ -612,6 +614,7 @@ def main():
         "Warsaw Train Station": {"WA2"},
         "Warsaw Chopin Airport (WAW)": {"WALO"},
         "Wroclaw Downtown": {"WR1"},
+        "Wroclaw Train Station": {"WR2"},
         "Wroclaw Airport (WRO)": {"WRLO"},
     }
     for location, zones in expected_location_zones.items():
@@ -621,6 +624,90 @@ def main():
     assert_equal(example_config["city_zone_airport_zones"]["KRDW"], ["KRLO"], "Krakow station-airport mapping")
     assert_equal(example_config["city_zone_airport_zones"]["KRGA"], ["KRLO"], "Krakow gallery-airport mapping")
     assert "KRTI" not in example_config["city_zone_airport_zones"]
+    assert_equal(example_config["city_zone_airport_zones"]["WR2"], ["WRLO"], "Wroclaw station-airport mapping")
+    assert_equal(example_config["zone_seeds"], {"WR2": "WR1"}, "station initial baseline source")
+
+    seed_book = openpyxl.Workbook()
+    seed_ws = seed_book.active
+    for _ in range(4):
+        seed_ws.append(["header"])
+    for group in ("CDMV", "PDAH", "EDAV"):
+        for pickup in ("30-09-26", "01-10-26"):
+            seed_ws.append([group, None, None, "WR1", "27-04-26", pickup, pickup, pickup, 150, 31, 32, 40, 100, 200])
+    seed_ws["J5"].fill = PatternFill(fill_type="solid", fgColor="FF0000")
+    seed_ws.row_dimensions[5].hidden = True
+    original_rows = list(seed_ws.values)
+    header_rows_snapshot(seed_ws)
+    original_header = header_rows_snapshot(seed_ws)
+    seed_summary = seed_missing_zones(seed_ws, example_config)
+    assert_equal(seed_summary["seeded_row_count"], 6, "all station classes and dates are seeded")
+    assert_equal(header_rows_snapshot(seed_ws), original_header, "seeding preserves headers")
+    assert_equal(list(seed_ws.values)[:10], original_rows, "seeding does not alter source rows")
+    for source_row, station_row in zip(range(5, 11), range(11, 17)):
+        expected = list(original_rows[source_row - 1])
+        expected[3] = "WR2"
+        assert_equal([seed_ws.cell(station_row, col).value for col in range(1, 15)], expected, "station rates exactly match source")
+    assert_equal(seed_ws["J11"]._style, seed_ws["J5"]._style, "seed retains source style")
+    seed_ws["J11"] = 77
+    assert_equal(seed_missing_zones(seed_ws, example_config)["seeded_row_count"], 0, "existing station is not reseeded")
+    assert_equal(seed_ws["J11"].value, 77, "existing station prices survive")
+    assert_equal(seed_ws["J5"].value, 31, "station prices are independent of downtown")
+    seed_book.close()
+
+    range_book = openpyxl.Workbook()
+    range_ws = range_book.active
+    for _ in range(4):
+        range_ws.append(["header"])
+    range_ws.append(["CDMV", None, None, "WR1", "27-04-26", "30-09-26", "30-09-26", "30-09-26"] + [100] * 6)
+    range_config = {**example_config, "pickup_date_expansion": {
+        "enabled": True, "start_date": "2026-09-30", "rolling_days": 100,
+        "months_ahead": 4, "drop_rows_before_start_date": True, "drop_rows_after_end_date": True,
+    }}
+    seed_missing_zones(range_ws, range_config)
+    range_summary = expand_pickup_date_rows(range_ws, range_config)
+    dates = {parse_date_value(range_ws.cell(row, 7).value) for row in range(5, range_ws.max_row + 1)}
+    assert_equal(len(dates), 100, "exactly 100 pickup days")
+    assert_equal(min(dates), date(2026, 9, 30), "100-day horizon includes its start")
+    assert_equal(max(dates), date(2027, 1, 7), "100-day horizon ends at start plus 99 days")
+    assert_equal(range_ws.max_row, 204, "every zone retains all 100 dates")
+    assert_equal(range_summary["end_date"], "2027-01-07", "shared recommendation/import date limit")
+    for invalid_days in (True, 0, -1, 100.0, "100"):
+        invalid_config = {**range_config, "pickup_date_expansion": {**range_config["pickup_date_expansion"], "rolling_days": invalid_days}}
+        try:
+            expand_pickup_date_rows(range_ws, invalid_config)
+        except ValueError as error:
+            assert "positive integer" in str(error)
+        else:
+            raise AssertionError(f"Invalid rolling day count accepted: {invalid_days!r}")
+    assert_equal(range_ws.max_row, 204, "invalid horizon never modifies the worksheet")
+    range_book.close()
+
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        source = folder / "station-baseline.xlsx"
+        build_minimal_workbook(source, [
+            [group, None, None, zone, "27-04-26", "01-10-26", "01-10-26", "01-10-26"] + [100] * 6
+            for zone in ("WR1", "WRLO") for group in ("CDMV", "EDMV", "PDAH")
+        ])
+        station_recs = folder / "station-recommendations.json"
+        station_recs.write_text(json.dumps({"recommendations": [{
+            "action": "decrease", "recommendation_type": "force_top1_undercut",
+            "location": "Wroclaw Train Station", "start_date": "2026-10-01", "rental_days": 2,
+            "suggested_rate_pln_day": 70, "benchmark_rate_pln_day": 98, "target_rank": 1,
+            "broker_markup_model": "fixed_amount", "broker_markup_amount_pln_day": 26,
+            "broker_markup_multiplier": 1,
+        }]}), encoding="utf-8")
+        station_config = {**example_config, "baseline_manifest_file": "", "pickup_date_expansion": {"enabled": False}}
+        output = folder / "station-updated.xlsx"
+        station_summary = apply_updates(source, station_recs, output, station_config, None, False)
+        updated = openpyxl.load_workbook(output)
+        prices = {(row[0], row[3]): row[9] for row in updated["Sheet1"].iter_rows(min_row=5, values_only=True)}
+        assert_equal(prices[("CDMV", "WR2")], 69, "station recommendation reaches its own seeded zone")
+        assert_equal(prices[("EDMV", "WR2")], 70, "station preserves premium rule")
+        assert_equal(prices[("PDAH", "WR2")], 100, "excluded station class remains unchanged")
+        assert_equal(prices[("CDMV", "WR1")], 100, "station recommendation does not affect downtown")
+        assert_equal(station_summary["zone_seeding"]["seeded_row_count"], 3, "zone seeding appears in audit summary")
+        updated.close()
 
     covered_zones = set().union(*location_zones.values())
     real_zones = workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
@@ -1599,7 +1686,7 @@ def main():
         real_ws = real_before["Sheet1"]
         before_snapshot = header_rows_snapshot(real_ws)
         expected_pickup_start = datetime.now(ZoneInfo("Europe/Warsaw")).date()
-        expected_pickup_end = add_calendar_months(expected_pickup_start, 4)
+        expected_pickup_end = expected_pickup_start + timedelta(days=99)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
         frozen_source_rates = {}
         real_target = None

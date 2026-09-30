@@ -22,6 +22,7 @@
       "warsaw_train_station",
       "warsaw_airport",
       "wroclaw_downtown",
+      "wroclaw_train_station",
       "wroclaw_airport"
     ],
     "legacy_default": [
@@ -205,6 +206,14 @@
       "discovercars": { "place_id": 3459 }
     },
     {
+      "id": "wroclaw_train_station",
+      "scraper_label": "Wroclaw Train Station",
+      "city": "Wroclaw",
+      "kind": "city",
+      "zones": ["WR2"],
+      "discovercars": { "place_id": 8507, "require_place_id": true }
+    },
+    {
       "id": "wroclaw_airport",
       "scraper_label": "Wroclaw Airport (WRO)",
       "city": "Wroclaw",
@@ -232,6 +241,9 @@
     "Warszawa Dworzec kolejowy": ["WA2"],
     "Lotnisko Warszawa (WAW)": ["WALO"],
     "Wroclaw": ["WR1", "WRLO"]
+  },
+  "zone_seeds": {
+    "WR2": "WR1"
   },
   "zone_mirrors": {
     "KRTI": "KRLO"

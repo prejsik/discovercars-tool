@@ -17,7 +17,7 @@ const expected = {
   LO1:[41,31,16,19,15,15], LOLO:[37,27,10,8,11,11], LU1:[43,33,18,17,16,16],
   OL1:[36,26,11,9,9,9], OP1:[36,26,11,9,9,9], PO1:[37,27,11,8,10,10],
   POLO:[36,26,10,5,8,8], TO1:[36,26,12,10,10,10], WA1:[39,29,14,10,12,12],
-  WA2:[39,29,14,10,12,12], WALO:[39,29,14,8,12,12], WR1:[36,26,10,6,9,9], WRLO:[41,31,15,10,13,13]
+  WA2:[39,29,14,10,12,12], WALO:[39,29,14,8,12,12], WR1:[36,26,10,6,9,9], WR2:[36,26,10,6,9,9], WRLO:[41,31,15,10,13,13]
 };
 const options = {...pricing, brokerMarkupCalibration:merge(pricing.brokerMarkupCalibration,{brokerMarkupCalibration:fixed})};
 for (const entry of registry.locations) {

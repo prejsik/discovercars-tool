@@ -7,7 +7,8 @@
     "proxy_zones": [
       "GD1",
       "WA1",
-      "WA2"
+      "WA2",
+      "WR2"
     ],
     "extrapolated_bands": [
       "1",
@@ -16,7 +17,8 @@
     "partial_observation_band": {
       "8-20": "Measured durations 8-14; extended by agreement."
     },
-    "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference."
+    "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference.",
+    "station_proxy": "WR2 uses the frozen WR1 markup by explicit user agreement; no station-specific measurement."
   },
   "brokerMarkupCalibration": {
     "enabled": true,
@@ -59,6 +61,8 @@
       "WA2": "Warsaw Train Station",
       "WALO": "Warsaw Chopin Airport (WAW)",
       "WR1": "Wroclaw Downtown",
+      "WR2": "Wroclaw Downtown",
+      "Wroclaw Train Station": "Wroclaw Downtown",
       "WRLO": "Wroclaw Airport (WRO)"
     },
     "locationDurationAmounts": {
