@@ -43,22 +43,24 @@ DEFAULT_CONFIG = {
         "rate_start": 9,
     },
     "location_zones": {},
-    "apply_groups": "all",
+    "apply_groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
     "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
     "max_recommendation_duration_days": 7,
     "broker_markup_learning": {"enabled": False},
-    "excluded_groups": ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
+    "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
     "protected_rate_periods": [],
     "excluded_group_highlights": {
         "SWAV": 150,
     },
     "group_rate_adjustments_pln_day": {
+        "EDAV": 1,
         "EDMV": 1,
     },
     "group_price_parity": {
         "enabled": True,
         "base_groups": ["CDMV", "CGAV", "CWAV", "CWMR"],
         "premium_adjustments_pln_day": {
+            "EDAV": 1,
             "EDMV": 1,
         },
     },
@@ -528,23 +530,31 @@ def load_acceptance_keys(path: Path, sheet_name: str) -> set[tuple[str, str, str
     return accepted
 
 
-def resolve_apply_groups(config: dict[str, Any], cli_groups: str | None) -> set[str] | str:
-    raw_groups: Any = cli_groups if cli_groups is not None else config.get("apply_groups")
+def resolve_apply_groups(config: dict[str, Any], cli_groups: str | None) -> set[str]:
+    raw_groups: Any = config.get("apply_groups")
     if isinstance(raw_groups, str):
         if raw_groups.strip().lower() == "all":
-            return "all"
+            raise ValueError("Set apply_groups to an explicit list; wildcard class permissions are not allowed.")
         values = [item.strip() for item in raw_groups.split(",")]
     else:
         values = [str(item).strip() for item in raw_groups or []]
 
     groups = {normalize_code(item) for item in values if str(item).strip()}
     if not groups:
-        raise ValueError("Set apply_groups to an explicit list of car groups, or pass --groups=all intentionally.")
-    return groups
+        raise ValueError("Set apply_groups to a non-empty explicit list of car groups.")
+    if cli_groups is None or cli_groups.strip().lower() == "all":
+        return groups
+    requested = {normalize_code(item) for item in cli_groups.split(",") if item.strip()}
+    if not requested:
+        raise ValueError("--groups must select at least one approved car group.")
+    unauthorized = requested - groups
+    if unauthorized:
+        raise ValueError("--groups cannot authorize classes outside apply_groups: " + ", ".join(sorted(unauthorized)))
+    return requested
 
 
-def group_is_allowed(group: Any, allowed_groups: set[str] | str) -> bool:
-    return allowed_groups == "all" or normalize_code(group) in allowed_groups
+def group_is_allowed(group: Any, allowed_groups: set[str]) -> bool:
+    return normalize_code(group) in allowed_groups
 
 
 def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
@@ -1247,9 +1257,11 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         else ""
     )
     return (
+        f"Zmiany dozwolone tylko dla klas: {format_group_list(sorted(resolve_apply_groups(config, None)))}. "
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
         f"{premium_text or 'brak grup premium'}. "
         f"Bez zmian z rekomendacji konkurencyjnych: {format_group_list(excluded_groups)}."
+        " Klasy bez reguly zachowuja stawki bazowe i sa wskazane w arkuszu Validation."
         f"{duration_rule}"
         f"{protected_rule}"
     )
@@ -1297,7 +1309,7 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
         multiplier = parse_number(changes[0].get("city_top1_airport_max_multiplier")) or 1.3
         notes.append(f"limit oddzialu miejskiego do {format_percent_for_comment(multiplier * 100)} stawki lotniskowej")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
-        notes.append("korekta grupy EDMV")
+        notes.append("korekta grup premium")
     if any(parse_number(change.get("broker_markup_amount_pln_day")) is not None or parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
         notes.append("uwzgledniono szacowany narzut brokera")
     if any(change.get("action") != change.get("recommendation_action") for change in changes):
@@ -1413,7 +1425,7 @@ def write_changed_positions_sheet(
             f"klasy {', '.join(rule['groups'])}; duration "
             + ', '.join(f"{lo}-{hi}" for lo, hi in rule['durationBands'])
             + f" dni. Cel: 1 PLN ponizej konkurencji, bez progu obnizki 10 PLN; floor {rule['minimumRatePlnDay']} PLN. "
-            + "Gdy floor blokuje top1, wybierane jest najwyzsze osiagalne top2/top3 bez limitu obnizki 10 PLN. Gdy brak celu w top3, stawka bazowa zostaje. EDAV moze byc zmieniana tylko w tym wyjatku, poza nim pozostaje chroniona. Priorytet zastepuje limit miasto/lotnisko 130%. Kontrola danych i ochrona dat pozostaja aktywne.")
+            + "Gdy floor blokuje top1, wybierane jest najwyzsze osiagalne top2/top3 bez limitu obnizki 10 PLN. Gdy brak celu w top3, stawka bazowa zostaje. Priorytet zastepuje limit miasto/lotnisko 130%. Kontrola danych i ochrona dat pozostaja aktywne.")
     legend_items = [
         *recommendation_legend_items,
         ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
@@ -1685,6 +1697,8 @@ def build_validation_rows(
     pickup_end_col = int(columns["pickup_end_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
     excluded_groups = {normalize_code(item) for item in config.get("excluded_groups", [])}
+    approved_groups = resolve_apply_groups(config, None)
+    unknown_groups: set[str] = set()
 
     data_rows = 0
     booking_mismatch: list[str] = []
@@ -1702,6 +1716,8 @@ def build_validation_rows(
         if not group and not zone and pickup_start is None:
             continue
         data_rows += 1
+        if group and group not in approved_groups and group not in excluded_groups:
+            unknown_groups.add(group)
 
         if booking_end_col:
             booking_end = parse_date_value(ws.cell(row, booking_end_col).value)
@@ -1728,6 +1744,11 @@ def build_validation_rows(
         for change in changes
         if normalize_code(change.get("group")) in excluded_groups
         and not priority_top1_applies(change, change.get("group"), config)
+    ]
+    unauthorized_changed = [
+        f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
+        for change in changes
+        if normalize_code(change.get("group")) not in approved_groups
     ]
     missing_benchmark = sorted({
         str(change.get("scenario_id") or change.get("cell"))
@@ -1796,6 +1817,8 @@ def build_validation_rows(
     return [
         ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
         ["Zmienione komorki stawek", "INFO", len(changes), ""],
+        ["Klasy bez reguly - stawki zachowane", get_validation_status(len(unknown_groups), warning=True), len(unknown_groups), first_items(sorted(unknown_groups))],
+        ["Zmienione klasy spoza listy dopuszczonej", get_validation_status(len(unauthorized_changed)), len(unauthorized_changed), first_items(unauthorized_changed)],
         ["Brakujace grupy po ekspansji dat", get_validation_status(len(missing_groups_after_expansion)), len(missing_groups_after_expansion), first_items(missing_groups_after_expansion)],
         ["Brakujace Group + Zone po ekspansji dat", get_validation_status(len(missing_group_zones_after_expansion)), len(missing_group_zones_after_expansion), first_items(missing_group_zones_after_expansion)],
         ["Odtworzone Group + Zone po ekspansji dat", "INFO", len(restored_group_zones), first_items(restored_group_zones)],
@@ -2290,6 +2313,7 @@ def find_city_top1_airport_cap_violations(
     ws: Any,
     config: dict[str, Any],
     caps: dict[tuple[str, date, int], dict[str, Any]],
+    allowed_groups: set[str] | None = None,
 ) -> list[str]:
     if not caps:
         return []
@@ -2298,6 +2322,7 @@ def find_city_top1_airport_cap_violations(
     group_col = int(columns["group"])
     zone_col = int(columns["zone"])
     pickup_col = int(columns["pickup_start_date"])
+    allowed_groups = resolve_apply_groups(config, None) if allowed_groups is None else allowed_groups
     caps_by_zone_date: dict[tuple[str, date], list[tuple[int, dict[str, Any]]]] = defaultdict(list)
     for (zone, pickup_date, rate_col), cap_info in caps.items():
         caps_by_zone_date[(zone, pickup_date)].append((rate_col, cap_info))
@@ -2306,7 +2331,7 @@ def find_city_top1_airport_cap_violations(
         group = normalize_code(ws.cell(row, group_col).value)
         zone = normalize_code(ws.cell(row, zone_col).value)
         pickup_date = parse_date_value(ws.cell(row, pickup_col).value)
-        if not group or not zone or pickup_date is None or group_is_excluded(group, config):
+        if not group_is_allowed(group, allowed_groups) or not zone or pickup_date is None or group_is_excluded(group, config):
             continue
         for rate_col, cap_info in caps_by_zone_date.get((zone, pickup_date), []):
             rate = parse_number(ws.cell(row, rate_col).value)
@@ -2581,12 +2606,16 @@ def enforce_group_price_parity(
     duration_columns: dict[int, tuple[int, str, int, int]],
     dry_run: bool,
     scope: set[tuple[str, date, int]] | None = None,
+    allowed_groups: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     parity = get_group_price_parity(config)
     if parity is None:
         return []
 
     base_groups, premium_adjustments = parity
+    allowed_groups = resolve_apply_groups(config, None) if allowed_groups is None else allowed_groups
+    base_groups = [group for group in base_groups if group_is_allowed(group, allowed_groups)]
+    premium_adjustments = {group: adjustment for group, adjustment in premium_adjustments.items() if group_is_allowed(group, allowed_groups)}
     tracked_groups = set(base_groups) | set(premium_adjustments)
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
@@ -2938,6 +2967,7 @@ def apply_updates(
         duration_columns,
         dry_run,
         scope=group_price_parity_scope,
+        allowed_groups=allowed_groups,
     )
     changes.extend(group_price_parity_changes)
     changes_outside_recommendation_scope = sorted({
@@ -2960,7 +2990,7 @@ def apply_updates(
     )
 
     city_top1_airport_cap_violations = (
-        [] if dry_run else find_city_top1_airport_cap_violations(ws, config, city_top1_airport_caps)
+        [] if dry_run else find_city_top1_airport_cap_violations(ws, config, city_top1_airport_caps, allowed_groups)
     )
     if city_top1_airport_cap_violations:
         raise ValueError(
@@ -3040,7 +3070,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Excel rate update config JSON path.")
     parser.add_argument("--output", help="Output .xlsx path.")
     parser.add_argument("--import-output", help="Optional clean import .xlsx path containing only Sheet1.")
-    parser.add_argument("--groups", help="Comma-separated car groups to update, or 'all'. Overrides config apply_groups.")
+    parser.add_argument("--groups", help="Comma-separated approved car groups, or 'all' for the configured apply_groups list. Cannot expand class permissions.")
     parser.add_argument("--accepted-only", action="store_true", help="Apply only recommendations marked as accepted.")
     parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Akceptacja?/Accept? decisions.")
     parser.add_argument("--dry-run", action="store_true", help="Calculate matching changes without saving an .xlsx file.")

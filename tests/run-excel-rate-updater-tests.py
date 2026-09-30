@@ -214,7 +214,7 @@ def main():
     assert "Wyjatek nadrzedny" in get_floor_legend_text(example_config)
     assert_equal(
         example_config["excluded_groups"],
-        ["FVMD", "SWAV", "CFAV", "EDAV", "PDAH", "PDAV"],
+        ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
         "excluded and unchanged groups",
     )
     assert_equal(example_config["max_import_rows"], 28000, "broker import row limit")
@@ -231,12 +231,12 @@ def main():
     )
     assert_equal(
         example_config["group_price_parity"]["premium_adjustments_pln_day"],
-        {"EDMV": 1},
+        {"EDAV": 1, "EDMV": 1},
         "current premium groups",
     )
     assert_equal(
         example_config["group_rate_adjustments_pln_day"],
-        {"EDMV": 1},
+        {"EDAV": 1, "EDMV": 1},
         "current group recommendation adjustments",
     )
     assert_equal(
@@ -382,14 +382,22 @@ def main():
         for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
             assert_equal(frozen_ws.cell(frozen_rows[group], 10).value, 222, f"{group} follows the recommendation")
         assert_equal(frozen_ws.cell(frozen_rows["EDMV"], 10).value, 223, "EDMV premium remains active")
-        for group in ("CFAV", "EDAV", "PDAH", "FVMD", "PDAV"):
+        assert_equal(frozen_ws.cell(frozen_rows["EDAV"], 10).value, 223, "EDAV has the same premium rate as EDMV")
+        for group in ("CFAV", "PDAH", "FVMD", "PDAV"):
             row = frozen_rows[group]
             assert_equal(
                 [frozen_ws.cell(row, col).value for col in range(9, 15)],
                 frozen_group_rates[group],
                 f"{group} remains unchanged from baseline",
             )
-        assert not ({"CFAV", "EDAV", "PDAH", "FVMD", "PDAV"} & {str(change["group"]) for change in frozen_summary["changes"]})
+        assert not ({"CFAV", "PDAH", "FVMD", "PDAV"} & {str(change["group"]) for change in frozen_summary["changes"]})
+        for group in ("EDAV", "EDMV"):
+            row = frozen_rows[group]
+            assert_equal(
+                [frozen_ws.cell(row, col).value for col in (9, 11, 12, 13, 14)],
+                [frozen_group_rates[group][index] for index in (0, 2, 3, 4, 5)],
+                f"{group} keeps all rate columns outside the recommendation scope",
+            )
         frozen_book.close()
 
         scoped_path = temporary_path / "scoped-floor.xlsx"
@@ -416,7 +424,7 @@ def main():
         apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
         scoped_book = openpyxl.load_workbook(scoped_output)
         for row in scoped_book["Sheet1"].iter_rows(min_row=5, values_only=True):
-            expected = 100 if row[0] in {"EDAV", "PDAV", "PDAH"} else 31 if row[0] == "EDMV" else 30
+            expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] in {"EDAV", "EDMV"} else 30
             assert_equal(row[9:11], (expected, expected), f"scoped applied floor {row[0]}/{row[3]}")
             assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "unaffected duration bands")
         scoped_book.close()
@@ -429,8 +437,8 @@ def main():
         priority_summary = apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
         priority_book = openpyxl.load_workbook(scoped_output)
         for row in priority_book["Sheet1"].iter_rows(min_row=5, values_only=True):
-            expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] == "EDMV" else 30
-            assert_equal(row[9:11], (expected, expected), f"priority floor and scoped EDAV permission {row[0]}/{row[3]}")
+            expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] in {"EDAV", "EDMV"} else 30
+            assert_equal(row[9:11], (expected, expected), f"priority floor and EDAV/EDMV parity {row[0]}/{row[3]}")
             assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "priority leaves other bands unchanged")
         assert not any(v["status"] == "FAIL" for v in priority_summary["validation"])
         priority_book.close()
@@ -451,7 +459,7 @@ def main():
         all_city_summary = apply_updates(scoped_path, scoped_json, scoped_output, scoped_config, cli_groups=None, dry_run=False)
         all_city_book = openpyxl.load_workbook(scoped_output)
         for row in all_city_book["Sheet1"].iter_rows(min_row=5, values_only=True):
-            expected = (100, 100, 100) if row[0] in {"PDAV", "PDAH"} else (31, 31, 41) if row[0] == "EDMV" else (30, 30, 40)
+            expected = (100, 100, 100) if row[0] in {"PDAV", "PDAH"} else (31, 31, 41) if row[0] in {"EDAV", "EDMV"} else (30, 30, 40)
             assert_equal(row[9:12], expected, f"all-city short/week floors {row[0]}/{row[3]}")
             assert_equal((row[8], *row[12:14]), (100, 100, 100), "no changes for 1 or 8+ days")
         assert not any(v["status"] == "FAIL" for v in all_city_summary["validation"])
@@ -551,10 +559,10 @@ def main():
             date(2027, 1, 11),
         }
         for pickup_date in unprotected_dates:
-            for group, expected_rate in (("CDMV", 222), ("CGAV", 222), ("CWAV", 222), ("CWMR", 222), ("EDMV", 223)):
+            for group, expected_rate in (("CDMV", 222), ("CGAV", 222), ("CWAV", 222), ("CWMR", 222), ("EDAV", 223), ("EDMV", 223)):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(holiday_ws.cell(row, 10).value, expected_rate, f"unprotected rate for {group}/{pickup_date.isoformat()}")
-            for group in ("CFAV", "EDAV", "PDAH"):
+            for group in ("CFAV", "PDAH"):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(
                     [holiday_ws.cell(row, col).value for col in range(9, 15)],
@@ -965,7 +973,7 @@ def main():
             workbook_path=dedup_workbook_path,
             recommendations_path=dedup_recommendations_path,
             output_path=dedup_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_config({"apply_groups": ["CDMV", "MDMR"], "location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
         )
@@ -1461,6 +1469,34 @@ def main():
         assert_equal(city_cap_workbook["Changed Positions"]["A10"].value, "Limit miasto vs lotnisko", "city cap legend")
         assert "maksymalnie 130%" in city_cap_workbook["Changed Positions"]["B10"].value
 
+        permission_cap_rows = [list(row) for row in city_cap_rows]
+        for row in permission_cap_rows:
+            if row[3] == "WA1" and row[0] != "CDMV":
+                row[9] = 250
+        unknown_city_row = list(permission_cap_rows[0])
+        unknown_city_row[0], unknown_city_row[9] = "ZZAV", 500
+        permission_cap_rows.append(unknown_city_row)
+        permission_cap_source = tmpdir / "city-cap-permissions-source.xlsx"
+        permission_cap_output = tmpdir / "city-cap-permissions-output.xlsx"
+        build_minimal_workbook(permission_cap_source, permission_cap_rows)
+        permission_cap_summary = apply_updates(
+            workbook_path=permission_cap_source,
+            recommendations_path=city_cap_recommendations_path,
+            output_path=permission_cap_output,
+            config=merge_config({
+                "location_zones": {"Warsaw Train Station": ["WA1"]},
+                "city_zone_airport_zones": {"WA1": ["WALO"]},
+            }),
+            cli_groups="CDMV",
+            dry_run=False,
+        )
+        assert_equal(permission_cap_summary["change_count"], 1, "cap validation respects CLI group selection")
+        permission_cap_book = openpyxl.load_workbook(permission_cap_output)
+        for row_number, original in enumerate(permission_cap_rows, start=5):
+            expected = 130 if original[0] == "CDMV" and original[3] == "WA1" else original[9]
+            assert_equal(permission_cap_book["Sheet1"].cell(row_number, 10).value, expected, "unselected and unknown city rates preserved")
+        permission_cap_book.close()
+
         city_cap_out_of_scope_output_path = tmpdir / "city-cap-out-of-scope.xlsx"
         city_cap_out_of_scope_summary = apply_updates(
             workbook_path=city_cap_workbook_path,
@@ -1561,7 +1597,7 @@ def main():
         before_snapshot = header_rows_snapshot(real_ws)
         expected_pickup_start = datetime.now(ZoneInfo("Europe/Warsaw")).date()
         expected_pickup_end = add_calendar_months(expected_pickup_start, 4)
-        frozen_groups = {"CFAV", "EDAV", "PDAH"}
+        frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
         frozen_source_rates = {}
         real_target = None
         for row in range(5, real_ws.max_row + 1):
