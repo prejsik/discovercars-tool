@@ -6,6 +6,9 @@ const { spawnSync } = require("child_process");
 const { buildScrapeScope } = require("../src/scrapeScope");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
 
+// Fixtures and their child processes belong to this test run, not the hosting CI run.
+process.env.GITHUB_RUN_ID = "run-123";
+
 const root = path.resolve(__dirname, "..");
 const modulePath = path.join(root, "src", "scrapeShards.js");
 const tests = [];
@@ -80,6 +83,18 @@ test("two runners stay within eight global pages and immutable plan rejects tamp
   }
   assert.throws(() => api().buildPlan({ scope: scope(), runId: "", shardCount: 2 }));
   assert.throws(() => api().buildPlan({ scope: scope(), runId: "x", shardCount: 3 }));
+});
+
+test("inherited run identity rejects a foreign collection plan", () => {
+  const p = plan();
+  const saved = process.env.GITHUB_RUN_ID;
+  try {
+    process.env.GITHUB_RUN_ID = "other-ci-run";
+    assert.throws(() => api().validatePlan(p), /runId mismatch/);
+  } finally {
+    process.env.GITHUB_RUN_ID = saved;
+  }
+  assert.equal(api().validatePlan(p), p);
 });
 
 test("plan CLI is idempotent but will not overwrite a different frozen run", () => {
