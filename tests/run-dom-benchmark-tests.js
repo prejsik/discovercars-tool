@@ -19,6 +19,7 @@ function decision({
     start_date: date,
     rental_days: days,
     source_validation_status: status,
+    source_generated_at: new Date().toISOString(),
     top1_rate_pln_day: top1Rate,
     suggested_rate_pln_day: top1Rate - 1
   };
@@ -30,6 +31,7 @@ function confirmed(item, overrides = {}) {
     source_validation_status: "dom_recommendation_verified",
     dom_verification_status: "confirmed",
     dom_verification_reasons: [],
+    dom_verified_at: new Date().toISOString(),
     ...overrides
   };
 }
@@ -48,12 +50,20 @@ function timing(arm, shard, inputSha256, verifierOptionsSha256, elapsedMs = 1_00
 }
 
 function runTest(name, fn) {
+  const RealDate = Date;
+  const now = RealDate.parse("2026-10-01T08:00:00.000Z");
+  global.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  };
   try {
     fn();
     console.log(`PASS ${name}`);
   } catch (error) {
     console.error(`FAIL ${name}`);
     throw error;
+  } finally {
+    global.Date = RealDate;
   }
 }
 
@@ -108,6 +118,16 @@ runTest("benchmark sampling deterministically selects at most eight sorted group
   );
   assert.equal(first.manifest.shard_count, 4);
   assert.equal(first.manifest.benchmark_input_sha256.length, 64);
+});
+
+runTest("benchmark sampling rechecks stale and timestamp-free source confirmations", () => {
+  const stale = decision({ date: "2026-10-02", days: 2, location: "Stale", status: "dom_confirmed" });
+  stale.source_generated_at = "2026-09-29T08:00:00.000Z";
+  const missing = decision({ date: "2026-10-03", days: 2, location: "Missing timestamp", status: "dom_confirmed" });
+  delete missing.source_generated_at;
+  const fresh = decision({ date: "2026-10-04", days: 2, location: "Fresh", status: "dom_confirmed" });
+  const prepared = buildBenchmarkInput({ decisions: [stale, missing, fresh] }, { shardCount: 1 });
+  assert.deepEqual(prepared.sample.decisions.map((item) => item.location), ["Stale", "Missing timestamp"]);
 });
 
 runTest("benchmark comparison reports missing decisions, nonconfirmed results, and rate differences independently", () => {
