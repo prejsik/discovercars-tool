@@ -56,19 +56,19 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- uruchamia jeden pelny scraper codziennie z wyprzedzeniem, aby wynik byl gotowy okolo `07:00`; GitHub cron bywa opozniony, dlatego triggery sa ustawione poprzedniego wieczoru,
-- GitHub cron dziala w UTC, dlatego workflow ma kilka wieczornych okien fallback oraz bramke, ktora realnie puszcza tylko pierwszy aktywny albo zakonczony sukcesem pelny run dla danej daty porannego raportu,
-- nie uruchamia scraperow rownolegle; jesli GitHub opozni run, kolejny czeka w kolejce zamiast nakladac sie na poprzedni,
+- nocny run obejmuje 45 dni, dzienny 30 dni; nocne triggery sa ustawione poprzedniego wieczoru, a dzienne okolo `09:00` czasu polskiego. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
+- bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu lub dowodzie opublikowania kompletu wynikow,
+- zbieranie jest podzielone na dwa niezalezne runnery, lacznie do osmiu aktywnych stron; wyniki sa scalane do jednego raportu. Checkpoint pozwala wznowic swieze, zgodne fragmenty tego samego runa,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
-- uruchamia maly test smoke po pushu zmian w workflow, `src/`, `tools/`, `input/`, konfiguracji albo `package*.json`,
+- push uruchamia osobne testy regresyjne bez scrapowania strony, publikacji raportow ani wysylki Telegrama,
 - wynik zapisuje jako artifact GitHub Actions: `report.html`, `results-latest.json`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, `rates-import-ready.xlsx`, `rates-updated.xlsx`, `excel-rate-update-summary.json`, `mm-rate-sanity-check.json`, `scrape-quality.json`, `quality-alerts.json`, `run-manifest.json`, `run-log.txt`, opcjonalnie `state.json`,
 - publikuje GitHub Pages z linkami dla pelnego raportu i najnowszego Excela; test po pushu nie powinien nadpisywac glownego pelnego raportu.
 
 Domyslny zakres w chmurze:
 
-- `locations`: wszystkie 21 punktow z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
-- `rolling_days`: `60`
+- `locations`: wszystkie 22 punkty z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
+- `rolling_days`: `45` dla nocy, `30` dla runa dziennego
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
 

@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       schedule_slot:
-        description: "External scheduler only: day (30 days) or night (60 days); blank for a manual run"
+        description: "External scheduler only: day (30 days) or night (45 days); blank for a manual run"
         type: string
         default: ""
       report_date:
@@ -52,8 +52,8 @@ permissions:
   id-token: write
 
 env:
-  # Scheduled run defaults: all configured city and airport points, next 60 pickup dates, rental durations 2..14.
-  SCHEDULE_ROLLING_DAYS: "60"
+  # Night: all configured points, next 45 pickup dates; day: 30. Rental durations 2..14.
+  SCHEDULE_ROLLING_DAYS: "45"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14"
   SCHEDULE_SPEED_MODE: "fast"
 
@@ -92,12 +92,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  scrape:
-    name: Scrape and prepare recommendations
+  prepare:
+    name: Freeze scope and collection plan
     needs: gate
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 30
     outputs:
       should_run: ${{ needs.gate.outputs.should_run }}
       schedule_key: ${{ needs.gate.outputs.schedule_key }}
@@ -110,12 +110,7 @@ jobs:
       start_date_count: ${{ steps.options.outputs.start_date_count }}
       durations: ${{ steps.options.outputs.durations }}
       speed_mode: ${{ steps.options.outputs.speed_mode }}
-      scraper_duration_seconds: ${{ steps.scraper.outputs.duration_seconds }}
-      scrape_quality_status: ${{ steps.scrape-quality.outputs.status }}
-      pages_enabled: ${{ steps.pages-status.outputs.enabled }}
-      page_url: ${{ steps.pages-status.outputs.page_url }}
-      shard_count: ${{ steps.workload.outputs.shard_count }}
-      shard_matrix: ${{ steps.workload.outputs.shard_matrix }}
+      collection_matrix: ${{ steps.collection-plan.outputs.matrix }}
 
     steps:
       - name: Checkout repository
@@ -133,7 +128,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Chromium
-        if: needs.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.schedule_key == ''
         timeout-minutes: 10
         shell: bash
         run: |
@@ -253,6 +248,14 @@ jobs:
           echo "Scenarios: $scenario_count"
           echo "Location checks: $location_check_count"
 
+      - name: Restore immutable collection plan for retry
+        if: github.run_attempt > 1
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-collection-plan-${{ github.run_id }}
+          path: output
+
       - name: Freeze requested scrape scope
         if: needs.gate.outputs.should_run == 'true'
         shell: bash
@@ -262,56 +265,165 @@ jobs:
           START_DATES: ${{ steps.options.outputs.start_dates }}
           DURATIONS: ${{ steps.options.outputs.durations }}
         run: |
+          if [[ -f output/collection-plan.json && -f output/scrape-scope.json ]]; then
+            echo "Reusing the original scope; the next step validates its plan and scraper code."
+            exit 0
+          fi
           node src/scrapeScope.js --locations="$LOCATIONS" --rolling-days="$ROLLING_DAYS" \
             --start-dates="$START_DATES" --durations="$DURATIONS" --output=output/scrape-scope.json
 
+      - name: Plan bounded collection shards
+        id: collection-plan
+        shell: bash
+        env:
+          SPEED_MODE: ${{ steps.options.outputs.speed_mode }}
+        run: |
+          node src/scrapeShards.js plan --scope=output/scrape-scope.json \
+            --run-id="$GITHUB_RUN_ID" --shard-count=2 --speed-mode="$SPEED_MODE" \
+            --output=output/collection-plan.json
+          node -e "const fs=require('fs'); const p=require('./output/collection-plan.json'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'matrix='+JSON.stringify({shard:p.shards.map(s=>s.index)})+'\n');"
+
+      - name: Upload collection plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-collection-plan-${{ github.run_id }}
+          path: |
+            output/scrape-scope.json
+            output/collection-plan.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+
+  collect:
+    name: Collect offers - shard ${{ matrix.shard }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.collection_matrix || '{"shard":[1]}') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Download collection plan
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-collection-plan-${{ github.run_id }}
+          path: output
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15s 180s npx playwright install chromium; then exit 0; fi
+            sleep $((attempt * 10))
+          done
+          exit 1
+      - name: Restore collection checkpoint
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-raw-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/restored-raw-shard-${{ matrix.shard }}
       - name: Run scraper
+        id: collection
+        continue-on-error: true
+        timeout-minutes: 335
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          timeout --kill-after=30s 19800s node src/scrapeShards.js run \
+            --plan=output/collection-plan.json --shard="$SHARD" \
+            --output-dir="output/raw-shard-$SHARD" \
+            --restore-dir="output/restored-raw-shard-$SHARD"
+      - name: Upload collection checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-raw-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/raw-shard-${{ matrix.shard }}
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Preserve collection failure for job retry
+        if: always() && steps.collection.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::error::Collection did not complete; saved fresh checkpoints can be reused by Re-run failed jobs."
+          exit 1
+
+  scrape:
+    name: Merge collection and prepare recommendations
+    needs: [gate, prepare, collect]
+    if: always() && !cancelled() && needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      should_run: ${{ needs.gate.outputs.should_run }}
+      schedule_key: ${{ needs.gate.outputs.schedule_key }}
+      schedule_slot: ${{ needs.gate.outputs.schedule_slot }}
+      run_started_epoch: ${{ needs.gate.outputs.run_started_epoch }}
+      run_type: ${{ needs.prepare.outputs.run_type }}
+      locations: ${{ needs.prepare.outputs.locations }}
+      rolling_days: ${{ needs.prepare.outputs.rolling_days || needs.gate.outputs.rolling_days || inputs.rolling_days }}
+      start_dates: ${{ needs.prepare.outputs.start_dates }}
+      start_date_count: ${{ needs.prepare.outputs.start_date_count }}
+      durations: ${{ needs.prepare.outputs.durations || inputs.durations || env.SCHEDULE_DURATIONS }}
+      speed_mode: ${{ needs.prepare.outputs.speed_mode }}
+      scraper_duration_seconds: ${{ steps.scraper.outputs.duration_seconds }}
+      scrape_quality_status: ${{ steps.scrape-quality.outputs.status }}
+      pages_enabled: ${{ steps.pages-status.outputs.enabled }}
+      page_url: ${{ steps.pages-status.outputs.page_url }}
+      shard_count: ${{ steps.workload.outputs.shard_count }}
+      shard_matrix: ${{ steps.workload.outputs.shard_matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Download collection plan
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-collection-plan-${{ github.run_id }}
+          path: output
+      - name: Download collected shards
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: discovercars-raw-${{ github.run_id }}-*
+          path: output/raw-shards
+          merge-multiple: false
+      - name: Merge validated collection shards
         id: scraper
-        if: needs.gate.outputs.should_run == 'true'
         shell: bash
         run: |
           mkdir -p output
-          set -o pipefail
-
-          scraper_started_epoch="$(date +%s)"
-          scraper_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
-
           set +e
-          start_dates=$(node -e "process.stdout.write(require('./output/scrape-scope.json').start_dates.join(','))")
-
-          node src/runDiscovercarsChunked.js \
-            --output-dir=output \
-            --locations="${{ steps.options.outputs.locations }}" \
-            --start-dates="$start_dates" \
-            --durations="${{ steps.options.outputs.durations }}" \
-            --strategy=legacy-batch \
-            --speed-mode="${{ steps.options.outputs.speed_mode }}" \
-            --scenario-concurrency=2 \
-            --location-concurrency=3 \
-            --max-active-pages=8 \
-            --timeout=auto \
-            --chunk-retries=2 \
-            --chunk-stall-timeout=600000 \
-            --chunk-days=7 \
-            --chunk-concurrency=2 \
-            --direct-candidate-limit=2 \
-            --direct-offers-wait=1000 \
-            --reset-state \
-            --continue-on-error \
-            --skip-postprocess \
-            | tee output/run-log.txt
-          scraper_status="${PIPESTATUS[0]}"
+          node src/scrapeShards.js merge --plan=output/collection-plan.json \
+            --input-dir=output/raw-shards --output=output/results-latest.json 2>&1 | tee output/run-log.txt
+          merge_status="${PIPESTATUS[0]}"
           set -e
-
-          scraper_completed_epoch="$(date +%s)"
-          scraper_completed_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
-          scraper_duration_seconds=$((scraper_completed_epoch - scraper_started_epoch))
-
-          echo "started_warsaw=$scraper_started_warsaw" >> "$GITHUB_OUTPUT"
-          echo "completed_warsaw=$scraper_completed_warsaw" >> "$GITHUB_OUTPUT"
-          echo "duration_seconds=$scraper_duration_seconds" >> "$GITHUB_OUTPUT"
-          echo "exit_code=$scraper_status" >> "$GITHUB_OUTPUT"
-
+          echo "exit_code=$merge_status" >> "$GITHUB_OUTPUT"
+          if [[ -f output/collection-summary.json ]]; then
+            node -e "const fs=require('fs'); const s=require('./output/collection-summary.json'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'duration_seconds='+Number(s.duration_seconds || 0)+'\n');"
+          fi
+          # Coverage validation below decides whether genuine partial data is usable.
           exit 0
 
       - name: Validate scraper coverage
@@ -323,7 +435,7 @@ jobs:
             --scrape-only \
             --results=output/results-latest.json \
             --scope=output/scrape-scope.json \
-            --locations="${{ steps.options.outputs.locations }}" \
+            --locations="${{ needs.prepare.outputs.locations }}" \
             --output=output/scrape-quality.json
           status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/scrape-quality.json','utf8')); process.stdout.write(d.status || 'failure');")
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -456,6 +568,7 @@ jobs:
           node src/recommendationDomShards.js split \
             --input=output/final-pricing-recommendations.json \
             --output-dir=output/dom-shards \
+            --workload=output/recommendation-workload.json \
             --shard-count="$shard_count"
 
       - name: Upload scraper checkpoint
@@ -464,14 +577,26 @@ jobs:
         with:
           name: discovercars-checkpoint-${{ github.run_id }}
           overwrite: true
-          path: output
+          path: |
+            output/results-latest.json
+            output/scrape-scope.json
+            output/collection-plan.json
+            output/collection-summary.json
+            output/scrape-quality.json
+            output/pricing-recommendations.json
+            output/final-pricing-recommendations.json
+            output/previous-full-final-pricing-recommendations.json
+            output/broker-markup-calibration-input.json
+            output/recommendation-workload.json
+            output/dom-shards
+            output/run-log.txt
           if-no-files-found: warn
           retention-days: 2
 
   verify:
     name: Verify offers - shard ${{ matrix.shard }}
     needs: scrape
-    if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.shard_count != ''
+    if: ${{ !cancelled() && needs.scrape.result == 'success' && needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.shard_count != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 175
     strategy:

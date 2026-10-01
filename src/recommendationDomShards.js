@@ -4,15 +4,18 @@ const {
   blockRecommendation,
   MAX_CURRENT_RUN_AGE_MS,
   extractorCodeHash,
+  groupTimingMetadata,
   inputFingerprint,
   isFreshVerification,
   isSourceVerified,
-  keyOf
+  keyOf,
+  readGroupTimings
 } = require("./verifyActiveRecommendationsDom");
 
 function listDecisions(payload) {
   if (Array.isArray(payload?.decisions)) return payload.decisions;
   if (Array.isArray(payload?.recommendations)) return payload.recommendations;
+  if (Array.isArray(payload)) return payload;
   return [];
 }
 
@@ -24,7 +27,75 @@ function dateDurationKey(item) {
   return `${String(item?.start_date || item?.pickup_date || "").slice(0, 10)}|${Number(item?.rental_days) || 1}`;
 }
 
-function splitActiveRecommendations(payload, shardCount = 4, createdAt = new Date().toISOString()) {
+function pendingRecommendationGroups(payload, now = Date.now()) {
+  const groups = new Map();
+  for (const item of listDecisions(payload)) {
+    if (!isActive(item) || isSourceVerified(item, payload?.source_generated_at, now)) continue;
+    const groupKey = dateDurationKey(item);
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(item);
+  }
+  return groups;
+}
+
+function createCostPlan(payload, count, groups, createdAt, weights) {
+  if (!Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid DOM verification cost plan timestamp");
+  const groupCosts = [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([groupKey, items]) => {
+      const locationCount = new Set(items.map((item) => item.location)).size;
+      const weight = weights?.get(groupKey);
+      return { group_key: groupKey, location_count: locationCount,
+        estimated_cost_ms: weight?.estimated_cost_ms ?? locationCount * 30000,
+        weight_source: weight?.weight_source ?? "location_count" };
+    });
+  if (groupCosts.some((group) => !Number.isSafeInteger(group.estimated_cost_ms) || group.estimated_cost_ms < 1)) {
+    throw new Error("Invalid DOM verification cost plan cost");
+  }
+  const shards = Array.from({ length: count }, (_, index) => ({ index, group_keys: [], estimated_cost_ms: 0 }));
+  for (const group of [...groupCosts].sort((left, right) => right.estimated_cost_ms - left.estimated_cost_ms
+    || left.group_key.localeCompare(right.group_key))) {
+    const shard = shards.reduce((lightest, candidate) => candidate.estimated_cost_ms < lightest.estimated_cost_ms ? candidate : lightest);
+    shard.group_keys.push(group.group_key);
+    shard.estimated_cost_ms += group.estimated_cost_ms;
+  }
+  for (const shard of shards) shard.group_keys.sort((left, right) => left.localeCompare(right));
+  if (shards.some((shard) => !Number.isSafeInteger(shard.estimated_cost_ms))) throw new Error("Invalid DOM verification cost plan total");
+  const plan = { version: 1, algorithm: "weighted-greedy-v1", created_at: createdAt,
+    base_input_fingerprint: inputFingerprint(payload), extractor_hash: extractorCodeHash(),
+    shard_count: count, groups: groupCosts, shards };
+  return { ...plan, integrity_hash: inputFingerprint(plan) };
+}
+
+function buildVerificationCostPlan(payload, shardCount, createdAt, weights) {
+  const count = Number(shardCount);
+  if (!Number.isInteger(count) || count < 1 || count > 16) throw new Error("shardCount must be an integer between 1 and 16");
+  return createCostPlan(payload, count, pendingRecommendationGroups(payload, Date.parse(createdAt)), createdAt, weights);
+}
+
+function validateCostPlan(payload, count, groups, splitTime, plan) {
+  if (!plan || plan.version !== 1 || plan.algorithm !== "weighted-greedy-v1" || plan.shard_count !== count
+    || !isFreshVerification(plan.created_at, splitTime, MAX_CURRENT_RUN_AGE_MS)
+    || !Array.isArray(plan.groups) || plan.groups.length !== groups.size || !Array.isArray(plan.shards)) {
+    throw new Error("Invalid DOM verification cost plan");
+  }
+  const weights = new Map();
+  for (const group of plan.groups) {
+    const items = groups.get(group?.group_key);
+    if (!items || weights.has(group.group_key) || group.location_count !== new Set(items.map((item) => item.location)).size
+      || !Number.isSafeInteger(group.estimated_cost_ms) || group.estimated_cost_ms < 1
+      || !["location_count", "previous_group", "previous_location", "previous_run"].includes(group.weight_source)) {
+      throw new Error("Invalid DOM verification cost plan group");
+    }
+    weights.set(group.group_key, group);
+  }
+  const expected = createCostPlan(payload, count, groups, plan.created_at, weights);
+  if (inputFingerprint(plan) !== inputFingerprint(expected)) {
+    throw new Error("Invalid DOM verification cost plan integrity or allocation");
+  }
+  return expected;
+}
+
+function splitActiveRecommendations(payload, shardCount = 4, createdAt = new Date().toISOString(), workload) {
   const count = Number(shardCount);
   if (!Number.isInteger(count) || count < 1 || count > 16) {
     throw new Error("shardCount must be an integer between 1 and 16");
@@ -32,13 +103,10 @@ function splitActiveRecommendations(payload, shardCount = 4, createdAt = new Dat
   const splitTime = Date.parse(createdAt);
   if (!Number.isFinite(splitTime)) throw new Error("Invalid DOM shard split timestamp");
 
-  const groups = new Map();
-  for (const item of listDecisions(payload)) {
-    if (!isActive(item) || isSourceVerified(item, payload?.source_generated_at, splitTime)) continue;
-    const groupKey = dateDurationKey(item);
-    if (!groups.has(groupKey)) groups.set(groupKey, []);
-    groups.get(groupKey).push(item);
-  }
+  const membershipTime = workload === undefined ? splitTime : Date.parse(workload?.cost_plan?.created_at);
+  const groups = pendingRecommendationGroups(payload, membershipTime);
+  const plan = workload === undefined ? createCostPlan(payload, count, groups, createdAt)
+    : validateCostPlan(payload, count, groups, splitTime, workload?.cost_plan);
 
   const fingerprint = inputFingerprint(payload);
   const extractorHash = extractorCodeHash();
@@ -53,18 +121,19 @@ function splitActiveRecommendations(payload, shardCount = 4, createdAt = new Dat
       base_input_fingerprint: fingerprint,
       extractor_hash: extractorHash,
       created_at: createdAt,
+      cost_plan: plan,
       group_keys: [],
       input_count: 0
     }
   }));
 
-  [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .forEach(([groupKey, items], groupIndex) => {
-      const shard = shards[groupIndex % count];
+  for (const plannedShard of plan.shards) {
+    const shard = shards[plannedShard.index];
+    for (const groupKey of plannedShard.group_keys) {
       shard.dom_shard.group_keys.push(groupKey);
-      shard.decisions.push(...items);
-    });
+      shard.decisions.push(...groups.get(groupKey));
+    }
+  }
 
   for (const shard of shards) {
     shard.recommendations = [...shard.decisions];
@@ -87,11 +156,16 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
   const summaries = [];
   const completedShardIndexes = new Set();
   const shardCount = options.shardCount === undefined ? 4 : Number(options.shardCount);
+  if (!Number.isInteger(shardCount) || shardCount < 1 || shardCount > 16) {
+    throw new Error("shardCount must be an integer between 1 and 16");
+  }
   const expectedPlans = new Map();
-  const extractorHash = splitActiveRecommendations(basePayload, shardCount)[0].dom_shard.extractor_hash;
+  const extractorHash = extractorCodeHash();
   const shardIndexes = new Set();
   const duplicateShardIndexes = new Set();
   const payloads = Array.isArray(shardPayloads) ? shardPayloads : [];
+  const planIdentities = new Set();
+  const validatedShards = [];
   for (const shard of payloads) {
     const index = shard?.dom_shard?.index;
     if (!Number.isInteger(index)) continue;
@@ -103,16 +177,22 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
   for (const shard of payloads) {
     if (!shard) continue;
     const metadata = shard.dom_shard;
-    if (!metadata || !Number.isInteger(metadata.index) || metadata.index < 0 || metadata.index >= shardCount
+    if (!metadata || !metadata.cost_plan || !Number.isInteger(metadata.index) || metadata.index < 0 || metadata.index >= shardCount
       || !isFreshVerification(metadata.created_at, Date.now(), MAX_CURRENT_RUN_AGE_MS)) {
       invalidShardCount += 1;
       continue;
     }
-    // Membership is fixed at split time; freshness is still checked per row at merge.
-    if (!expectedPlans.has(metadata.created_at)) {
-      expectedPlans.set(metadata.created_at, splitActiveRecommendations(basePayload, shardCount, metadata.created_at));
+    // Plan-time membership is immutable; freshness is still checked per row at merge.
+    const planIdentity = `${metadata.created_at}|${inputFingerprint(metadata.cost_plan)}`;
+    if (!expectedPlans.has(planIdentity)) {
+      try {
+        expectedPlans.set(planIdentity, splitActiveRecommendations(basePayload, shardCount, metadata.created_at, { cost_plan: metadata.cost_plan }));
+      } catch {
+        invalidShardCount += 1;
+        continue;
+      }
     }
-    const expectedShard = expectedPlans.get(metadata.created_at)[metadata.index];
+    const expectedShard = expectedPlans.get(planIdentity)[metadata.index];
     const expected = expectedShard.dom_shard;
     const summary = shard.dom_verification;
     if (metadata.count !== shardCount
@@ -132,6 +212,16 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       invalidShardCount += 1;
       continue;
     }
+    planIdentities.add(planIdentity);
+    validatedShards.push({ shard, expectedShard, summary });
+  }
+
+  for (const { shard, expectedShard, summary } of validatedShards) {
+    if (planIdentities.size > 1) {
+      invalidShardCount += 1;
+      continue;
+    }
+    const metadata = shard.dom_shard;
     if (duplicateShardIndexes.has(metadata.index)) {
       for (const item of expectedShard.decisions) duplicateKeys.add(keyOf(item));
       continue;
@@ -214,6 +304,7 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
     (total, item, index) => total + (isActive(item) && !isActive(finalDecisions[index]) ? 1 : 0),
     0
   );
+  const timings = summaries.flatMap((summary) => readGroupTimings(summary, extractorHash) || []);
 
   return {
     ...basePayload,
@@ -241,6 +332,8 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       reused_checkpoint_group_count: reusedCheckpointGroups,
       extractor_hash: extractorHash,
       input_fingerprint: inputFingerprint(basePayload),
+      cost_plan: completedShardIndexes.size ? validatedShards[0].expectedShard.dom_shard.cost_plan : null,
+      ...groupTimingMetadata(timings, extractorHash, summaries.reduce((total, summary) => total + (Number(summary.group_timing_truncated_count) || 0), 0)),
       shard_count: shardCount,
       completed_shard_count: completedShardIndexes.size,
       missing_shard_count: Math.max(0, shardCount - completedShardIndexes.size),
@@ -296,7 +389,9 @@ function runCli(argv) {
   const { command, args } = parseArgs(argv);
   if (command === "split") {
     if (!args.input || !args["output-dir"]) throw new Error("split requires --input and --output-dir");
-    const shards = splitActiveRecommendations(readJson(args.input), Number(args["shard-count"]) || 4);
+    const workload = args.workload ? readJson(args.workload) : undefined;
+    const count = args["shard-count"] === undefined ? workload?.cost_plan?.shard_count ?? 4 : Number(args["shard-count"]);
+    const shards = splitActiveRecommendations(readJson(args.input), count, new Date().toISOString(), workload);
     shards.forEach((shard) => writeJson(path.join(args["output-dir"], `shard-${shard.dom_shard.index}-input.json`), shard));
     process.stdout.write(`${JSON.stringify({ shard_count: shards.length, matrix: { shard: shards.map((shard) => shard.dom_shard.index) }, input_counts: shards.map((shard) => shard.dom_shard.input_count) })}\n`);
     return;
@@ -332,6 +427,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildVerificationCostPlan,
+  pendingRecommendationGroups,
   dateDurationKey,
   listShardOutputFiles,
   readShardPayloads,

@@ -20,11 +20,26 @@ const workflow = fs.readFileSync(path.join(root, '.github/workflows/discovercars
 const ci = fs.readFileSync(path.join(root, '.github/workflows/discovercars-ci.yml'), 'utf8');
 const job = (name) => workflow.split(`\n  ${name}:\n`)[1]?.split(/\n  [a-z][a-z_-]*:\n/)[0] || '';
 const pipeline = YAML.parse(workflow);
-assert.deepEqual(Object.keys(pipeline.jobs), ['gate', 'scrape', 'verify', 'assemble', 'publish']);
+assert.deepEqual(Object.keys(pipeline.jobs), ['gate', 'prepare', 'collect', 'scrape', 'verify', 'assemble', 'publish']);
+assert.equal(pipeline.env.SCHEDULE_ROLLING_DAYS, '45');
+assert.equal(pipeline.jobs.prepare.needs, 'gate');
+assert.equal(pipeline.jobs.collect.needs, 'prepare');
+assert.equal(pipeline.jobs.collect.strategy['max-parallel'], 2);
+assert.equal(pipeline.jobs.collect.strategy['fail-fast'], false);
+assert.deepEqual(pipeline.jobs.scrape.needs, ['gate', 'prepare', 'collect']);
+assert.match(pipeline.jobs.scrape.if, /always\(\)/);
+assert.doesNotMatch(pipeline.jobs.scrape.if, /needs.prepare.result == 'success'/);
+assert.equal(pipeline.jobs.collect.steps.find(step => step.name === 'Run scraper')['continue-on-error'], true);
+assert.equal(pipeline.jobs.collect.steps.find(step => step.name === 'Upload collection checkpoint').if, 'always()');
+assert.match(pipeline.jobs.collect.steps.find(step => step.name === 'Preserve collection failure for job retry').if, /steps.collection.outcome == 'failure'/);
+assert.equal(pipeline.jobs.prepare.steps.find(step => step.name === 'Restore immutable collection plan for retry').if, 'github.run_attempt > 1');
+assert.match(pipeline.jobs.prepare.steps.find(step => step.name === 'Freeze requested scrape scope').run, /-f output\/collection-plan.json && -f output\/scrape-scope.json/);
+assert.equal(pipeline.jobs.scrape.steps.find(step => step.name === 'Download collection plan')['continue-on-error'], true);
+assert.doesNotMatch(pipeline.jobs.scrape.steps.find(step => step.name === 'Upload scraper checkpoint').with.path, /^output\s*$|raw-shards/);
+assert.match(pipeline.jobs.scrape.steps.find(step => step.name === 'Upload scraper checkpoint').with.path, /output\/previous-full-final-pricing-recommendations.json/);
 assert.equal(pipeline.jobs.verify.strategy['max-parallel'], 4);
 assert.deepEqual(pipeline.jobs.assemble.needs, ['scrape', 'verify']);
 assert.deepEqual(pipeline.jobs.publish.needs, ['scrape', 'assemble']);
-assert.equal(pipeline.jobs.scrape.needs, 'gate');
 assert.equal(pipeline.jobs.publish.concurrency.group, 'discovercars-pages-site');
 for (const name of fs.readdirSync(path.join(root, '.github/workflows')).filter(name => /\.ya?ml$/.test(name))) {
   YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', name), 'utf8'));
@@ -58,9 +73,17 @@ assert.match(ci, /npm run test:all/);
 assert.doesNotMatch(ci, /TELEGRAM|deploy-pages|pages: write/);
 assert.match(job('gate'), /group: discovercars-schedule-claim/);
 assert.match(job('gate'), /Record scheduled run claim/);
-assert.match(job('scrape'), /node src\/scrapeScope\.js/);
+assert.match(job('prepare'), /node src\/scrapeScope\.js/);
+assert.match(job('prepare'), /src\/scrapeShards.js plan/);
+assert.match(job('prepare'), /name: Upload collection plan/);
+assert.match(job('collect'), /src\/scrapeShards.js run/);
+assert.match(job('collect'), /name: Restore collection checkpoint/);
+assert.match(job('collect'), /name: Upload collection checkpoint/);
+assert.match(job('collect'), /--restore-dir=/);
+assert.doesNotMatch(job('collect'), /--reset-state/);
+assert.match(job('scrape'), /src\/scrapeShards.js merge/);
 assert.match(job('scrape'), /--scope=output\/scrape-scope.json/);
-assert.match(job('scrape'), /--start-dates="\$start_dates"/);
+assert.match(job('scrape'), /--workload=output\/recommendation-workload.json/);
 assert.match(job('verify'), /fail-fast: false/);
 assert.match(job('verify'), /max-parallel: 4/);
 assert.match(job('verify'), /fromJSON\(needs.scrape.outputs.shard_matrix/);
@@ -78,6 +101,27 @@ assert.doesNotMatch(job('publish'), /verifyActiveRecommendationsDom.js|tools\/up
 assert.doesNotMatch(job('assemble') + job('publish'), /quality\.outputs\.status \|\| needs\.scrape\.outputs\.scrape_quality_status/);
 assert.match(job('assemble'), /name: Withhold unvalidated workbooks/);
 assert.match(job('publish'), /--validate-only=pages/);
+
+const optionsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'discovercars-options-'));
+try {
+  for (const [override, expectedDays] of [['45', '45'], ['30', '30'], ['', '2']]) {
+    const output = path.join(optionsDirectory, `options-${expectedDays}`);
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-s'], {
+      cwd: root, input: pipeline.jobs.prepare.steps.find(step => step.id === 'options').run,
+      encoding: 'utf8', timeout: 30000,
+      env: { ...process.env, GITHUB_OUTPUT: output.replaceAll('\\', '/'), SCHEDULE_ROLLING_DAYS: pipeline.env.SCHEDULE_ROLLING_DAYS,
+        SCHEDULE_DURATIONS: pipeline.env.SCHEDULE_DURATIONS, SCHEDULE_SPEED_MODE: pipeline.env.SCHEDULE_SPEED_MODE,
+        INPUT_LOCATIONS: 'Warsaw Train Station', INPUT_ROLLING_DAYS: '2', INPUT_START_DATES: '', INPUT_DURATIONS: '1',
+        INPUT_SPEED_MODE: 'safe', RUN_TYPE: override ? 'full' : 'manual', SCHEDULE_ROLLING_OVERRIDE: override }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const values = Object.fromEntries(fs.readFileSync(output, 'utf8').trim().split(/\r?\n/).map(line => line.split('=')));
+    assert.equal(values.rolling_days, expectedDays);
+    assert.equal(values.durations, override ? pipeline.env.SCHEDULE_DURATIONS : '1');
+    assert.equal(values.speed_mode, override ? 'fast' : 'safe');
+    assert.equal(values.locations, override ? require('../src/locationRegistry').getDailyLocations().join(',') : 'Warsaw Train Station');
+  }
+} finally { fs.rmSync(optionsDirectory, { recursive: true, force: true }); }
 
 let publicationCases = 0;
 function checkPublication({ reportTime, excelTime, failedPath, failedStatus = '500', candidateMissing, invalidDigest,

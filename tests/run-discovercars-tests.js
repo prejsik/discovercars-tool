@@ -827,7 +827,7 @@ runTest("daily workflow checkpoints scraping and verifies matrix shards before p
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
   const verificationStep = workflow.match(/- name: Verify active recommendations in DOM[\s\S]*?(?=\n      - name:)/)?.[0] || "";
 
-  assert.match(workflow, /scrape:\s*[\s\S]*?name: Scrape and prepare recommendations/);
+  assert.match(workflow, /scrape:\s*[\s\S]*?name: Merge collection and prepare recommendations/);
   assert.match(workflow, /verify:\s*[\s\S]*?needs: scrape/);
   assert.match(workflow, /assemble:\s*[\s\S]*?needs: \[scrape, verify\]/);
   assert.match(workflow, /publish:\s*[\s\S]*?needs: \[scrape, assemble\]/);
@@ -844,7 +844,8 @@ runTest("daily workflow checkpoints scraping and verifies matrix shards before p
 
 runTest("daily batch scraping uses chunk retries without an ignored direct retry option", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
-  const scrapeCommand = workflow.match(/node src\/runDiscovercarsChunked\.js[\s\S]*?\| tee output\/run-log\.txt/)?.[0] || "";
+  assert.match(workflow, /node src\/scrapeShards\.js run/);
+  const scrapeCommand = fs.readFileSync(path.join(__dirname, "..", "src", "scrapeShards.js"), "utf8");
   assert.match(scrapeCommand, /--strategy=legacy-batch/);
   assert.match(scrapeCommand, /--chunk-retries=2/);
   assert.doesNotMatch(scrapeCommand, /--retries=/);

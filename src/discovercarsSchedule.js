@@ -38,7 +38,7 @@ function resolveSchedule({event,cron,createdAt,now=new Date().toISOString(),slot
   if (reportDate !== today && !(slot === 'night' && reportDate === nextDate(today))) {
     return {shouldRun:false,runType:'skip',key,reason:'Stale or future report date'};
   }
-  return {shouldRun:true,runType:'full',slot,reportDate,key,rollingDays:slot === 'day' ? 30 : 60};
+  return {shouldRun:true,runType:'full',slot,reportDate,key,rollingDays:slot === 'day' ? 30 : 45};
 }
 
 function markerName(kind,key) {
@@ -48,7 +48,8 @@ function markerName(kind,key) {
 async function findDuplicate(context,runs,getArtifacts) {
   for (const run of runs) {
     const active = run.status === 'in_progress';
-    const complete = run.status === 'completed' && run.conclusion === 'success';
+    // A failed collection shard can still produce a validated partial publication.
+    const complete = run.status === 'completed';
     if (!active && !complete) continue;
     const artifacts = await getArtifacts(run.id);
     const name = markerName(active ? 'claim' : 'published',context.key);
@@ -86,6 +87,8 @@ async function runGate(env=process.env) {
   const event=JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH,'utf8'));
   const api=githubClient({token:env.GITHUB_TOKEN,repository:env.GITHUB_REPOSITORY,apiUrl:env.GITHUB_API_URL});
   const run=await api.request(`actions/runs/${env.GITHUB_RUN_ID}`);
+  const originalStartedAt=Date.parse(run.created_at);
+  if (!Number.isFinite(originalStartedAt)) throw new Error('Missing run creation time');
   const context=resolveSchedule({event:env.GITHUB_EVENT_NAME,cron:event.schedule,createdAt:run.created_at,slot:event.inputs?.schedule_slot,reportDate:event.inputs?.report_date});
   if (context.key && context.shouldRun) {
     if (env.GITHUB_REF !== 'refs/heads/main') throw new Error('Scheduled production runs require main');
@@ -95,7 +98,7 @@ async function runGate(env=process.env) {
     if (duplicate) {context.shouldRun=false;context.runType='skip';context.reason=`Already active or published: ${duplicate.id}`;}
   }
   console.log(JSON.stringify(context));
-  const outputs={should_run:context.shouldRun,run_type:context.runType,schedule_key:context.key||'',schedule_slot:context.slot||'',rolling_days:context.rollingDays||'',run_started_epoch:Math.floor(Date.now()/1000)};
+  const outputs={should_run:context.shouldRun,run_type:context.runType,schedule_key:context.key||'',schedule_slot:context.slot||'',rolling_days:context.rollingDays||'',run_started_epoch:Math.floor(originalStartedAt/1000)};
   fs.appendFileSync(env.GITHUB_OUTPUT,Object.entries(outputs).map(([k,v])=>`${k}=${v}\n`).join(''));
   if (context.shouldRun && context.key) {
     fs.mkdirSync('output',{recursive:true});

@@ -10,7 +10,12 @@ async function main() {
   assert.match(workflow,/concurrency:\s+group: discovercars-pages-site\s+cancel-in-progress: false\s+queue: max/,'Fallback triggers must not cancel a pending scheduled run');
   const night = resolveSchedule({ event: 'schedule', cron: '17 20 * * *', createdAt: '2026-09-29T00:23:53Z', now: '2026-09-29T00:32:07Z' });
   assert.equal(night.key, 'night-2026-09-29');
-  assert.equal(night.rollingDays, 60);
+  assert.equal(night.rollingDays, 45);
+  for (const cron of ['17 20 * * *', '47 20 * * *', '17 21 * * *']) {
+    const scheduledNight = resolveSchedule({ event: 'schedule', cron, createdAt: '2026-10-01T21:30:00Z', now: '2026-10-01T21:31:00Z' });
+    assert.equal(scheduledNight.rollingDays, 45);
+    assert.equal(scheduledNight.key, 'night-2026-10-02');
+  }
   // The incident: a skipped daytime success, then two skipped nighttime successes.
   const skipped = [36458632252,36502893905,36503726433].map(id => ({id, status:'completed', conclusion:'success'}));
   assert.equal(await findDuplicate(night, skipped, async () => []), null);
@@ -19,7 +24,10 @@ async function main() {
   assert.equal(await findDuplicate(night, completed, async () => [{name:markerName('claim',night.key)}]), null);
   assert.equal((await findDuplicate(night, completed, async () => [{name:markerName('published',night.key)}])).id, 1);
   assert.equal(await findDuplicate(night, completed, async () => [{name:markerName('published',night.key),expired:true}]), null);
-  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key)}]), null);
+  assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key)}])).id, 1);
+  assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'cancelled'}], async () => [{name:markerName('published',night.key)}])).id, 1);
+  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim',night.key)}]), null);
+  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key),expired:true}]), null);
   assert.equal((await findDuplicate(night, [{id:2,status:'in_progress'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
   assert.equal(await findDuplicate(night, [{id:2,status:'queued'}], async () => [{name:markerName('claim',night.key)}]), null);
   for (const day of ['2026-09-29','2026-10-25','2026-12-15','2027-03-28']) {
@@ -35,6 +43,7 @@ async function main() {
   const external = resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'2026-09-29',createdAt:'2026-09-29T07:00:00Z',now:'2026-09-29T07:00:00Z'});
   assert.equal(external.key,'day-2026-09-29');
   assert.equal(external.rollingDays,30);
+  assert.equal(resolveSchedule({event:'workflow_dispatch',slot:'night',reportDate:'2026-09-30',now:'2026-09-29T20:00:00Z'}).rollingDays,45);
   assert.throws(()=>resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'bad',now:'2026-09-29T07:00:00Z'}));
   assert.equal(resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'2026-09-28',now:'2026-09-29T07:00:00Z'}).shouldRun,false);
   assert.equal(resolveSchedule({event:'workflow_dispatch',now:'2026-09-29T07:00:00Z'}).runType,'manual');
@@ -47,11 +56,12 @@ async function main() {
   const outputPath=path.join(root,'outputs');
   fs.writeFileSync(eventPath,JSON.stringify({inputs:{schedule_slot:'day',report_date:date}}));
   let apiFailure=false;
+  const originalCreatedAt = new Date(Date.now() - 3600000).toISOString();
   const server=http.createServer((req,res)=>{
     res.setHeader('Content-Type','application/json');
     if(apiFailure){res.writeHead(403);res.end('{}');return;}
     const url=new URL(req.url,'http://localhost');
-    if(url.pathname.endsWith('/runs/99')) return res.end(JSON.stringify({created_at:new Date().toISOString()}));
+    if(url.pathname.endsWith('/runs/99')) return res.end(JSON.stringify({created_at:originalCreatedAt}));
     if(url.pathname.endsWith('/artifacts')) return res.end(JSON.stringify({artifacts:[{name:markerName('published',`day-${date}`)}]}));
     return res.end(JSON.stringify({workflow_runs:[{id:98,status:'completed',conclusion:'success'}]}));
   });
@@ -61,6 +71,7 @@ async function main() {
     const result=await runGate(env);
     assert.equal(result.shouldRun,false);
     assert.match(fs.readFileSync(outputPath,'utf8'),/should_run=false/);
+    assert.match(fs.readFileSync(outputPath,'utf8'),new RegExp(`run_started_epoch=${Math.floor(Date.parse(originalCreatedAt)/1000)}\\n`), 'A retry must not make the source look newer than its original run');
     apiFailure=true;
     await assert.rejects(runGate(env),/GitHub API 403/);
   } finally {

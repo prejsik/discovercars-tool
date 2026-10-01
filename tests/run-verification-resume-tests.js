@@ -400,6 +400,8 @@ test("failed locations retry while completed locations resume without being scra
     assert.equal(second.recommendation_count, 2);
     assert.deepEqual(locations, [["Warsaw Airport", "Gdansk Airport"], ["Gdansk Airport"]]);
     assert.equal(second.dom_verification.reused_checkpoint_count, 1);
+    assert.equal(first.dom_verification.group_timings[0].location_count, 2);
+    assert.equal(second.dom_verification.group_timings[0].location_count, 1);
   });
 });
 
@@ -443,6 +445,7 @@ test("unfinished groups remain budget-blocked while completed checkpoint survive
       assert.equal(output.dom_verification.processed_live_dom_group_count, 1);
       assert.equal(output.dom_verification.budget_exhausted_count, 1);
       assert.equal(output.dom_verification.elapsed_ms, 60);
+      assert.deepEqual(output.dom_verification.group_timings, [{ group_key: "2026-10-02|2", location_count: 1, elapsed_ms: 60 }]);
       const resumed = await verifyActiveRecommendations(payload, { ...opts, maxDurationMs: 0 });
       assert.equal(resumed.dom_verification.reused_checkpoint_count, 1);
       assert.equal(resumed.decisions[1].dom_verification_status, "dom_verification_budget_exhausted");
@@ -591,6 +594,8 @@ test("partial checkpoint resume retains processed versus skipped group budget se
     assert.equal(output.dom_verification.processed_live_dom_group_count, 0);
     assert.equal(output.dom_verification.skipped_live_dom_group_count, 0);
     assert.equal(output.dom_verification.budget_exhausted, false);
+    assert.deepEqual(resumed.dom_verification.group_timings, []);
+    assert.deepEqual(output.dom_verification.group_timings, []);
   });
 });
 

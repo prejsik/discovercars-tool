@@ -6,6 +6,34 @@ const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discover
 const MAX_VERIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_CURRENT_RUN_AGE_MS = 12 * 60 * 60 * 1000;
 const CHECKPOINT_VERSION = 1;
+const MAX_GROUP_TIMINGS = 5000;
+
+function groupTimingMetadata(groupTimings, extractorHash, truncatedCount = 0) {
+  const timings = [...groupTimings].sort((left, right) => left.group_key.localeCompare(right.group_key));
+  const retained = timings.slice(0, MAX_GROUP_TIMINGS);
+  return {
+    group_timing_version: 1,
+    group_timings: retained,
+    group_timings_hash: inputFingerprint({ version: 1, extractor_hash: extractorHash, group_timings: retained }),
+    group_timing_truncated_count: truncatedCount + Math.max(0, timings.length - retained.length)
+  };
+}
+
+function readGroupTimings(summary, extractorHash = extractorCodeHash()) {
+  const timings = summary?.group_timings;
+  if (summary?.group_timing_version !== 1 || summary.extractor_hash !== extractorHash
+    || !Array.isArray(timings) || timings.length > MAX_GROUP_TIMINGS
+    || summary.group_timings_hash !== inputFingerprint({ version: 1, extractor_hash: extractorHash, group_timings: timings })) return null;
+  const keys = new Set();
+  for (const timing of timings) {
+    if (!timing || typeof timing.group_key !== "string" || !/^\d{4}-\d{2}-\d{2}\|\d+$/.test(timing.group_key)
+      || !Number.isSafeInteger(timing.location_count) || timing.location_count < 1
+      || !Number.isSafeInteger(timing.elapsed_ms) || timing.elapsed_ms < 1 || timing.elapsed_ms > MAX_CURRENT_RUN_AGE_MS
+      || keys.has(timing.group_key)) return null;
+    keys.add(timing.group_key);
+  }
+  return timings;
+}
 
 const VERIFIED_SOURCE_STATUSES = new Set([
   "dom_confirmed",
@@ -231,6 +259,8 @@ async function verifyActiveRecommendations(payload, options = {}) {
   const groupItems = [...groups.values()];
   let next = 0;
   let processedLiveGroupCount = 0;
+  const groupTimings = [];
+  let truncatedTimingCount = 0;
   let budgetExhausted = false;
   const workerCount = Math.max(1, Math.min(Number(options.concurrency) || 2, groupItems.length || 1));
   const browserProvider = createSharedBrowserProvider();
@@ -241,13 +271,20 @@ async function verifyActiveRecommendations(payload, options = {}) {
           budgetExhausted = true;
           break;
         }
-        const group = groupItems[next++];
+        const groupIndex = next++;
+        const group = groupItems[groupIndex];
+        const groupStartedAt = Date.now();
         let output;
         try {
           output = await verifyGroup(group.map(({ item }) => item), { ...options, workDir, browserProvider });
         } catch (error) {
           output = group.map(({ item }) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
         }
+        if (groupIndex < MAX_GROUP_TIMINGS) {
+          groupTimings.push({ group_key: groupKeyOf(group[0].item),
+            location_count: new Set(group.map(({ item }) => item.location)).size,
+            elapsed_ms: Math.max(1, Date.now() - groupStartedAt) });
+        } else truncatedTimingCount += 1;
         processedLiveGroupCount += 1;
         let checkpointChanged = false;
         output.forEach((item, offset) => {
@@ -312,6 +349,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
       checkpoint_path: checkpointPath,
       input_fingerprint: fingerprint,
       extractor_hash: extractorHash,
+      ...groupTimingMetadata(groupTimings, extractorHash, truncatedTimingCount),
       started_at: new Date(verificationStartedAt).toISOString(),
       completed_at: new Date().toISOString(),
       live_dom_check_count: pending.length,
@@ -359,9 +397,12 @@ module.exports = {
   VERIFIED_SOURCE_STATUSES,
   MAX_VERIFICATION_AGE_MS,
   MAX_CURRENT_RUN_AGE_MS,
+  MAX_GROUP_TIMINGS,
   blockRecommendation,
   extractorCodeHash,
   inputFingerprint,
+  groupTimingMetadata,
+  readGroupTimings,
   isFreshVerification,
   isSourceVerified,
   keyOf,
