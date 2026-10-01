@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { buildCompletionMessages, summarizeDomVerification } = require("./workflowQualityAlerts");
 
 function safeReadJson(filePath) {
   try {
@@ -148,7 +149,13 @@ function buildPriceConflictAlert(excelSummary) {
 
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
-  const qualityStatus = env.QUALITY_STATUS || "failure";
+  const quality = options.qualityAlerts || {};
+  const qualityStatus = env.QUALITY_STATUS === "failure" || quality.status === "failure" || quality.publication_status === "blocked"
+    ? "failure" : quality.status || env.QUALITY_STATUS || "failure";
+  const domVerification = quality.dom_verification || summarizeDomVerification(options.recommendations);
+  const partial = quality.publication_status === "partial"
+    || Boolean(domVerification && (domVerification.blocked_count || domVerification.budget_exhausted));
+  const completionMessages = buildCompletionMessages({ ...quality, dom_verification: domVerification });
   const recommendations = recommendationStats(options.recommendations);
   const excelChangeCount = Number(options.excelSummary?.change_count);
   const alerts = Array.isArray(options.qualityAlerts?.alerts) ? options.qualityAlerts.alerts : [];
@@ -174,11 +181,11 @@ function buildTelegramSummary(options = {}) {
     ? "BŁĄD"
     : publicationFailure
       ? "BŁĄD PUBLIKACJI"
-      : "GOTOWE";
+      : partial ? "CZĘŚCIOWO GOTOWE" : "GOTOWE";
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
   const missingMmStartDates = listStartDatesWithoutMm(options.results);
   const missingMmAlert = missingMmStartDates.length
-    ? `ALERT: MM Cars Rental niewidoczne nigdzie dla start date: ${missingMmStartDates.map(formatIsoDate).join(", ")}`
+    ? `ALERT: MM Cars Rental niewidoczne nigdzie dla start date: ${missingMmStartDates.slice(0, 10).map(formatIsoDate).join(", ")}${missingMmStartDates.length > 10 ? ` · Pozostałe daty bez MM: ${missingMmStartDates.length - 10}.` : ""}`
     : "";
   const recommendationSurgeAlert = options.recommendationWorkload?.recommendation_surge
     ? String(options.recommendationWorkload.alert || "ALERT: nietypowy wzrost liczby aktywnych rekomendacji.")
@@ -193,6 +200,7 @@ function buildTelegramSummary(options = {}) {
       "Excel nie został opublikowany.",
       `Powód: ${reason}`,
       `Zakres: ${rangeLabel(env)}`,
+      ...completionMessages,
       ...(priceConflictAlert ? [priceConflictAlert] : []),
       ...(missingMmAlert ? [missingMmAlert] : []),
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
@@ -216,6 +224,7 @@ function buildTelegramSummary(options = {}) {
       "",
       `Powód: ${reason}.`,
       `Zakres: ${rangeLabel(env)}`,
+      ...completionMessages,
       ...(priceConflictAlert ? [priceConflictAlert] : []),
       ...(missingMmAlert ? [missingMmAlert] : []),
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
@@ -230,6 +239,7 @@ function buildTelegramSummary(options = {}) {
     `DiscoverCars | ${statusLabel}`,
     "",
     `Zakres: ${rangeLabel(env)}`,
+    ...completionMessages,
     ...(priceConflictAlert ? [priceConflictAlert] : []),
     ...(missingMmAlert ? [missingMmAlert] : []),
     ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),

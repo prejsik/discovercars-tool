@@ -2,22 +2,6 @@ name: DiscoverCars daily run
 run-name: DiscoverCars ${{ inputs.schedule_slot || github.event.schedule || github.event_name }} ${{ inputs.report_date || '' }}
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/discovercars-daily.yml"
-      - "excel-rate-update.config.example.json"
-      - "input/**"
-      - "locations.config.json"
-      - "pricing-rules.config.example.json"
-      - "src/**"
-      - "tools/update_excel_rates.py"
-      - "tools/dispatch_daily_scraper.js"
-      - "tests/**"
-      - "deploy/**"
-      - "package.json"
-      - "package-lock.json"
   # GitHub cron uses UTC and can be delayed by several hours. These evening
   # windows target the next Warsaw-morning report with fallback chances, while
   # the gate below deduplicates each slot/date using active claims and publication
@@ -67,32 +51,58 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: discovercars-pages-site
-  cancel-in-progress: false
-  queue: max
-
 env:
   # Scheduled run defaults: all configured city and airport points, next 60 pickup dates, rental durations 2..14.
   SCHEDULE_ROLLING_DAYS: "60"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14"
   SCHEDULE_SPEED_MODE: "fast"
-  # Push-triggered smoke test defaults: keep validation quick after code/workflow changes.
-  PUSH_TEST_LOCATIONS: "Warsaw Train Station"
-  PUSH_TEST_ROLLING_DAYS: "2"
-  PUSH_TEST_DURATIONS: "1"
-  PUSH_TEST_SPEED_MODE: "fast"
 
 jobs:
+  gate:
+    name: Claim scheduled run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: discovercars-schedule-claim
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      run_type: ${{ steps.gate.outputs.run_type }}
+      schedule_key: ${{ steps.gate.outputs.schedule_key }}
+      schedule_slot: ${{ steps.gate.outputs.schedule_slot }}
+      rolling_days: ${{ steps.gate.outputs.rolling_days }}
+      run_started_epoch: ${{ steps.gate.outputs.run_started_epoch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check Warsaw schedule gate
+        id: gate
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node src/discovercarsSchedule.js
+      - name: Record scheduled run claim
+        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-schedule-claim-${{ steps.gate.outputs.schedule_key }}
+          path: output/schedule-context.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
   scrape:
     name: Scrape and prepare recommendations
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-      schedule_key: ${{ steps.gate.outputs.schedule_key }}
-      schedule_slot: ${{ steps.gate.outputs.schedule_slot }}
-      run_started_epoch: ${{ steps.gate.outputs.run_started_epoch }}
+      should_run: ${{ needs.gate.outputs.should_run }}
+      schedule_key: ${{ needs.gate.outputs.schedule_key }}
+      schedule_slot: ${{ needs.gate.outputs.schedule_slot }}
+      run_started_epoch: ${{ needs.gate.outputs.run_started_epoch }}
       run_type: ${{ steps.options.outputs.run_type }}
       locations: ${{ steps.options.outputs.locations }}
       rolling_days: ${{ steps.options.outputs.rolling_days }}
@@ -104,40 +114,26 @@ jobs:
       scrape_quality_status: ${{ steps.scrape-quality.outputs.status }}
       pages_enabled: ${{ steps.pages-status.outputs.enabled }}
       page_url: ${{ steps.pages-status.outputs.page_url }}
+      shard_count: ${{ steps.workload.outputs.shard_count }}
+      shard_matrix: ${{ steps.workload.outputs.shard_matrix }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Warsaw schedule gate
-        id: gate
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node src/discovercarsSchedule.js
-
-      - name: Record scheduled run claim
-        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovercars-schedule-claim-${{ steps.gate.outputs.schedule_key }}
-          path: output/schedule-context.json
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Setup Node.js
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Install Node dependencies
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         run: npm ci
 
       - name: Install Playwright Chromium
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         timeout-minutes: 10
         shell: bash
         run: |
@@ -157,25 +153,25 @@ jobs:
           exit 1
 
       - name: Setup Python
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         run: python -m pip install "openpyxl>=3.1,<4"
 
       - name: Run regression tests
-        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key == ''
+        if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.schedule_key == ''
         run: npm run test:all
 
       - name: Run scheduled Excel preflight
-        if: steps.gate.outputs.should_run == 'true' && steps.gate.outputs.schedule_key != ''
+        if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.schedule_key != ''
         run: python tests/run-excel-rate-updater-tests.py
 
       - name: Resolve run options
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         id: options
         shell: bash
         env:
@@ -184,21 +180,13 @@ jobs:
           INPUT_START_DATES: ${{ inputs.start_dates }}
           INPUT_DURATIONS: ${{ inputs.durations }}
           INPUT_SPEED_MODE: ${{ inputs.speed_mode }}
-          RUN_TYPE: ${{ steps.gate.outputs.run_type }}
-          SCHEDULE_ROLLING_OVERRIDE: ${{ steps.gate.outputs.rolling_days }}
+          RUN_TYPE: ${{ needs.gate.outputs.run_type }}
+          SCHEDULE_ROLLING_OVERRIDE: ${{ needs.gate.outputs.rolling_days }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            default_locations="$PUSH_TEST_LOCATIONS"
-            default_rolling_days="$PUSH_TEST_ROLLING_DAYS"
-            default_durations="$PUSH_TEST_DURATIONS"
-            default_speed_mode="$PUSH_TEST_SPEED_MODE"
-          else
-            default_locations=$(node -e "const {getDailyLocations}=require('./src/locationRegistry'); process.stdout.write(getDailyLocations().join(','));")
-            default_rolling_days="$SCHEDULE_ROLLING_DAYS"
-            default_rolling_days="${SCHEDULE_ROLLING_OVERRIDE:-$default_rolling_days}"
-            default_durations="$SCHEDULE_DURATIONS"
-            default_speed_mode="$SCHEDULE_SPEED_MODE"
-          fi
+          default_locations=$(node -e "const {getDailyLocations}=require('./src/locationRegistry'); process.stdout.write(getDailyLocations().join(','));")
+          default_rolling_days="${SCHEDULE_ROLLING_OVERRIDE:-$SCHEDULE_ROLLING_DAYS}"
+          default_durations="$SCHEDULE_DURATIONS"
+          default_speed_mode="$SCHEDULE_SPEED_MODE"
 
           locations="${INPUT_LOCATIONS:-$default_locations}"
           rolling_days="${INPUT_ROLLING_DAYS:-$default_rolling_days}"
@@ -265,9 +253,21 @@ jobs:
           echo "Scenarios: $scenario_count"
           echo "Location checks: $location_check_count"
 
+      - name: Freeze requested scrape scope
+        if: needs.gate.outputs.should_run == 'true'
+        shell: bash
+        env:
+          LOCATIONS: ${{ steps.options.outputs.locations }}
+          ROLLING_DAYS: ${{ steps.options.outputs.rolling_days }}
+          START_DATES: ${{ steps.options.outputs.start_dates }}
+          DURATIONS: ${{ steps.options.outputs.durations }}
+        run: |
+          node src/scrapeScope.js --locations="$LOCATIONS" --rolling-days="$ROLLING_DAYS" \
+            --start-dates="$START_DATES" --durations="$DURATIONS" --output=output/scrape-scope.json
+
       - name: Run scraper
         id: scraper
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         shell: bash
         run: |
           mkdir -p output
@@ -277,15 +277,12 @@ jobs:
           scraper_started_warsaw="$(TZ=Europe/Warsaw date '+%Y-%m-%d %H:%M:%S %Z')"
 
           set +e
-          date_args=(--rolling-days="${{ steps.options.outputs.rolling_days }}")
-          if [[ -n "${{ steps.options.outputs.start_dates }}" ]]; then
-            date_args=(--start-dates="${{ steps.options.outputs.start_dates }}")
-          fi
+          start_dates=$(node -e "process.stdout.write(require('./output/scrape-scope.json').start_dates.join(','))")
 
           node src/runDiscovercarsChunked.js \
             --output-dir=output \
             --locations="${{ steps.options.outputs.locations }}" \
-            "${date_args[@]}" \
+            --start-dates="$start_dates" \
             --durations="${{ steps.options.outputs.durations }}" \
             --strategy=legacy-batch \
             --speed-mode="${{ steps.options.outputs.speed_mode }}" \
@@ -319,12 +316,13 @@ jobs:
 
       - name: Validate scraper coverage
         id: scrape-quality
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.gate.outputs.should_run == 'true' && always()
         shell: bash
         run: |
           node src/workflowQualityAlerts.js \
             --scrape-only \
             --results=output/results-latest.json \
+            --scope=output/scrape-scope.json \
             --locations="${{ steps.options.outputs.locations }}" \
             --output=output/scrape-quality.json
           status=$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('output/scrape-quality.json','utf8')); process.stdout.write(d.status || 'failure');")
@@ -333,7 +331,7 @@ jobs:
 
       - name: Load fixed broker markup and previous recommendations
         id: broker-calibration
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.gate.outputs.should_run == 'true' && always()
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -377,7 +375,7 @@ jobs:
           echo "Using fixed PLN/day markup; automatic measurement and learning are disabled."
 
       - name: Generate pricing recommendations
-        if: steps.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
+        if: needs.gate.outputs.should_run == 'true' && always() && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         run: |
           if [[ -f output/results-latest.json ]]; then
@@ -393,7 +391,7 @@ jobs:
 
       - name: Check GitHub Pages status
         id: pages-status
-        if: steps.gate.outputs.should_run == 'true'
+        if: needs.gate.outputs.should_run == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -422,7 +420,7 @@ jobs:
 
       - name: Prepare final pricing recommendations
         id: final-recommendations
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.gate.outputs.should_run == 'true' && always()
         shell: bash
         run: |
           if [[ ! -f output/pricing-recommendations.json ]]; then
@@ -437,7 +435,8 @@ jobs:
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
       - name: Forecast DOM workload and prepare shards
-        if: steps.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        id: workload
+        if: needs.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
         shell: bash
         run: |
           workload_args=()
@@ -450,115 +449,157 @@ jobs:
           node src/recommendationWorkload.js \
             --current=output/final-pricing-recommendations.json \
             "${workload_args[@]}" \
-            --shard-count=4 \
             --output=output/recommendation-workload.json
+          shard_count=$(node -e "process.stdout.write(String(require('./output/recommendation-workload.json').shard_count))")
+          echo "shard_count=$shard_count" >> "$GITHUB_OUTPUT"
+          node -e "const fs=require('fs'); const w=require('./output/recommendation-workload.json'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'shard_matrix='+JSON.stringify(w.matrix)+'\\n');"
           node src/recommendationDomShards.js split \
             --input=output/final-pricing-recommendations.json \
             --output-dir=output/dom-shards \
-            --shard-count=4
+            --shard-count="$shard_count"
 
       - name: Upload scraper checkpoint
-        if: steps.gate.outputs.should_run == 'true' && always()
+        if: needs.gate.outputs.should_run == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-checkpoint-${{ github.run_id }}
+          overwrite: true
           path: output
           if-no-files-found: warn
           retention-days: 2
 
-  publish:
-    name: Verify recommendations and publish
+  verify:
+    name: Verify offers - shard ${{ matrix.shard }}
     needs: scrape
-    if: always() && needs.scrape.outputs.should_run == 'true'
+    if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.shard_count != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    environment:
-      name: github-pages
-      url: ${{ steps.pages-deployment.outputs.page_url }}
-
+    timeout-minutes: 175
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.scrape.outputs.shard_matrix || '{"shard":[0]}') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-
       - name: Install Node dependencies
         run: npm ci
-
+      - name: Download scraper checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-checkpoint-${{ github.run_id }}
+          path: output
       - name: Install Playwright Chromium
         timeout-minutes: 10
-        continue-on-error: true
         shell: bash
         run: |
           for attempt in 1 2 3; do
             echo "Playwright Chromium install attempt $attempt of 3."
-            if timeout --kill-after=15s 180s npx playwright install chromium; then
-              exit 0
-            fi
-            if (( attempt < 3 )); then
-              echo "::warning::Playwright Chromium install attempt $attempt failed or timed out; retrying."
-              sleep $((attempt * 10))
-            fi
+            if timeout --kill-after=15s 180s npx playwright install chromium; then exit 0; fi
+            sleep $((attempt * 10))
           done
-          echo "::error::Playwright Chromium installation failed after 3 bounded attempts."
           exit 1
 
+      - name: Restore verification checkpoint
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-dom-checkpoint-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/dom-recommendation-verification/shard-${{ matrix.shard }}
+
+      - name: Verify active recommendations in DOM
+        continue-on-error: true
+        timeout-minutes: 160
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          SPEED_MODE: ${{ needs.scrape.outputs.speed_mode }}
+        run: |
+          mkdir -p output/dom-shard-results
+          timeout --kill-after=30s 9300s node src/verifyActiveRecommendationsDom.js \
+            --input="output/dom-shards/shard-${SHARD}-input.json" \
+            --output="output/dom-shard-results/shard-${SHARD}-output.json" \
+            --work-dir="output/dom-recommendation-verification/shard-${SHARD}" \
+            --checkpoint="output/dom-recommendation-verification/shard-${SHARD}/checkpoint.json" \
+            --concurrency=1 --max-duration-ms=9000000 --timeout=45000 \
+            --speed-mode="$SPEED_MODE" \
+            > "output/dom-shard-results/shard-${SHARD}-summary.json"
+
+      - name: Upload verified shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-result-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/dom-shard-results
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Upload verification checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-dom-checkpoint-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/dom-recommendation-verification/shard-${{ matrix.shard }}/checkpoint.json
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 2
+
+  assemble:
+    name: Validate and build report bundle
+    needs: [scrape, verify]
+    if: always() && needs.scrape.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      quality_status: ${{ steps.quality.outputs.status }}
+      artifact_url: ${{ steps.upload.outputs['artifact-url'] }}
+      excel_artifact_url: ${{ steps.upload-excel.outputs['artifact-url'] }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install Node dependencies
+        run: npm ci
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install Python dependencies
         run: python -m pip install "openpyxl>=3.1,<4"
-
       - name: Download scraper checkpoint
-        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: discovercars-checkpoint-${{ github.run_id }}
           path: output
 
-      - name: Verify active recommendations in DOM
+      - name: Download verified shards
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: discovercars-dom-result-${{ github.run_id }}-*
+          path: output/dom-shard-results
+          merge-multiple: true
+
+      - name: Merge verified recommendations
         id: dom-verification
         if: needs.scrape.outputs.scrape_quality_status != 'failure'
-        timeout-minutes: 170
         shell: bash
         run: |
           mkdir -p output/dom-shard-results
-          pids=()
-          shards=()
-          for shard in 0 1 2 3; do
-            timeout --kill-after=30s 9300s node src/verifyActiveRecommendationsDom.js \
-              --input="output/dom-shards/shard-${shard}-input.json" \
-              --output="output/dom-shard-results/shard-${shard}-output.json" \
-              --work-dir="output/dom-recommendation-verification/shard-${shard}" \
-              --concurrency=1 \
-              --max-duration-ms=9000000 \
-              --timeout=45000 \
-              --speed-mode="${{ needs.scrape.outputs.speed_mode }}" \
-              > "output/dom-shard-results/shard-${shard}-summary.json" &
-            pids+=("$!")
-            shards+=("$shard")
-          done
-
-          verification_failures=0
-          for index in "${!pids[@]}"; do
-            if ! wait "${pids[$index]}"; then
-              echo "::warning::DOM shard ${shards[$index]} failed; its unchecked recommendations will be blocked."
-              verification_failures=$((verification_failures + 1))
-            fi
-          done
-          echo "DOM shard process failures: $verification_failures"
-
           node src/recommendationDomShards.js merge \
             --base=output/final-pricing-recommendations.json \
             --shards-dir=output/dom-shard-results \
             --output=output/final-pricing-recommendations.json \
-            --shard-count=4 \
+            --shard-count=${{ needs.scrape.outputs.shard_count || '1' }} \
             | tee output/dom-recommendation-verification-summary.json
 
           final_workload_args=()
@@ -639,6 +680,7 @@ jobs:
         run: |
           node src/workflowQualityAlerts.js \
             --results=output/results-latest.json \
+            --scope=output/scrape-scope.json \
             --recommendations=output/final-pricing-recommendations.json \
             --excel-summary=output/excel-rate-update-summary.json \
             --locations="${{ needs.scrape.outputs.locations }}" \
@@ -657,27 +699,114 @@ jobs:
             node src/reportHtml.js output/results-latest.json output/report.html --quality=output/quality-alerts.json
           fi
 
+      - name: Withhold unvalidated workbooks
+        if: always() && steps.quality.outputs.status != 'success' && steps.quality.outputs.status != 'degraded'
+        shell: bash
+        run: rm -f output/rates-updated.xlsx output/rates-import-ready.xlsx
+
       - name: Generate run manifest
         if: needs.scrape.outputs.should_run == 'true' && always()
         shell: bash
         env:
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
+          QUALITY_STATUS: ${{ steps.quality.outputs.status || 'failure' }}
+          RUN_STARTED_EPOCH: ${{ needs.scrape.outputs.run_started_epoch }}
           RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
           LOCATIONS: ${{ needs.scrape.outputs.locations }}
           ROLLING_DAYS: ${{ needs.scrape.outputs.rolling_days }}
           START_DATES: ${{ needs.scrape.outputs.start_dates }}
           DURATIONS: ${{ needs.scrape.outputs.durations }}
         run: |
-          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const workload=read('output/recommendation-workload.json'); const domVerification=read('output/dom-recommendation-verification-summary.json'); const manifest={generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,recommendation_workload:workload,dom_verification:domVerification,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
+          node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const workload=read('output/recommendation-workload.json'); const domVerification=read('output/dom-recommendation-verification-summary.json'); const scope=read('output/scrape-scope.json'); const manifest={excel_files:require('./src/publicationPolicy').workbookDigests('output'),source_started_at:new Date(Number(process.env.RUN_STARTED_EPOCH)*1000).toISOString(),run_id:process.env.GITHUB_RUN_ID,expected_scope:scope,generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:scope.start_dates||String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,recommendation_workload:workload,dom_verification:domVerification,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
+
+      - name: Upload scraper results
+        id: upload
+        if: needs.scrape.outputs.should_run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-results-${{ github.run_number }}
+          path: |
+            output/results-latest.json
+            output/scrape-scope.json
+            output/pricing-recommendations.json
+            output/final-pricing-recommendations.json
+            output/dom-recommendation-verification-summary.json
+            output/recommendation-workload.json
+            output/rates-updated.xlsx
+            output/rates-import-ready.xlsx
+            output/excel-rate-update-summary.json
+            output/excel-rate-update-error.log
+            output/mm-rate-sanity-check.json
+            output/broker-markup-calibration.json
+            output/quality-alerts.json
+            output/scrape-quality.json
+            output/run-manifest.json
+            output/report.html
+            output/run-log.txt
+            output/state.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+
+      - name: Upload Excel import workbook
+        id: upload-excel
+        if: needs.scrape.outputs.should_run == 'true' && (steps.quality.outputs.status == 'success' || steps.quality.outputs.status == 'degraded')
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovercars-excel-import-${{ github.run_number }}
+          path: |
+            output/rates-import-ready.xlsx
+            output/rates-updated.xlsx
+            output/excel-rate-update-summary.json
+            output/mm-rate-sanity-check.json
+            output/broker-markup-calibration.json
+            output/final-pricing-recommendations.json
+            output/quality-alerts.json
+            output/scrape-quality.json
+            output/run-manifest.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+
+
+  publish:
+    name: Publish ready report
+    needs: [scrape, assemble]
+    if: always() && needs.scrape.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: discovercars-pages-site
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: github-pages
+      url: ${{ steps.pages-deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Download ready report bundle
+        id: bundle
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: discovercars-results-${{ github.run_number }}
+          path: output
 
       - name: Prepare GitHub Pages site
         id: pages-site
-        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
+        if: steps.bundle.outcome == 'success' && needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
         shell: bash
         env:
           RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
           PAGE_URL: ${{ needs.scrape.outputs.page_url }}
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || 'failure' }}
+          QUALITY_STATUS: ${{ needs.assemble.outputs.quality_status || 'failure' }}
         run: |
           mkdir -p pages
           node src/publicResults.js output/results-latest.json output/results-public.json
@@ -690,9 +819,18 @@ jobs:
               return
             fi
             mkdir -p "$(dirname "$destination")"
-            if ! curl --fail --silent --show-error --location "$page_base/$rel_path" --output "$destination"; then
-              rm -f "$destination"
-            fi
+            local status
+            status=$(curl --silent --show-error --location --retry 2 --max-time 45 \
+              --header "Cache-Control: no-cache" --write-out "%{http_code}" \
+              "$page_base/$rel_path?publication=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output "$destination") || {
+              echo "::error::Could not preserve $rel_path; keeping the existing site."
+              exit 1
+            }
+            case "$status" in
+              200) ;;
+              404) rm -f "$destination" ;;
+              *) echo "::error::Could not preserve $rel_path (HTTP $status); keeping the existing site."; exit 1 ;;
+            esac
           }
 
           for rel_path in \
@@ -726,6 +864,11 @@ jobs:
             preserve_file "$rel_path"
           done
 
+          for rel_path in report.html results-latest.json pricing-recommendations.json final-pricing-recommendations.json \
+            rates-updated.xlsx rates-import-ready.xlsx quality-alerts.json run-manifest.json run-log.txt; do
+            preserve_file "latest-smoke/$rel_path"
+          done
+
           if [[ -d manual-reports ]]; then
             mkdir -p pages/manual-reports
             cp -R manual-reports/. pages/manual-reports/
@@ -737,8 +880,20 @@ jobs:
             run_dir="latest-smoke"
           fi
 
+          if [[ ( -f "pages/$run_dir/report.html" && ! -f "pages/$run_dir/run-manifest.json" ) ||
+                ( -f pages/latest-excel/rates-import-ready.xlsx && ! -f pages/latest-excel/run-manifest.json ) ]]; then
+            echo "::error::Missing existing publication manifest; refusing an unverifiable overwrite."
+            exit 1
+          fi
+          node src/publicationPolicy.js --candidate=output/run-manifest.json --preserved-root=pages --expected-status="$QUALITY_STATUS" \
+            --current-report="pages/$run_dir/run-manifest.json" \
+            --current-excel=pages/latest-excel/run-manifest.json > output/publication-decision.json
+          promote_report=$(node -e "process.stdout.write(String(require('./output/publication-decision.json').promote_report))")
+          promote_excel=$(node -e "process.stdout.write(String(require('./output/publication-decision.json').promote_excel))")
+
+          if [[ "$promote_report" == "true" ]]; then
           mkdir -p "pages/$run_dir"
-          if [[ "$QUALITY_STATUS" == "failure" ]]; then
+          # Never retain optional files from an older bundle under a new manifest.
             rm -f \
               "pages/$run_dir/pricing-recommendations.json" \
               "pages/$run_dir/final-pricing-recommendations.json" \
@@ -749,7 +904,6 @@ jobs:
               "pages/$run_dir/excel-rate-update-summary.json" \
               "pages/$run_dir/mm-rate-sanity-check.json" \
               "pages/$run_dir/broker-markup-calibration.json"
-          fi
           cp output/report.html "pages/$run_dir/report.html"
           cp output/results-public.json "pages/$run_dir/results-latest.json"
           cp output/run-log.txt "pages/$run_dir/run-log.txt"
@@ -789,8 +943,15 @@ jobs:
             cp output/run-manifest.json "pages/$run_dir/run-manifest.json"
           fi
 
-          if [[ ( "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ) && "$QUALITY_STATUS" != "failure" ]]; then
+          fi
+
+          if [[ "$promote_excel" == "true" && ( "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ) && "$QUALITY_STATUS" != "failure" ]]; then
             mkdir -p pages/latest-excel
+            for name in rates-updated.xlsx rates-import-ready.xlsx final-pricing-recommendations.json \
+              excel-rate-update-summary.json mm-rate-sanity-check.json broker-markup-calibration.json \
+              quality-alerts.json run-manifest.json; do
+              rm -f "pages/latest-excel/$name"
+            done
             if [[ -f output/rates-updated.xlsx ]]; then
               cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
             fi
@@ -817,6 +978,7 @@ jobs:
             fi
           fi
 
+          if [[ "$promote_report" == "true" ]]; then
           if [[ "$RUN_TYPE" == "full" || ! -f pages/latest-full/report.html ]]; then
             cp output/report.html pages/index.html
             cp output/report.html pages/report.html
@@ -825,24 +987,31 @@ jobs:
             cp pages/latest-full/report.html pages/report.html
           fi
 
+          fi
           if [[ -n "$page_base" ]]; then
-            echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
+            if [[ "$promote_report" == "true" ]]; then
+              echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
+            fi
             echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
-            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
+            if [[ "$promote_excel" == "true" && "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
               echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
             fi
-            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-updated.xlsx ]]; then
+            if [[ "$promote_excel" == "true" && "$QUALITY_STATUS" != "failure" && -f output/rates-updated.xlsx ]]; then
               echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
             fi
           fi
 
+      - name: Validate completed Pages bundles
+        if: steps.pages-site.outcome == 'success'
+        run: node src/publicationPolicy.js --validate-only=pages
+
       - name: Configure GitHub Pages
-        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
+        if: steps.pages-site.outcome == 'success'
         uses: actions/configure-pages@v5
         continue-on-error: true
 
       - name: Upload GitHub Pages artifact
-        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
+        if: steps.pages-site.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         continue-on-error: true
         with:
@@ -850,62 +1019,16 @@ jobs:
 
       - name: Deploy GitHub Pages
         id: pages-deployment
-        if: needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
+        if: steps.pages-site.outcome == 'success'
         uses: actions/deploy-pages@v4
         continue-on-error: true
-
-      - name: Upload scraper results
-        id: upload
-        if: needs.scrape.outputs.should_run == 'true' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovercars-results-${{ github.run_number }}
-          path: |
-            output/results-latest.json
-            output/pricing-recommendations.json
-            output/final-pricing-recommendations.json
-            output/dom-recommendation-verification-summary.json
-            output/recommendation-workload.json
-            output/rates-updated.xlsx
-            output/rates-import-ready.xlsx
-            output/excel-rate-update-summary.json
-            output/excel-rate-update-error.log
-            output/mm-rate-sanity-check.json
-            output/broker-markup-calibration.json
-            output/quality-alerts.json
-            output/scrape-quality.json
-            output/run-manifest.json
-            output/report.html
-            output/run-log.txt
-            output/state.json
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Excel import workbook
-        id: upload-excel
-        if: needs.scrape.outputs.should_run == 'true' && steps.quality.outputs.status != 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovercars-excel-import-${{ github.run_number }}
-          path: |
-            output/rates-import-ready.xlsx
-            output/rates-updated.xlsx
-            output/excel-rate-update-summary.json
-            output/mm-rate-sanity-check.json
-            output/broker-markup-calibration.json
-            output/final-pricing-recommendations.json
-            output/quality-alerts.json
-            output/scrape-quality.json
-            output/run-manifest.json
-          if-no-files-found: warn
-          retention-days: 14
 
       - name: Notify Telegram
         if: >-
           always() &&
           needs.scrape.outputs.should_run == 'true' &&
           (
-            (steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure') != 'failure' ||
+            (needs.assemble.outputs.quality_status || 'failure') != 'failure' ||
             github.event_name != 'schedule' ||
             github.event.schedule == '17 21 * * *' ||
             needs.scrape.outputs.schedule_slot == 'day'
@@ -917,8 +1040,8 @@ jobs:
           PAGE_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.run_report_url || '' }}
           PAGES_EXCEL_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_url || '' }}
           PAGES_EXCEL_REPORT_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_report_url || '' }}
-          ARTIFACT_URL: ${{ steps.upload.outputs['artifact-url'] }}
-          EXCEL_ARTIFACT_URL: ${{ steps.upload-excel.outputs['artifact-url'] }}
+          ARTIFACT_URL: ${{ needs.assemble.outputs.artifact_url }}
+          EXCEL_ARTIFACT_URL: ${{ needs.assemble.outputs.excel_artifact_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_STARTED_EPOCH: ${{ needs.scrape.outputs.run_started_epoch }}
           SCRAPER_DURATION_SECONDS: ${{ needs.scrape.outputs.scraper_duration_seconds }}
@@ -926,7 +1049,7 @@ jobs:
           START_DATES: ${{ needs.scrape.outputs.start_dates }}
           START_DATE_COUNT: ${{ needs.scrape.outputs.start_date_count }}
           DURATIONS: ${{ needs.scrape.outputs.durations }}
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
+          QUALITY_STATUS: ${{ needs.assemble.outputs.quality_status || 'failure' }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::warning::Telegram secrets are missing; notification skipped."
@@ -948,7 +1071,7 @@ jobs:
         if: always() && needs.scrape.outputs.should_run == 'true'
         shell: bash
         env:
-          QUALITY_STATUS: ${{ steps.quality.outputs.status || needs.scrape.outputs.scrape_quality_status || 'failure' }}
+          QUALITY_STATUS: ${{ needs.assemble.outputs.quality_status || 'failure' }}
         run: |
           if [[ "$QUALITY_STATUS" == "failure" ]]; then
             echo "::error::DiscoverCars run failed the final quality gate."
@@ -957,7 +1080,7 @@ jobs:
           echo "Final quality status: $QUALITY_STATUS"
 
       - name: Record published scheduled report
-        if: success() && needs.scrape.outputs.schedule_key != '' && steps.pages-deployment.outcome == 'success' && steps.upload-excel.outcome == 'success' && steps.quality.outputs.status != 'failure'
+        if: success() && needs.scrape.outputs.schedule_key != '' && steps.pages-deployment.outcome == 'success' && needs.assemble.outputs.excel_artifact_url != '' && needs.assemble.outputs.quality_status != 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-schedule-published-${{ needs.scrape.outputs.schedule_key }}

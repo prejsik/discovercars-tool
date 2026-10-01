@@ -1,5 +1,20 @@
 {
   "pricing": {
+    "pricingPolicy": {
+      "precedence": [
+        "protected_dates",
+        "class_allowlist",
+        "required_evidence",
+        "priority_top1",
+        "scoped_floor",
+        "zone_floor",
+        "seasonal_floor",
+        "city_airport_cap",
+        "ranking_target",
+        "premium_parity"
+      ],
+      "normalFloorCapConflict": "preserve_baseline"
+    },
     "priorityTop1Rules": [{
       "id": "all-locations-autumn-2026-short",
       "locations": ["*"],

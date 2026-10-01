@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { VERIFIED_SOURCE_STATUSES } = require("./verifyActiveRecommendationsDom");
+const { isSourceVerified } = require("./verifyActiveRecommendationsDom");
 const { dateDurationKey } = require("./recommendationDomShards");
 
 function listDecisions(payload) {
@@ -18,12 +18,12 @@ function buildRecommendationWorkload({
   current,
   previous,
   previousDom,
-  shardCount = 4,
+  shardCount,
   defaultSecondsPerGroup = 30
 }) {
   const currentActive = activeItems(current);
   const previousActive = activeItems(previous);
-  const pending = currentActive.filter((item) => !VERIFIED_SOURCE_STATUSES.has(item?.source_validation_status));
+  const pending = currentActive.filter((item) => !isSourceVerified(item, current?.source_generated_at));
   const pendingGroups = new Set(pending.map(dateDurationKey));
   const normalizedPreviousDom = previousDom?.dom_verification || previousDom || {};
   const previousProcessedGroups = Number(normalizedPreviousDom.processed_live_dom_group_count || 0);
@@ -32,17 +32,30 @@ function buildRecommendationWorkload({
   const previousGroupsPerShard = previousProcessedGroups > 0
     ? Math.ceil(previousProcessedGroups / previousShardCount)
     : 0;
-  const observedSecondsPerGroup = previousElapsedSeconds > 0 && previousGroupsPerShard > 0
+  const measuredShards = (Array.isArray(normalizedPreviousDom.shards) ? normalizedPreviousDom.shards : [])
+    .filter((shard) => Number(shard.processed_live_dom_group_count) > 0 && Number(shard.elapsed_ms) > 0
+      && Number.isFinite(Number(shard.elapsed_ms)) && Number.isFinite(Number(shard.processed_live_dom_group_count)))
+    .map((shard) => Number(shard.elapsed_ms) / 1000 / Number(shard.processed_live_dom_group_count));
+  const observedSecondsPerGroup = measuredShards.length ? Math.max(...measuredShards) : previousElapsedSeconds > 0 && previousGroupsPerShard > 0
     ? previousElapsedSeconds / previousGroupsPerShard
-    : Number(defaultSecondsPerGroup) || 30;
-  const normalizedShardCount = Math.max(1, Number(shardCount) || 4);
+    : Math.max(1, Number(defaultSecondsPerGroup) || 30);
+  const targetWorkerSeconds = 5400;
+  const maxParallel = 4;
+  const adaptiveShardCount = Math.min(16, pendingGroups.size || 1, Math.max(Math.min(4, pendingGroups.size || 1),
+    Math.ceil(pendingGroups.size * observedSecondsPerGroup / targetWorkerSeconds)));
+  const normalizedShardCount = shardCount === undefined ? adaptiveShardCount : Number(shardCount);
+  if (!Number.isInteger(normalizedShardCount) || normalizedShardCount < 1 || normalizedShardCount > 16) {
+    throw new Error("shardCount must be an integer between 1 and 16");
+  }
   const estimatedGroupsPerShard = Math.ceil(pendingGroups.size / normalizedShardCount);
-  const estimatedDurationSeconds = Math.ceil(estimatedGroupsPerShard * observedSecondsPerGroup);
+  const estimatedWorkerSeconds = Math.ceil(estimatedGroupsPerShard * observedSecondsPerGroup);
+  const runnerWaves = Math.ceil(normalizedShardCount / maxParallel);
+  const estimatedDurationSeconds = estimatedWorkerSeconds * runnerWaves;
   const growthPercent = previousActive.length > 0
     ? Number((((currentActive.length - previousActive.length) / previousActive.length) * 100).toFixed(1))
     : null;
   const budgetSeconds = 9000;
-  const estimatedBudgetUsagePercent = Number((estimatedDurationSeconds / budgetSeconds * 100).toFixed(1));
+  const estimatedBudgetUsagePercent = Number((estimatedWorkerSeconds / budgetSeconds * 100).toFixed(1));
 
   return {
     generated_at: new Date().toISOString(),
@@ -55,13 +68,20 @@ function buildRecommendationWorkload({
     pending_dom_recommendation_count: pending.length,
     pending_dom_group_count: pendingGroups.size,
     shard_count: normalizedShardCount,
+    matrix: { shard: Array.from({ length: normalizedShardCount }, (_, index) => index) },
+    max_parallel: maxParallel,
+    target_worker_duration_seconds: targetWorkerSeconds,
+    estimated_runner_waves: runnerWaves,
+    estimated_worker_duration_seconds: estimatedWorkerSeconds,
+    estimated_remaining_duration_seconds: estimatedDurationSeconds,
     estimated_groups_per_shard: estimatedGroupsPerShard,
     estimated_seconds_per_group: Number(observedSecondsPerGroup.toFixed(1)),
     estimated_dom_duration_seconds: estimatedDurationSeconds,
     dom_budget_seconds: budgetSeconds,
     estimated_budget_usage_percent: estimatedBudgetUsagePercent,
-    over_budget: estimatedDurationSeconds > budgetSeconds,
-    timing_source: previousElapsedSeconds > 0 && previousGroupsPerShard > 0 ? "previous_run" : "default"
+    over_budget: estimatedWorkerSeconds > budgetSeconds,
+    over_target: estimatedWorkerSeconds > targetWorkerSeconds,
+    timing_source: measuredShards.length || (previousElapsedSeconds > 0 && previousGroupsPerShard > 0) ? "previous_run" : "default"
   };
 }
 
@@ -110,7 +130,7 @@ function runCli(argv) {
       current: readJsonIfExists(args.current),
       previous: readJsonIfExists(args.previous),
       previousDom: readJsonIfExists(args["previous-dom"]),
-      shardCount: Number(args["shard-count"]) || 4,
+      shardCount: args["shard-count"] === undefined ? undefined : Number(args["shard-count"]),
       defaultSecondsPerGroup: Number(args["default-seconds-per-group"]) || 30
     });
   const outputPath = path.resolve(args.output);

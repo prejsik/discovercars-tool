@@ -342,22 +342,25 @@ runTest("API DOM sanity prefers browser when comparable prices differ materially
     { provider: "Other", totalPrice: 110, currency: "PLN" },
     { provider: "Third", totalPrice: 120, currency: "PLN" }
   ];
-  const browser = api.map((item) => ({ ...item }));
+  for (const offer of api) Object.assign(offer, { source: "api", transmission: "automatic" });
+  const browser = api.map((item) => ({ ...item, source: "dom" }));
   assert.equal(scraper.shouldPreferBrowserOutcome(api, browser), false);
   browser[0].totalPrice = 120;
   assert.equal(scraper.shouldPreferBrowserOutcome(api, browser), true);
 });
 
-runTest("API DOM comparison does not drift only because DOM has fewer offers", () => {
+runTest("API DOM comparison cannot confirm a missing ranking provider", () => {
   const scraper = new DiscoverCarsScraper({ pickupDate: "2026-07-10", dropoffDate: "2026-07-12" });
   const api = [
     { provider: "MM Cars Rental", totalPrice: 100, currency: "PLN" },
     { provider: "Other", totalPrice: 110, currency: "PLN" },
     { provider: "Third", totalPrice: 120, currency: "PLN" }
   ];
-  const comparison = scraper.compareApiAndBrowserOutcomes(api, api.slice(0, 2));
+  for (const offer of api) Object.assign(offer, { source: "api", transmission: "automatic" });
+  const comparison = scraper.compareApiAndBrowserOutcomes(api, api.slice(0, 2).map(item => ({ ...item, source: "dom" })));
   assert.equal(comparison.preferBrowser, false);
-  assert.deepEqual(comparison.reasons, []);
+  assert.equal(comparison.confirmed, false);
+  assert(comparison.reasons.includes("dom_required_provider_missing"));
 });
 
 runTest("API DOM sanity increases DOM validation after repeated drift", () => {
@@ -676,8 +679,8 @@ runTest("scheduled daily runs skip Node tests and retain the date-sensitive Exce
   const regressionStep = workflow.match(/- name: Run regression tests[\s\S]*?(?=\n      - name:)/)?.[0] || "";
   const excelPreflightStep = workflow.match(/- name: Run scheduled Excel preflight[\s\S]*?(?=\n      - name:)/)?.[0] || "";
 
-  assert.match(regressionStep, /steps\.gate\.outputs\.schedule_key == ''/);
-  assert.match(excelPreflightStep, /steps\.gate\.outputs\.schedule_key != ''/);
+  assert.match(regressionStep, /needs\.gate\.outputs\.schedule_key == ''/);
+  assert.match(excelPreflightStep, /needs\.gate\.outputs\.schedule_key != ''/);
   assert.match(excelPreflightStep, /python tests\/run-excel-rate-updater-tests\.py/);
 });
 
@@ -820,17 +823,20 @@ runTest("Excel workflow rejects invalid zero-exit JSON without retaining stale w
   });
 });
 
-runTest("daily workflow checkpoints scraping and verifies four DOM shards before publication", () => {
+runTest("daily workflow checkpoints scraping and verifies matrix shards before publication", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
   const verificationStep = workflow.match(/- name: Verify active recommendations in DOM[\s\S]*?(?=\n      - name:)/)?.[0] || "";
 
   assert.match(workflow, /scrape:\s*[\s\S]*?name: Scrape and prepare recommendations/);
-  assert.match(workflow, /publish:\s*[\s\S]*?needs: scrape/);
+  assert.match(workflow, /verify:\s*[\s\S]*?needs: scrape/);
+  assert.match(workflow, /assemble:\s*[\s\S]*?needs: \[scrape, verify\]/);
+  assert.match(workflow, /publish:\s*[\s\S]*?needs: \[scrape, assemble\]/);
   assert.match(workflow, /name: Upload scraper checkpoint/);
   assert.match(workflow, /name: Download scraper checkpoint/);
   assert.match(workflow, /node src\/recommendationDomShards\.js split/);
   assert.match(workflow, /node src\/recommendationDomShards\.js merge/);
-  assert.match(verificationStep, /for shard in 0 1 2 3/);
+  assert.match(workflow, /max-parallel: 4/);
+  assert.match(verificationStep, /--checkpoint=/);
   assert.match(verificationStep, /timeout --kill-after=30s 9300s node src\/verifyActiveRecommendationsDom\.js/);
   assert.match(verificationStep, /--max-duration-ms=9000000/);
   assert.match(verificationStep, /--concurrency=1/);
@@ -851,11 +857,12 @@ runTest("DOM sharding keeps date-duration groups together and merge fails closed
     mergeVerifiedRecommendationShards,
     splitActiveRecommendations
   } = require("../src/recommendationDomShards");
+  const { inputFingerprint } = require("../src/verifyActiveRecommendationsDom");
   const base = {
     decisions: [
       { action: "increase", location: "Warsaw Airport", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
       { action: "decrease", location: "Gdansk Airport", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
-      { action: "increase", location: "Krakow Airport", start_date: "2026-08-24", rental_days: 3, source_validation_status: "dom_confirmed" },
+      { action: "increase", location: "Krakow Airport", start_date: "2026-08-24", rental_days: 3, source_validation_status: "dom_confirmed", source_generated_at: new Date().toISOString() },
       { action: "hold", location: "Poznan Airport", start_date: "2026-08-25", rental_days: 4 }
     ]
   };
@@ -883,14 +890,21 @@ runTest("DOM sharding keeps date-duration groups together and merge fails closed
     ["Gdansk Airport", "Warsaw Airport"]
   );
 
+  const verifiedAt = new Date().toISOString();
   const verifiedShard = {
     ...assigned[0],
     decisions: [{
       ...assigned[0].decisions[0],
       source_validation_status: "dom_recommendation_verified",
-      dom_verification_status: "confirmed"
+      dom_verification_status: "confirmed",
+      dom_verification_reasons: [],
+      dom_verified_at: verifiedAt
     }],
     dom_verification: {
+      input_fingerprint: inputFingerprint(assigned[0]),
+      extractor_hash: assigned[0].dom_shard.extractor_hash,
+      started_at: assigned[0].dom_shard.created_at,
+      completed_at: verifiedAt,
       processed_live_dom_group_count: 1,
       skipped_live_dom_group_count: 0,
       budget_exhausted_count: 0,
@@ -917,7 +931,7 @@ runTest("recommendation workload forecasts four shards and detects growth above 
       { action: "increase", location: "A", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
       { action: "increase", location: "B", start_date: "2026-08-23", rental_days: 2, source_validation_status: "api_unverified" },
       { action: "decrease", location: "C", start_date: "2026-08-24", rental_days: 3, source_validation_status: "api_unverified" },
-      { action: "increase", location: "D", start_date: "2026-08-25", rental_days: 4, source_validation_status: "dom_confirmed" },
+      { action: "increase", location: "D", start_date: "2026-08-25", rental_days: 4, source_validation_status: "dom_confirmed", source_generated_at: new Date().toISOString() },
       { action: "increase", location: "E", start_date: "2026-08-26", rental_days: 5, source_validation_status: "api_unverified" }
     ]
   };

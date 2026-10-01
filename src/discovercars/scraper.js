@@ -249,7 +249,11 @@ class DiscoverCarsScraper {
       const browser = await getBrowser();
       this.apiDomTelemetry.dom_validation_count += 1;
       this.recordDomValidation(location);
-      const browserOutcome = await this.runSingleLocationWithBrowser(browser, location);
+      const requiredProviders = apiOutcome.ok
+        ? selectBestOffersByProvider(this.filterOffersByConfiguredTransmission(apiOutcome.offerViews?.all || apiOutcome.results),
+          location, 3, ["MM Cars Rental"]).map((offer) => offer.provider)
+        : [];
+      const browserOutcome = await this.runSingleLocationWithBrowser(browser, location, { domOnly: true, requiredProviders });
       if (browserOutcome.ok) {
         this.apiDomTelemetry.dom_success_count += 1;
       } else {
@@ -258,21 +262,29 @@ class DiscoverCarsScraper {
       if (!apiOutcome.ok) {
         if (browserOutcome.ok) {
           this.apiDomTelemetry.fallback_count += 1;
-          return { ...browserOutcome, sourceValidation: { status: "dom_fallback", reasons: ["api_failure"] } };
+          return { ...browserOutcome, sourceValidation: {
+            status: browserOutcome.sourceValidation?.status === "dom_only" ? "dom_fallback" : "dom_incomplete",
+            reasons: [...(browserOutcome.sourceValidation?.reasons || []), "api_failure"]
+          } };
         }
         return browserOutcome;
       }
       if (browserOutcome.ok) {
-        const comparison = this.compareApiAndBrowserOutcomes(apiOutcome.results, browserOutcome.results);
+        const comparison = this.compareApiAndBrowserOutcomes(
+          this.filterOffersByConfiguredTransmission(apiOutcome.offerViews?.all || apiOutcome.results),
+          this.filterOffersByConfiguredTransmission(browserOutcome.offerViews?.all || browserOutcome.results)
+        );
         this.recordApiDomComparison(location, comparison);
         if (comparison.preferBrowser) {
           this.apiDomTelemetry.browser_preferred_count += 1;
-          return { ...browserOutcome, sourceValidation: { status: "api_dom_conflict_dom_used", reasons: comparison.reasons } };
+          return { ...browserOutcome, sourceValidation: {
+            status: comparison.complete ? "api_dom_conflict_dom_used" : "api_dom_incomplete_dom_used", reasons: comparison.reasons
+          } };
         }
         return {
           ...apiOutcome,
           sourceValidation: {
-            status: comparison.reasons.length ? "api_dom_conflict_api_used" : "dom_confirmed",
+            status: comparison.confirmed ? "dom_confirmed" : "api_dom_conflict_api_used",
             reasons: comparison.reasons
           }
         };
@@ -282,10 +294,12 @@ class DiscoverCarsScraper {
 
     const browser = await getBrowser();
     const outcome = await this.runSingleLocationWithBrowser(browser, location);
-    return outcome.ok ? { ...outcome, sourceValidation: { status: "dom_only", reasons: [] } } : outcome;
+    return outcome;
   }
 
-  async runSingleLocationWithBrowser(browser, location) {
+  async runSingleLocationWithBrowser(browser, location, options = {}) {
+    const domOnly = this.config.domOnly === true || options.domOnly === true;
+    const requiredProviders = options.requiredProviders || this.config.requiredDomProvidersByLocation?.[location] || [];
     let context = null;
     let page = null;
 
@@ -301,9 +315,11 @@ class DiscoverCarsScraper {
       page.setDefaultNavigationTimeout(this.config.timeoutMs);
 
       const responseCollector = this.createResponseCollector();
-      page.on("response", async (response) => {
-        await this.captureResponseOffers(responseCollector, response, location);
-      });
+      if (!domOnly) {
+        page.on("response", async (response) => {
+          await this.captureResponseOffers(responseCollector, response, location);
+        });
+      }
 
       let homepagePrepared = false;
       if (!this.isFastMode()) {
@@ -312,7 +328,7 @@ class DiscoverCarsScraper {
         homepagePrepared = true;
       }
 
-      let allOffers = await this.tryDirectSearchFlow(page, location, responseCollector);
+      let allOffers = await this.tryDirectSearchFlow(page, location, responseCollector, { domOnly, requiredProviders });
       let offers = this.filterOffersByConfiguredTransmission(allOffers);
 
       if (!offers.length) {
@@ -325,18 +341,18 @@ class DiscoverCarsScraper {
         await this.fillSearchForm(page, location);
         await this.submitSearch(page);
         await this.ensureConfiguredSearchPeriod(page);
-        await this.waitForResults(page, { collector: responseCollector });
+        await this.waitForResults(page, { collector: domOnly ? null : responseCollector });
         const fallbackCollectorWaitMs = normalizeTransmissionFilter(this.config.transmissionFilter) ? 1000 : 20000;
-        await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
+        if (!domOnly) await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
 
-        if (normalizeTransmissionFilter(this.config.transmissionFilter)) {
-          allOffers = await this.extractOffersFromDomWithScroll(page, location);
+        if (domOnly || normalizeTransmissionFilter(this.config.transmissionFilter)) {
+          allOffers = await this.extractOffersFromDomWithScroll(page, location, { domOnly, requiredProviders });
           offers = this.filterOffersByConfiguredTransmission(allOffers);
-          if (!offers.length) {
+          if (!offers.length && !domOnly) {
             allOffers = await this.extractOffersFromPageScripts(page, location);
             offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
-          if (!offers.length) {
+          if (!offers.length && !domOnly) {
             allOffers = responseCollector.getOffers();
             offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
@@ -353,6 +369,10 @@ class DiscoverCarsScraper {
           }
         }
       }
+      if (domOnly) {
+        allOffers = allOffers.filter((offer) => offer.source === "dom");
+        offers = this.filterOffersByConfiguredTransmission(allOffers);
+      }
       if (!offers.length) {
         throw new Error("No automatic offers could be extracted from the results page.");
       }
@@ -368,11 +388,25 @@ class DiscoverCarsScraper {
       }
 
       const cheapest = locationOffers[0];
+      const domProviders = new Set(filterOffersByTransmission(allOffers, "automatic").map((offer) => normalizeProviderForComparison(offer.provider)));
+      const incompleteReasons = domProviders.size < 3 ? ["dom_top3_incomplete"] : [];
+      if (offers.some((offer) => !Number.isFinite(offer.totalPrice) || offer.totalPrice <= 0 || !offer.currency)) {
+        incompleteReasons.push("invalid_offer_evidence");
+      }
+      if (new Set(offers.map((offer) => normalizeCurrency(offer.currency))).size > 1) {
+        incompleteReasons.push("mixed_currency_evidence");
+      }
+      if (requiredProviders.some((provider) => !domProviders.has(normalizeProviderForComparison(provider)))) {
+        incompleteReasons.push("dom_required_provider_missing");
+      }
       return {
         ok: true,
         cheapest,
         results: locationOffers,
-        offerViews: this.buildOfferViews(allOffers, location)
+        offerViews: this.buildOfferViews(allOffers, location),
+        sourceValidation: allOffers.every((offer) => offer.source === "dom")
+          ? { status: incompleteReasons.length ? "dom_incomplete" : "dom_only", reasons: incompleteReasons }
+          : { status: "browser_unverified", reasons: ["non_dom_evidence"] }
       };
     } catch (error) {
       if (page) {
@@ -387,7 +421,7 @@ class DiscoverCarsScraper {
   }
 
   isApiFirstEnabled() {
-    return this.config.apiFirst !== false;
+    return this.config.apiFirst !== false && this.config.domOnly !== true;
   }
 
   shouldValidateApiOutcome(location, offers) {
@@ -420,22 +454,47 @@ class DiscoverCarsScraper {
   }
 
   compareApiAndBrowserOutcomes(apiOffers, browserOffers) {
-    const apiList = Array.isArray(apiOffers) ? apiOffers : [];
-    const browserList = Array.isArray(browserOffers) ? browserOffers : [];
-    if (!apiList.length) {
-      return { preferBrowser: browserList.length > 0, reasons: browserList.length ? ["api_empty"] : [] };
-    }
-    if (!browserList.length) {
-      return { preferBrowser: false, reasons: [] };
-    }
-
+    const apiList = Array.isArray(apiOffers) ? apiOffers.filter(Boolean) : [];
+    const browserList = Array.isArray(browserOffers) ? browserOffers.filter(Boolean) : [];
     const reasons = [];
-    const apiSorted = [...apiList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
-    const browserSorted = [...browserList].sort((left, right) => Number(left.totalPrice) - Number(right.totalPrice));
+    if (!apiList.length) reasons.push("api_empty");
+    if (!browserList.length) reasons.push("dom_empty");
+    const independentDom = browserList.every((offer) => offer.source === "dom");
+    if (!independentDom) reasons.push("dom_evidence_not_independent");
+    const selectedApi = this.filterOffersByConfiguredTransmission(apiList);
+    const selectedDom = this.filterOffersByConfiguredTransmission(browserList);
+    const validEvidence = [...selectedApi, ...selectedDom].every((offer) =>
+      normalizeWhitespace(offer.provider) && Number.isFinite(offer.totalPrice) && offer.totalPrice > 0 && normalizeWhitespace(offer.currency)
+      && normalizeTransmission(offer.transmission)
+    );
+    if (!validEvidence) reasons.push("invalid_offer_evidence");
+    const currencies = new Set([...selectedApi, ...selectedDom].map((offer) => normalizeCurrency(offer.currency)));
+    if (currencies.size > 1) reasons.push("mixed_currency_evidence");
+    const rankProviders = (offers) => {
+      const byProvider = new Map();
+      for (const offer of offers) {
+        const key = normalizeProviderForComparison(offer.provider);
+        if (!byProvider.has(key) || offer.totalPrice < byProvider.get(key).totalPrice) byProvider.set(key, offer);
+      }
+      return [...byProvider.values()].sort((left, right) => left.totalPrice - right.totalPrice);
+    };
+    const apiSorted = rankProviders(selectedApi);
+    const browserSorted = rankProviders(selectedDom);
+    if (apiSorted.length < 3) reasons.push("api_top3_incomplete");
+    if (browserSorted.length < 3) reasons.push("dom_top3_incomplete");
     const apiTop1 = apiSorted[0] || null;
     const browserTop1 = browserSorted[0] || null;
-    const apiMm = apiList.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
-    const browserMm = browserList.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
+    const apiMm = apiSorted.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
+    const browserMm = browserSorted.find((offer) => isMmCarsRentalProvider(offer.provider)) || null;
+    const requiredApi = [...new Set([...apiSorted.slice(0, 3), ...(apiMm ? [apiMm] : [])])];
+    const domByProvider = new Map(browserSorted.map((offer) => [normalizeProviderForComparison(offer.provider), offer]));
+    const missingRequired = requiredApi.some((offer) => !domByProvider.has(normalizeProviderForComparison(offer.provider)));
+    if (missingRequired) reasons.push("dom_required_provider_missing");
+    const apiTop3 = new Set(apiSorted.slice(0, 3).map((offer) => normalizeProviderForComparison(offer.provider)));
+    const domTop3 = new Set(browserSorted.slice(0, 3).map((offer) => normalizeProviderForComparison(offer.provider)));
+    if (apiTop3.size !== domTop3.size || [...apiTop3].some((provider) => !domTop3.has(provider))) {
+      reasons.push("top3_provider_mismatch");
+    }
     let preferBrowser = false;
 
     if (Boolean(apiMm) !== Boolean(browserMm)) {
@@ -444,7 +503,7 @@ class DiscoverCarsScraper {
     }
     if (apiTop1 && browserTop1 && normalizeProviderForComparison(apiTop1.provider) !== normalizeProviderForComparison(browserTop1.provider)) {
       reasons.push("top1_provider_mismatch");
-      preferBrowser ||= browserList.length >= 3;
+      preferBrowser ||= browserSorted.length >= 3;
     }
 
     const compareMatchedPrice = (apiOffer, browserOffer, label, absoluteTolerance, percentTolerance) => {
@@ -453,6 +512,10 @@ class DiscoverCarsScraper {
       if (String(apiOffer.currency || "").toUpperCase() !== String(browserOffer.currency || "").toUpperCase()) {
         reasons.push(`${label}_currency_mismatch`);
         preferBrowser = true;
+        return;
+      }
+      if (normalizeTransmission(apiOffer.transmission) !== normalizeTransmission(browserOffer.transmission)) {
+        reasons.push(`${label}_transmission_mismatch`);
         return;
       }
       const days = Math.max(1, Number(this.config.rentalDays) || daysBetweenIso(this.config.pickupDate, this.config.dropoffDate));
@@ -467,7 +530,11 @@ class DiscoverCarsScraper {
 
     compareMatchedPrice(apiTop1, browserTop1, "top1", 5, 0.05);
     compareMatchedPrice(apiMm, browserMm, "mm", 3, 0.03);
-    return { preferBrowser, reasons: [...new Set(reasons)] };
+    for (const apiOffer of requiredApi) {
+      compareMatchedPrice(apiOffer, domByProvider.get(normalizeProviderForComparison(apiOffer.provider)), "provider", 5, 0.05);
+    }
+    const complete = independentDom && validEvidence && currencies.size === 1 && apiSorted.length >= 3 && browserSorted.length >= 3 && !missingRequired;
+    return { preferBrowser: preferBrowser && independentDom && validEvidence, complete, confirmed: reasons.length === 0, reasons: [...new Set(reasons)] };
   }
 
   getLocationDriftState(location) {
@@ -609,7 +676,7 @@ class DiscoverCarsScraper {
   }
 
   buildOfferViews(offers, location) {
-    const allOffers = Array.isArray(offers) ? offers.filter(Boolean) : [];
+    const allOffers = dedupeOffers(Array.isArray(offers) ? offers.filter(Boolean) : []);
     const automaticOffers = filterOffersByTransmission(allOffers, "automatic");
     return {
       automatic: automaticOffers,
@@ -686,10 +753,11 @@ class DiscoverCarsScraper {
     });
   }
 
-  async tryDirectSearchFlow(page, location, collector) {
+  async tryDirectSearchFlow(page, location, collector, options = {}) {
+    const domOnly = this.config.domOnly === true || options.domOnly === true;
     const geoLocation = resolveGeoLocationOverride(location, this.config.geoLocationOverrides);
     if (geoLocation) {
-      return await this.tryDirectGeoSearchFlow(page, location, collector, geoLocation);
+      return await this.tryDirectGeoSearchFlow(page, location, collector, geoLocation, { ...options, domOnly });
     }
 
     const candidates = await this.resolveLocationCandidates(page, location);
@@ -708,12 +776,12 @@ class DiscoverCarsScraper {
       collector.clear();
       const searchUrl = this.buildDirectSearchUrl(baseUrl.origin, candidate.placeID);
       await page.goto(searchUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
-      await this.waitForResults(page, { collector });
-      await this.waitForCollectorOffers(collector, collectorWaitMs);
+      await this.waitForResults(page, { collector: domOnly ? null : collector });
+      if (!domOnly) await this.waitForCollectorOffers(collector, collectorWaitMs);
 
-      const domOffers = await this.extractOffersFromDomWithScroll(page, location);
-      const pageScriptOffers = await this.extractOffersFromPageScripts(page, location);
-      const collectorOffers = collector.getOffers();
+      const domOffers = await this.extractOffersFromDomWithScroll(page, location, { ...options, domOnly });
+      const pageScriptOffers = domOnly ? [] : await this.extractOffersFromPageScripts(page, location);
+      const collectorOffers = domOnly ? [] : collector.getOffers();
       const offers = dedupeOffers(
         transmissionFilter
           ? [...domOffers, ...pageScriptOffers, ...collectorOffers]
@@ -725,7 +793,7 @@ class DiscoverCarsScraper {
         if (transmissionFilter && !visibleFilteredOffers.length) {
           continue;
         }
-        return filteredOffers;
+        return offers;
       }
       if (offers.length && !transmissionFilter) {
         return offers;
@@ -735,23 +803,24 @@ class DiscoverCarsScraper {
     return [];
   }
 
-  async tryDirectGeoSearchFlow(page, location, collector, geoLocation) {
+  async tryDirectGeoSearchFlow(page, location, collector, geoLocation, options = {}) {
+    const domOnly = this.config.domOnly === true || options.domOnly === true;
     collector.clear();
     const search = await this.createGeoSearch(geoLocation);
     await page.goto(search.pageUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForResults(page, { collector });
-    await this.waitForCollectorOffers(collector, 1000);
+    await this.waitForResults(page, { collector: domOnly ? null : collector });
+    if (!domOnly) await this.waitForCollectorOffers(collector, 1000);
 
-    const domOffers = await this.extractOffersFromDomWithScroll(page, location);
-    const pageScriptOffers = await this.extractOffersFromPageScripts(page, location);
-    const collectorOffers = collector.getOffers();
+    const domOffers = await this.extractOffersFromDomWithScroll(page, location, { ...options, domOnly });
+    const pageScriptOffers = domOnly ? [] : await this.extractOffersFromPageScripts(page, location);
+    const collectorOffers = domOnly ? [] : collector.getOffers();
     const offers = dedupeOffers([...domOffers, ...pageScriptOffers, ...collectorOffers]);
     const visibleFilteredOffers = this.filterOffersByConfiguredTransmission(domOffers);
     const filteredOffers = this.filterOffersByConfiguredTransmission(offers);
     if (normalizeTransmissionFilter(this.config.transmissionFilter) && !visibleFilteredOffers.length) {
       return [];
     }
-    return filteredOffers;
+    return filteredOffers.length ? offers : [];
   }
 
   async resolveLocationCandidates(page, location) {
@@ -851,8 +920,7 @@ class DiscoverCarsScraper {
   }
 
   createResponseCollector() {
-    const offers = [];
-    const seenKeys = new Set();
+    let offers = [];
     const waiters = new Set();
 
     const notifyWaiters = () => {
@@ -867,19 +935,11 @@ class DiscoverCarsScraper {
 
     return {
       add: (entries) => {
-        for (const entry of entries) {
-          const key = `${entry.provider}|${entry.totalPrice}|${entry.location}|${entry.transmission || ""}`;
-          if (seenKeys.has(key)) {
-            continue;
-          }
-          seenKeys.add(key);
-          offers.push(entry);
-        }
+        offers = dedupeOffers([...offers, ...entries]);
         notifyWaiters();
       },
       clear: () => {
         offers.length = 0;
-        seenKeys.clear();
       },
       getOffers: () => [...offers],
       waitForOffers: async (timeoutMs) => {
@@ -1744,14 +1804,16 @@ class DiscoverCarsScraper {
         candidate.vehicle?.acriss
       ]) || null,
       transmission: transmission || null,
-      source
+      source: source === "script" ? "script" : "api",
+      sourceUrl: source === "script" ? null : source,
+      offerId: candidate.offerId ?? candidate.id ?? null
     };
   }
 
-  async extractOffersFromDom(page, fallbackLocation) {
+  async extractOffersFromDom(page, fallbackLocation, options = {}) {
     const rawCandidates = await page.evaluate((options) => {
       const defaultLocation = options.defaultLocation;
-      const includeSupplierRows = String(options.transmissionFilter || "").toLowerCase() !== "automatic";
+      const includeSupplierRows = !options.domOnly && String(options.transmissionFilter || "").toLowerCase() !== "automatic";
       const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const results = [];
       const parseRating = (value) => {
@@ -1804,7 +1866,7 @@ class DiscoverCarsScraper {
         return "";
       };
 
-      const addCandidate = (providerText, priceText, ratingText = "", carName = "", transmissionText = "") => {
+      const addCandidate = (providerText, priceText, ratingText = "", carName = "", transmissionText = "", offerId = null, source = "dom") => {
         const provider = normalize(providerText);
         const price = normalize(priceText);
         const providerRating = parseRating(ratingText);
@@ -1818,7 +1880,9 @@ class DiscoverCarsScraper {
           priceText: price,
           location: defaultLocation,
           carName: normalize(carName || "") || null,
-          transmission: detectTransmission(transmissionText || carName) || null
+          transmission: detectTransmission(transmissionText || carName) || null,
+          offerId,
+          source
         });
       };
 
@@ -1828,10 +1892,10 @@ class DiscoverCarsScraper {
       for (const row of supplierFilterRows) {
         const provider = row.querySelector(".SearchFiltersGroup-FilterLabel")?.textContent || "";
         const price = row.querySelector(".SearchFiltersGroup-FilterMinPrice")?.textContent || "";
-        addCandidate(provider, price, findRatingText(row));
+        addCandidate(provider, price, findRatingText(row), "", "", null, "dom_filter");
       }
 
-      if (results.length < 3) {
+      {
         const selectors = [
           ".SearchCar",
           "[class*='SearchCar']",
@@ -1846,6 +1910,14 @@ class DiscoverCarsScraper {
 
         const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
         for (const node of nodes) {
+        let visible = node.getClientRects().length > 0;
+        for (let element = node; visible && element; element = element.parentElement) {
+          const style = window.getComputedStyle(element);
+          visible = style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
+        }
+        if (!visible) continue;
+        if (node.querySelectorAll(".SearchCar").length > 1) continue;
+        const offerId = node.getAttribute("data-offer-id") || null;
         const text = normalize(node.innerText);
         if (!text || !/\d/.test(text)) {
           continue;
@@ -1878,9 +1950,10 @@ class DiscoverCarsScraper {
             return true;
           }) || "";
         if (searchCarPriceLine && searchCarProvider) {
-          addCandidate(searchCarProvider, searchCarPriceLine, findRatingText(node), searchCarName, text);
+          addCandidate(searchCarProvider, searchCarPriceLine, findRatingText(node), searchCarName, text, offerId);
           continue;
         }
+        if (options.domOnly) continue;
         const priceLine = lines.find((line) => /(EUR|USD|GBP|PLN|€|\$|£|zł)/i.test(line) && /\d/.test(line)) || "";
         const providerLine = lines.find((line) => {
           if (line.length < 3 || line.length > 50) {
@@ -1897,14 +1970,15 @@ class DiscoverCarsScraper {
         }
 
           const carName = lines[0] || "";
-          addCandidate(providerLine, priceLine, findRatingText(node), carName, text);
+          addCandidate(providerLine, priceLine, findRatingText(node), carName, text, offerId, "dom_inferred");
         }
       }
 
       return results;
     }, {
       defaultLocation: fallbackLocation,
-      transmissionFilter: normalizeTransmissionFilter(this.config.transmissionFilter)
+      transmissionFilter: normalizeTransmissionFilter(this.config.transmissionFilter),
+      domOnly: this.config.domOnly === true || options.domOnly === true
     });
 
     const offers = [];
@@ -1921,35 +1995,39 @@ class DiscoverCarsScraper {
         location: normalizeWhitespace(candidate.location) || fallbackLocation,
         carName: candidate.carName ? normalizeWhitespace(candidate.carName) : null,
         transmission: normalizeTransmission(candidate.transmission) || null,
-        source: "dom"
+        source: candidate.source,
+        offerId: candidate.offerId
       });
     }
 
     return dedupeOffers(offers);
   }
 
-  async extractOffersFromDomWithScroll(page, fallbackLocation) {
+  async extractOffersFromDomWithScroll(page, fallbackLocation, options = {}) {
     const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
-    const maxPasses = transmissionFilter === "automatic" ? 8 : 1;
+    const needsAutomaticEvidence = transmissionFilter === "automatic" || this.config.domOnly === true || options.domOnly === true;
+    const maxPasses = needsAutomaticEvidence ? 8 : 1;
     const collected = [];
+    const requiredProviders = options.requiredProviders || this.config.requiredDomProvidersByLocation?.[fallbackLocation] || [];
 
     for (let pass = 0; pass < maxPasses; pass += 1) {
-      collected.push(...await this.extractOffersFromDom(page, fallbackLocation));
-      if (transmissionFilter !== "automatic") {
+      collected.push(...await this.extractOffersFromDom(page, fallbackLocation, options));
+      if (!needsAutomaticEvidence) {
         break;
       }
 
-      const automaticProviderCount = new Set(
+      const automaticProviders = new Set(
         collected
           .filter((offer) => normalizeTransmission(offer.transmission) === "automatic")
-          .map((offer) => normalizeWhitespace(offer.provider).toLowerCase())
+          .map((offer) => normalizeProviderForComparison(offer.provider))
           .filter(Boolean)
-      ).size;
+      );
       const hasMmCarsRental = collected.some((offer) => {
         const provider = normalizeWhitespace(offer.provider).toLowerCase();
         return normalizeTransmission(offer.transmission) === "automatic" && provider === "mm cars rental";
       });
-      if ((automaticProviderCount >= 3 && hasMmCarsRental) || automaticProviderCount >= 6) {
+      const requiredPresent = requiredProviders.every((provider) => automaticProviders.has(normalizeProviderForComparison(provider)));
+      if (automaticProviders.size >= (requiredProviders.length ? 3 : 4) && hasMmCarsRental && requiredPresent) {
         break;
       }
 
@@ -2121,9 +2199,9 @@ function extractOffersFromSearchApiPayload(payload, fallbackLocation, sourceUrl 
     }
 
     const parsedMoney = firstMoney([
-      offer.price?.raw,
-      offer.price?.formatted,
       offer.price,
+      offer.price?.formatted,
+      offer.price?.raw,
       offer.totalPrice,
       offer.pricing?.total
     ]);
@@ -2152,8 +2230,9 @@ function extractOffersFromSearchApiPayload(payload, fallbackLocation, sourceUrl 
       ) || fallbackLocation,
       carName: normalizeWhitespace(offer.vehicle?.carName || offer.vehicle?.name || offer.carName || "") || null,
       transmission: transmission || null,
-      source: "api",
+      source: sourceUrl === "script" ? "script" : "api",
       sourceUrl,
+      offerId: offer.offerId ?? offer.id ?? null,
       sipp: normalizeWhitespace(offer.vehicle?.sipp || offer.sipp || "") || null
     });
   }
@@ -2324,7 +2403,7 @@ function monthName(dateParts) {
 }
 
 function dedupeOffers(offers) {
-  const seen = new Set();
+  const seen = new Map();
   const unique = [];
 
   for (const offer of offers) {
@@ -2333,16 +2412,35 @@ function dedupeOffers(offers) {
       continue;
     }
 
-    const key = `${provider.toLowerCase()}|${offer.totalPrice}|${normalizeWhitespace(offer.location).toLowerCase()}`;
-    if (seen.has(key)) {
+    const key = JSON.stringify([provider.toLowerCase(), normalizeWhitespace(offer.location).toLowerCase(),
+      normalizeCurrency(offer.currency), normalizeTransmission(offer.transmission),
+      normalizeWhitespace(offer.carName || offer.car_name).toLowerCase()]);
+    const offerId = offer.offerId ?? null;
+    const candidates = seen.get(key) || [];
+    const duplicate = candidates.find((index) => {
+      const existing = unique[index];
+      const compatibleSipp = !offer.sipp || !existing.sipp || normalizeWhitespace(offer.sipp).toUpperCase() === normalizeWhitespace(existing.sipp).toUpperCase();
+      const sameId = offerId != null && existing.offerId != null && String(existing.offerId) === String(offerId);
+      return compatibleSipp && (sameId || (offer.totalPrice === existing.totalPrice && (offerId == null || existing.offerId == null)));
+    });
+    if (duplicate != null) {
+      const existing = unique[duplicate];
+      // A rendered observation takes precedence over auxiliary data for the same offer.
+      if (offer.source === "dom" || existing.source !== "dom") {
+        unique[duplicate] = { ...existing, ...offer, provider, location: normalizeWhitespace(offer.location), offerId: offerId ?? existing.offerId };
+      } else if (existing.offerId == null && offerId != null) {
+        existing.offerId = offerId;
+      }
       continue;
     }
-    seen.add(key);
+    candidates.push(unique.length);
+    seen.set(key, candidates);
     unique.push({
       ...offer,
       provider,
       providerRating: Number.isFinite(offer.providerRating) ? Number(offer.providerRating) : null,
-      location: normalizeWhitespace(offer.location)
+      location: normalizeWhitespace(offer.location),
+      offerId
     });
   }
 
@@ -2359,6 +2457,7 @@ function selectBestOffersByProvider(offers, fallbackLocation, maxProviders, forc
     }
 
     const normalizedOffer = {
+      ...offer,
       provider,
       providerRating: Number.isFinite(offer.providerRating) ? Number(offer.providerRating) : null,
       totalPrice: offer.totalPrice,

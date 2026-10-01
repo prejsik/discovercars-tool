@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { loadPricingRules } = require("./pricingRules");
 const { buildPublicResultsPayload } = require("./publicResults");
+const { buildCompletionMessages } = require("./workflowQualityAlerts");
 
 const MM_CLOSE_PRICE_PER_DAY_THRESHOLD_PLN = 10;
 const PRICING_RULES = loadPricingRules();
@@ -486,15 +487,20 @@ function buildScenarioTable(rootPayload, scenarioPayload) {
 }
 
 function buildQualityBanner(quality) {
-  if (!quality || quality.status === "success") {
+  if (!quality) {
     return "";
   }
-  const alertSource = quality.status === "failure"
+  const blocked = quality.status === "failure" || quality.publication_status === "blocked";
+  const partial = quality.publication_status === "partial";
+  const completionMessages = buildCompletionMessages(quality);
+  if (quality.status === "success" && !partial && !blocked && !completionMessages.length) return "";
+  const alertSource = blocked
     ? quality.blocking_alerts
     : quality.alerts;
   const alerts = Array.isArray(alertSource)
     ? alertSource
       .filter((item) => !/API-DOM|kontrola DOM|Brak MM Cars Rental dla/i.test(String(item)))
+      .filter((item) => !completionMessages.includes(String(item)))
       .map((item) => String(item).replace(/^Validation WARNING:\s*/i, "")
         .replace("Pominiete rekomendacje", "Pominięte rekomendacje")
         .replace("Cele rankingowe nieosiagalne po finalnej stawce", "Nieosiągalne cele rankingowe po zastosowaniu końcowej stawki")
@@ -507,10 +513,13 @@ function buildQualityBanner(quality) {
         .replace("live_rate_changed_since_full_scrape", "cena zmieniła się od pełnego pomiaru")
         .replace("baseline_markup_outside_allowed_range", "narzut poza dopuszczalnym zakresem"))
     : [];
-  const message = quality.status === "failure"
+  const message = blocked
     ? "Raport danych został opublikowany, ale nowy Excel zablokowała kontrola jakości."
-    : "Raport zawiera ostrzeżenia kontroli jakości.";
-  return `<div class="quality-banner quality-${escapeHtml(quality.status)}" role="status"><strong>${escapeHtml(message)}</strong>${alerts.length ? `<details${quality.status === "failure" ? " open" : ""}><summary>Szczegóły (${alerts.length})</summary><ul>${alerts.map((alert) => `<li>${escapeHtml(alert)}</li>`).join("")}</ul></details>` : ""}</div>`;
+    : partial
+      ? "Częściowo gotowe."
+      : quality.status === "success" ? "Gotowe." : "Raport zawiera ostrzeżenia kontroli jakości.";
+  const bannerStatus = blocked ? "failure" : partial ? "degraded" : quality.status;
+  return `<div class="quality-banner quality-${escapeHtml(bannerStatus)}" role="status"><strong>${escapeHtml(message)}</strong>${completionMessages.map((text) => `<p>${escapeHtml(text)}</p>`).join("")}${alerts.length ? `<details${blocked ? " open" : ""}><summary>Szczegóły (${alerts.length})</summary><ul>${alerts.map((alert) => `<li>${escapeHtml(alert)}</li>`).join("")}</ul></details>` : ""}</div>`;
 }
 
 function buildMultiFilter(id, label, options, allLabel = "Wszystkie") {

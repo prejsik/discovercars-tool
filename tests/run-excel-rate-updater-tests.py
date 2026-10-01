@@ -138,6 +138,7 @@ def build_workbook(path):
     for row in rows:
         ws.append(row)
     ws["A4"].fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+    ws.freeze_panes = "I5"
     workbook.save(path)
 
 
@@ -166,6 +167,7 @@ def build_minimal_workbook(path, rows):
     ])
     for row in rows:
         ws.append(row)
+    ws.freeze_panes = "I5"
     workbook.save(path)
 
 
@@ -857,6 +859,9 @@ def main():
             "validation sheet matches the checks returned in the summary",
         )
         import_ready = openpyxl.load_workbook(import_output_path)
+        for book in (updated, import_ready):
+            for sheet in book.worksheets:
+                assert_equal(sheet.freeze_panes, None, f"no frozen panes in {sheet.title}")
         assert_equal(import_ready.sheetnames, ["Sheet1"], "import-ready workbook sheets")
         import_ready_ws = import_ready["Sheet1"]
         assert_equal(import_ready_ws["J5"].value, 81, "import-ready updated rate")
@@ -911,7 +916,7 @@ def main():
         assert_equal(rgb(changed_ws["A3"]), "FFC7CE", "top3 legend color")
         assert_equal(changed_ws["A4"].value, "Przebicie top1", "top1 undercut legend label")
         assert_equal(rgb(changed_ws["A4"]), "F4B183", "top1 undercut legend color")
-        assert_equal(changed_ws["A5"].value, "Scalanie duration", "duration aggregation legend label")
+        assert_equal(changed_ws["A5"].value, "Hierarchia i scalanie", "pricing hierarchy and duration aggregation legend label")
         assert_equal(changed_ws["A6"].value, "Kontrola celu", "target verification legend label")
         assert_equal(changed_ws["A9"].value, "Floor cenowy", "floor legend label")
         assert "Floor cenowy" in changed_ws["B9"].value

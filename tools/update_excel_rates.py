@@ -13,6 +13,7 @@ from copy import copy
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import median
+from textwrap import wrap
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
@@ -127,6 +128,12 @@ DEFAULT_CONFIG = {
 
 CONFIRMED_BASELINE_STATUSES = {"confirmed_imported", "verified_live"}
 
+PRICING_POLICY_PRECEDENCE = (
+    "protected_dates", "class_allowlist", "required_evidence", "priority_top1",
+    "scoped_floor", "zone_floor", "seasonal_floor", "city_airport_cap",
+    "ranking_target", "premium_parity",
+)
+
 
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as handle:
@@ -144,6 +151,23 @@ def get_pricing_rules(config: dict[str, Any]) -> dict[str, Any]:
         }
     payload = load_json(path)
     return payload.get("pricing") or payload
+
+
+def get_pricing_policy(config: dict[str, Any]) -> dict[str, Any]:
+    policy = config.get("_pricing_policy")
+    if policy is None:
+        policy = get_pricing_rules(config).get("pricingPolicy") or {}
+    precedence = policy.get("precedence", list(PRICING_POLICY_PRECEDENCE))
+    conflict = policy.get("normalFloorCapConflict", "preserve_baseline")
+    # Reordering approved business rules needs a separate business decision.
+    if precedence != list(PRICING_POLICY_PRECEDENCE) or conflict != "preserve_baseline":
+        raise ValueError("pricingPolicy must preserve the approved hierarchy and normal floor/cap baseline protection.")
+    return {"precedence": precedence, "normalFloorCapConflict": conflict}
+
+
+def priority_overrides_rule(target: dict[str, Any], group: Any, rule: str, config: dict[str, Any]) -> bool:
+    precedence = get_pricing_policy(config)["precedence"]
+    return priority_top1_applies(target, group, config) and precedence.index("priority_top1") < precedence.index(rule)
 
 
 def merge_config(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -929,7 +953,7 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 
 
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
-    if priority_top1_applies(target, target.get("group"), config):
+    if priority_overrides_rule(target, target.get("group"), "scoped_floor", config):
         rule = next(r for r in config["_priority_top1_rules"] if r["id"] == target["priority_rule_id"])
         return float(rule["minimumRatePlnDay"]), f"Priorytet top1: minimum {rule['minimumRatePlnDay']} PLN brutto/dzien."
     rules = config.get("minimum_rates") or {}
@@ -1306,10 +1330,60 @@ def get_city_top1_airport_cap_legend_text(config: dict[str, Any]) -> str:
         "Przy rekomendacji utrzymania top1 stawka oddzialu miejskiego dla tej samej daty, "
         "grupy i przedzialu duration moze wynosic maksymalnie "
         f"{format_percent_for_comment(multiplier * 100)} stawki odpowiadajacego lotniska. "
+        "Aktywny priorytet Top1 jest nadrzedny i zastepuje ten limit. "
         "Lotniska nie sa ograniczane ta regula. Jesli limit jest nizszy od floor, zachowujemy "
         "stawki bazowe powiazanych klas w tej lokalizacji, dacie i przedziale duration; "
         "konflikt trafia do kontroli bez blokowania pozostalych rekomendacji."
     )
+
+
+def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
+    labels = {
+        "protected_dates": "ochrona dat (stawki bazowe bez zmian)",
+        "class_allowlist": "lista dopuszczonych klas (pozostale zamrozone)",
+        "required_evidence": "poprawne dane w wymaganym zakresie duration",
+        "priority_top1": "aktywny priorytet Top1 z wlasnym floor, nadrzedny wobec zwyklych minimow i limitu miasta",
+        "scoped_floor": "floor dla strefy/klasy/przedzialu duration",
+        "zone_floor": "floor strefowy",
+        "seasonal_floor": "pozostale minima sezonowe/globalne",
+        "city_airport_cap": "limit miasto/lotnisko poza priorytetem",
+        "ranking_target": "cel rankingowy w powyzszych granicach",
+        "premium_parity": "parytet bazowych klas i premium +1 PLN (rezerwa uwzgledniona przed capem)",
+    }
+    return "Hierarchia od nadrzednej: " + " > ".join(
+        labels[rule] for rule in get_pricing_policy(config)["precedence"]
+    ) + ". Zwykly konflikt floor/cap: zachowaj dotkniete stawki bazowe i eksportuj pozostale rekomendacje."
+
+
+def get_required_missing_duration_days(change: dict[str, Any]) -> list[int]:
+    if "required_missing_duration_days" in change:
+        return change["required_missing_duration_days"]
+    if change.get("duration_band_required_coverage_complete", change.get("duration_band_coverage_complete")) is False:
+        return change.get("missing_duration_days", [])
+    return []
+
+
+def get_ranking_limit_reason(
+    target: dict[str, Any], base_rate: float, suggested_rate: float,
+    minimum_rate: float, group_adjustment: float, config: dict[str, Any],
+) -> str:
+    constraints = target.get("constraint_items") or [target]
+    if any(item.get("data_quality_status") not in {None, "", "ok"} for item in constraints):
+        return ""
+    if not evaluate_target_constraints(target, suggested_rate)["target_achievable"]:
+        return ""
+    if priority_top1_applies(target, target.get("group"), config) and int(target.get("target_rank") or 1) > 1:
+        return f"floor/premium: cel top{target['target_rank']}"
+    if evaluate_target_constraints(target, base_rate + group_adjustment)["target_achievable"]:
+        return ""
+    if base_rate > max(suggested_rate, minimum_rate) + 0.01:
+        return ""
+    limits = []
+    if minimum_rate > suggested_rate:
+        limits.append("floor")
+    if group_adjustment > 0:
+        limits.append("premium")
+    return "/".join(limits)
 
 
 def build_review_notes(changes: list[dict[str, Any]]) -> str:
@@ -1334,20 +1408,23 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
         notes.append("brak ceny benchmarku")
     if any(parse_number(change.get("mm_rate")) is None for change in changes):
         notes.append("brak ceny MM")
-    if any(change.get("target_achievable") is False for change in changes):
+    limits = sorted({change["ranking_limit_reason"] for change in changes if change.get("ranking_limit_reason")})
+    if limits:
+        notes.append("oczekiwane ograniczenie rankingu przez " + ", ".join(limits) + "; nie jest bledem danych")
+    if any(change.get("target_achievable") is False and not change.get("ranking_limit_reason") for change in changes):
         notes.append("finalna stawka nie gwarantuje celu rankingowego")
     if any(change.get("aggregation_conflict") for change in changes):
         notes.append("sprzeczne kierunki w jednym przedziale duration")
     max_decisions = max((int(change.get("source_decision_count") or 0) for change in changes), default=0)
     if max_decisions > 1:
         notes.append(f"scalono {max_decisions} scenariuszy duration")
-    if any(change.get("duration_band_coverage_complete") is False for change in changes):
+    if any(get_required_missing_duration_days(change) for change in changes):
         missing = sorted({
             int(duration)
             for change in changes
-            for duration in change.get("missing_duration_days", [])
+            for duration in get_required_missing_duration_days(change)
         })
-        notes.append("brak danych dla duration: " + ",".join(str(item) for item in missing))
+        notes.append("brak wymaganych danych dla duration: " + ",".join(str(item) for item in missing))
 
     return "; ".join(notes) if notes else "OK"
 
@@ -1360,14 +1437,14 @@ def get_review_status(changes: list[dict[str, Any]]) -> str:
         or any(change.get("action") != change.get("recommendation_action") for change in changes)
         or any(parse_number(change.get("benchmark_rate")) is None for change in changes)
         or any(parse_number(change.get("mm_rate")) is None for change in changes)
-        or any(change.get("target_achievable") is False for change in changes)
+        or any(change.get("target_achievable") is False and not change.get("ranking_limit_reason") for change in changes)
         or any(change.get("aggregation_conflict") for change in changes)
     )
     if critical:
         return "Sprawdz"
-    if any(change.get("duration_band_coverage_complete") is False for change in changes):
+    if any(get_required_missing_duration_days(change) for change in changes):
         return "Gotowe z uwaga"
-    if any(change.get("minimum_reason") for change in changes) or any(
+    if any(change.get("minimum_reason") or change.get("ranking_limit_reason") for change in changes) or any(
         parse_number(change.get("group_adjustment_pln_day")) for change in changes
     ):
         return "Gotowe z uwaga"
@@ -1444,8 +1521,8 @@ def write_changed_positions_sheet(
             + "Gdy floor blokuje top1, wybierane jest najwyzsze osiagalne top2/top3 bez limitu obnizki 10 PLN. Gdy brak celu w top3, stawka bazowa zostaje. Priorytet zastepuje limit miasto/lotnisko 130%. Kontrola danych i ochrona dat pozostaja aktywne.")
     legend_items = [
         *recommendation_legend_items,
-        ("D9EAD3", "Scalanie duration", "Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
-        ("FFF2CC", "Kontrola celu", "Po zastosowaniu finalnej stawki narzedzie ponownie przelicza prognoze na stronie. Cel nieosiagalny jest oznaczany jako wymagajacy kontroli i nie jest opisywany jako gwarantowane top1/top2/top3."),
+        ("D9EAD3", "Hierarchia i scalanie", get_pricing_hierarchy_legend_text(config) + " Jedna komorka Sheet1 obsluguje caly przedzial duration. Stawka jest wyliczana raz z wszystkich wymaganych scenariuszy w przedziale i respektuje najbardziej restrykcyjny limit."),
+        ("FFF2CC", "Kontrola celu", "Po zastosowaniu finalnej stawki narzedzie ponownie przelicza prognoze na stronie. Oczekiwane ograniczenie rankingu przez floor/premium to uwaga, nie blad danych. Pozostale nieosiagalne cele wymagaja kontroli. Zadnego nieosiagalnego celu nie opisujemy jako gwarantowane top1/top2/top3."),
         ("D9EAF7", "Grupy zmieniane", get_group_rules_legend_text(config)),
         ("FCE4D6", "Grupy tylko kontrolne", get_excluded_group_highlight_legend_text(config)),
         ("FCE4D6", "Floor cenowy", get_floor_legend_text(config)),
@@ -1492,6 +1569,8 @@ def write_changed_positions_sheet(
         target_ws.cell(row, 1).font = Font(bold=True)
         target_ws.cell(row, 2).value = description
         target_ws.cell(row, 2).alignment = Alignment(wrap_text=True, vertical="top")
+        line_count = sum(max(1, len(wrap(line, width=65))) for line in description.splitlines())
+        target_ws.row_dimensions[row].height = min(409, 15 * line_count + 6)
 
     for row in range(1, header_row + 1):
         target_row = header_start_row + row - 1
@@ -1502,7 +1581,6 @@ def write_changed_positions_sheet(
     target_header_row = header_start_row + header_row - 1
     data_start_row = target_header_row + 1
     target_ws.cell(target_header_row, comment_col).value = "Komentarz zmiany"
-    target_ws.freeze_panes = f"A{data_start_row}"
 
     for index, grouped_changes in enumerate(changed_groups, start=data_start_row):
         change = grouped_changes[0]
@@ -1567,7 +1645,6 @@ def write_table_sheet(
             cell.value = value
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    ws.freeze_panes = "A2"
     if rows:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
     return ws
@@ -1816,6 +1893,7 @@ def build_validation_rows(
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}"
         for change in changes
         if change.get("target_achievable") is False
+        and not change.get("ranking_limit_reason")
     })
     aggregation_conflicts = sorted({
         f"{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}"
@@ -1824,9 +1902,9 @@ def build_validation_rows(
     })
     incomplete_duration_coverage = sorted({
         f"{change.get('zone')}/{change.get('pickup_date')} {change.get('duration_band')}: "
-        + ",".join(str(item) for item in change.get("missing_duration_days", []))
+        + ",".join(str(item) for item in get_required_missing_duration_days(change))
         for change in changes
-        if change.get("duration_band_coverage_complete") is False
+        if get_required_missing_duration_days(change)
     })
 
     expansion_summary = expansion_summary or {}
@@ -2174,6 +2252,7 @@ def build_targets(
             "aggregation_conflict": len(source_actions) > 1,
             "covered_duration_days": covered_duration_days,
             "missing_duration_days": missing_duration_days,
+            "required_missing_duration_days": required_missing_days,
             "duration_band_coverage_complete": not missing_duration_days,
             "duration_band_required_coverage_complete": not required_missing_days,
         })
@@ -2282,7 +2361,8 @@ def build_city_top1_airport_rate_caps(
             continue
         for target_date, row_targets in targets_by_date.items():
             for city_target in row_targets:
-                if city_target.get("priority_rule_id") in {r["id"] for r in config.get("_priority_top1_rules", [])}:
+                if any(priority_overrides_rule(city_target, group, "city_airport_cap", config)
+                       for group in resolve_apply_groups(config, None)):
                     continue
                 rate_col = city_target.get("rate_col")
                 if not isinstance(rate_col, int) or not target_matches_recommendation_types(city_target, recommendation_types):
@@ -2670,11 +2750,20 @@ def validate_import_row_limit(ws: Any, config: dict[str, Any]) -> int:
     return max_rows
 
 
+def clear_frozen_panes(workbook: Any) -> None:
+    for sheet in workbook.worksheets:
+        for view in sheet.views.sheetView:
+            if view.pane is not None and view.pane.state in {"frozen", "frozenSplit"}:
+                view.pane = None
+                view.selection = [openpyxl.worksheet.views.Selection()]
+
+
 def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path) -> None:
     for sheet in list(workbook.worksheets):
         if sheet.title != sheet_name:
             workbook.remove(sheet)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    clear_frozen_panes(workbook)
     workbook.save(output_path)
 
 
@@ -2830,7 +2919,9 @@ def apply_updates(
     import_output_path: Path | None = None,
 ) -> dict[str, Any]:
     input_workbook_sha256 = sha256_file(workbook_path)
-    config = {**config, "_priority_top1_rules": get_pricing_rules(config).get("priorityTop1Rules", [])}
+    pricing_rules = get_pricing_rules(config)
+    config = {**config, "_priority_top1_rules": pricing_rules.get("priorityTop1Rules", []),
+              "_pricing_policy": get_pricing_policy(config)}
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -2913,6 +3004,8 @@ def apply_updates(
             base_cap = float(cap_info["base_rate_cap_pln_day"])
             if minimum_rate <= base_cap + 0.001:
                 continue
+            if config["_pricing_policy"]["normalFloorCapConflict"] != "preserve_baseline":
+                raise ValueError("Unsupported normal floor/cap conflict policy.")
             preserved_groups = parity_groups if group in parity_groups else {group}
             preserved_rate_cells.update((*key, preserved_group) for preserved_group in preserved_groups)
             if group in parity_groups:
@@ -3047,6 +3140,10 @@ def apply_updates(
                 "broker_markup_amount_pln_day": target.get("broker_markup_amount_pln_day"),
                 "minimum_rate_pln_day": minimum_rate,
                 "minimum_reason": minimum_reason if base_rate > suggested_rate else "",
+                "ranking_limit_reason": get_ranking_limit_reason(
+                    {**target, "group": group}, base_rate, suggested_rate,
+                    minimum_rate, group_adjustment, config,
+                ),
                 "group_adjustment_pln_day": group_adjustment,
                 "city_top1_airport_cap_active": city_airport_cap_active,
                 "city_top1_airport_cap_applied": city_airport_cap_applied,
@@ -3080,6 +3177,7 @@ def apply_updates(
                 "aggregation_conflict": bool(target.get("aggregation_conflict")),
                 "covered_duration_days": target.get("covered_duration_days", []),
                 "missing_duration_days": target.get("missing_duration_days", []),
+                "required_missing_duration_days": target.get("required_missing_duration_days", []),
                 "duration_band_coverage_complete": target.get("duration_band_coverage_complete", True),
                 "duration_band_required_coverage_complete": target.get("duration_band_required_coverage_complete", True),
                 **constraint_evaluation,
@@ -3145,6 +3243,7 @@ def apply_updates(
             validation_rows,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        clear_frozen_panes(workbook)
         workbook.save(output_path)
         if import_output_path is not None:
             save_import_ready_workbook(workbook, sheet_name, import_output_path)
