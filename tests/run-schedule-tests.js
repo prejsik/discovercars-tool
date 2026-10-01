@@ -31,18 +31,26 @@ async function main() {
   assert.equal((await findDuplicate(night, [{id:2,status:'in_progress'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
   assert.equal(await findDuplicate(night, [{id:2,status:'queued'}], async () => [{name:markerName('claim',night.key)}]), null);
   for (const day of ['2026-09-29','2026-10-25','2026-12-15','2027-03-28']) {
-    const slots = ['7 7 * * *','7 8 * * *'].map(cron => resolveSchedule({event:'schedule',cron,createdAt:day+'T12:00:00Z',now:day+'T12:00:00Z'}));
+    const slots = ['0 9 * * *','0 10 * * *'].map(cron => resolveSchedule({event:'schedule',cron,createdAt:day+'T12:00:00Z',now:day+'T12:00:00Z'}));
     assert.equal(slots.filter(s=>s.shouldRun).length,1,day);
     const enabled = slots.find(s=>s.shouldRun);
     assert.equal(enabled.key,`day-${day}`);
-    assert.equal(enabled.rollingDays,30);
+    assert.equal(enabled.rollingDays,20);
+    const utcHour = day === '2026-10-25' || day === '2026-12-15' ? 10 : 9;
+    assert.equal(warsawParts(new Date(`${day}T${String(utcHour).padStart(2,'0')}:00:00Z`)).hour,11);
+    for (const minute of [0,30]) {
+      const cron = `${minute} ${utcHour} * * *`;
+      assert.ok(workflow.includes(`cron: "${cron}"`));
+      assert.equal(resolveSchedule({event:'schedule',cron,createdAt:day+'T12:00:00Z',now:day+'T12:00:00Z'}).rollingDays,20);
+    }
   }
-  const delayed = resolveSchedule({event:'schedule',cron:'7 7 * * *',createdAt:'2026-09-29T16:08:34Z',now:'2026-09-29T16:10:00Z'});
+  assert.throws(()=>resolveSchedule({event:'schedule',cron:'7 7 * * *',createdAt:'2026-09-29T12:00:00Z',now:'2026-09-29T12:00:00Z'}),/Unknown schedule/);
+  const delayed = resolveSchedule({event:'schedule',cron:'0 9 * * *',createdAt:'2026-09-29T16:08:34Z',now:'2026-09-29T16:10:00Z'});
   assert.equal(delayed.key,'day-2026-09-29');
-  assert.equal(resolveSchedule({event:'schedule',cron:'7 7 * * *',createdAt:'2026-09-29T07:08:00Z',now:'2026-09-30T01:00:00Z'}).shouldRun,false);
+  assert.equal(resolveSchedule({event:'schedule',cron:'0 9 * * *',createdAt:'2026-09-29T09:01:00Z',now:'2026-09-30T01:00:00Z'}).shouldRun,false);
   const external = resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'2026-09-29',createdAt:'2026-09-29T07:00:00Z',now:'2026-09-29T07:00:00Z'});
   assert.equal(external.key,'day-2026-09-29');
-  assert.equal(external.rollingDays,30);
+  assert.equal(external.rollingDays,20);
   assert.equal(resolveSchedule({event:'workflow_dispatch',slot:'night',reportDate:'2026-09-30',now:'2026-09-29T20:00:00Z'}).rollingDays,45);
   assert.throws(()=>resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'bad',now:'2026-09-29T07:00:00Z'}));
   assert.equal(resolveSchedule({event:'workflow_dispatch',slot:'day',reportDate:'2026-09-28',now:'2026-09-29T07:00:00Z'}).shouldRun,false);

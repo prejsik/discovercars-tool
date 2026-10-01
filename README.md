@@ -56,7 +56,7 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- nocny run obejmuje 45 dni, dzienny 30 dni; nocne triggery sa ustawione poprzedniego wieczoru, a dzienne okolo `09:00` czasu polskiego. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
+- nocny run obejmuje 45 dni, dzienny 20 dni; nocne triggery sa ustawione poprzedniego wieczoru, a dzienne o `11:00` czasu polskiego (zapasowy trigger o `11:30`). GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
 - bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu lub dowodzie opublikowania kompletu wynikow,
 - zbieranie jest podzielone na dwa niezalezne runnery, lacznie do osmiu aktywnych stron; wyniki sa scalane do jednego raportu. Checkpoint pozwala wznowic swieze, zgodne fragmenty tego samego runa,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
@@ -68,7 +68,7 @@ Jak dziala:
 Domyslny zakres w chmurze:
 
 - `locations`: wszystkie 22 punkty z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
-- `rolling_days`: `45` dla nocy, `30` dla runa dziennego
+- `rolling_days`: `45` dla nocy, `20` dla runa dziennego
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
 

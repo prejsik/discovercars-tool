@@ -104,7 +104,7 @@ assert.match(job('publish'), /--validate-only=pages/);
 
 const optionsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'discovercars-options-'));
 try {
-  for (const [override, expectedDays] of [['45', '45'], ['30', '30'], ['', '2']]) {
+  for (const [override, expectedDays] of [['45', '45'], ['20', '20'], ['', '2']]) {
     const output = path.join(optionsDirectory, `options-${expectedDays}`);
     const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-s'], {
       cwd: root, input: pipeline.jobs.prepare.steps.find(step => step.id === 'options').run,

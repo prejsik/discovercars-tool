@@ -10,15 +10,15 @@ on:
     - cron: "17 20 * * *"
     - cron: "47 20 * * *"
     - cron: "17 21 * * *"
-    # Approximately 09:00 Warsaw, plus a retry; cron remains a best-effort fallback.
-    - cron: "7 7 * * *"
-    - cron: "37 7 * * *"
-    - cron: "7 8 * * *"
-    - cron: "37 8 * * *"
+    # 11:00 Warsaw, plus a retry at 11:30; GitHub cron is best effort.
+    - cron: "0 9 * * *"
+    - cron: "30 9 * * *"
+    - cron: "0 10 * * *"
+    - cron: "30 10 * * *"
   workflow_dispatch:
     inputs:
       schedule_slot:
-        description: "External scheduler only: day (30 days) or night (45 days); blank for a manual run"
+        description: "External scheduler only: day (20 days) or night (45 days); blank for a manual run"
         type: string
         default: ""
       report_date:
@@ -52,7 +52,7 @@ permissions:
   id-token: write
 
 env:
-  # Night: all configured points, next 45 pickup dates; day: 30. Rental durations 2..14.
+  # Night: all configured points, next 45 pickup dates; day: 20. Rental durations 2..14.
   SCHEDULE_ROLLING_DAYS: "45"
   SCHEDULE_DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14"
   SCHEDULE_SPEED_MODE: "fast"

@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 
 const NIGHT_CRONS = ['17 20 * * *', '47 20 * * *', '17 21 * * *'];
-const DAY_CRONS = ['7 7 * * *', '37 7 * * *', '7 8 * * *', '37 8 * * *'];
+const DAY_CRONS = ['0 9 * * *', '30 9 * * *', '0 10 * * *', '30 10 * * *'];
 const WORKFLOW = 'discovercars-daily.yml';
 
 function warsawParts(value) {
@@ -27,7 +27,7 @@ function resolveSchedule({event,cron,createdAt,now=new Date().toISOString(),slot
     if (nominal > created) nominal.setUTCDate(nominal.getUTCDate()-1);
     const local = warsawParts(nominal);
     slot = DAY_CRONS.includes(cron) ? 'day' : 'night';
-    if (slot === 'day' && local.hour !== 9) return {shouldRun:false,runType:'skip',reason:'Inactive UTC window for Warsaw daylight saving time'};
+    if (slot === 'day' && local.hour !== 11) return {shouldRun:false,runType:'skip',reason:'Inactive UTC window for Warsaw daylight saving time'};
     reportDate = slot === 'night' ? nextDate(local.date) : local.date;
   } else if (event !== 'workflow_dispatch' || !slot) {
     return {shouldRun:true,runType:event === 'push' ? 'push-smoke' : 'manual'};
@@ -38,7 +38,7 @@ function resolveSchedule({event,cron,createdAt,now=new Date().toISOString(),slot
   if (reportDate !== today && !(slot === 'night' && reportDate === nextDate(today))) {
     return {shouldRun:false,runType:'skip',key,reason:'Stale or future report date'};
   }
-  return {shouldRun:true,runType:'full',slot,reportDate,key,rollingDays:slot === 'day' ? 30 : 45};
+  return {shouldRun:true,runType:'full',slot,reportDate,key,rollingDays:slot === 'day' ? 20 : 45};
 }
 
 function markerName(kind,key) {

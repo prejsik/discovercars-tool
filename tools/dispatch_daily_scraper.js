@@ -15,7 +15,7 @@ function planDispatch({context,runs,published=false,now=new Date().toISOString()
   const pending=matching.find(r=>r.status !== 'completed');
   if (pending) return {action:'monitor',run:pending};
   const local=warsawParts(now);
-  if (local.date !== context.reportDate || local.hour !== 9) return {action:'outside-window'};
+  if (local.date !== context.reportDate || local.hour !== 11) return {action:'outside-window'};
   const attempts=matching.filter(r=>r.conclusion !== 'success' || r.has_schedule_claim);
   if (attempts.length>=3) return {action:'exhausted'};
   return {action:'dispatch'};

@@ -2,7 +2,7 @@
 Description=DiscoverCars daytime start and retry checks in Warsaw time
 
 [Timer]
-OnCalendar=*-*-* 09:00,20,40:00 Europe/Warsaw
+OnCalendar=*-*-* 11:00,20,40:00 Europe/Warsaw
 Persistent=false
 AccuracySec=30s
 Unit=discovercars-scheduler.service
