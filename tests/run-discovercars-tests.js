@@ -3076,14 +3076,14 @@ async function runAsyncTests() {
       "const write=()=>fs.writeFileSync(p,String(++count))",
       "write()",
       "const timer=setInterval(write,100)",
-      "setTimeout(()=>{clearInterval(timer);process.exit(0)},2500)"
+      "setTimeout(()=>{clearInterval(timer);process.exit(0)},8000)"
     ].join(";");
     await runCommand(process.execPath, ["-e", progressScript, progressPath], {
       cwd: process.cwd(),
       logPath: watchdogLog,
       label: "progress-test",
       progressPath,
-      stallTimeoutMs: 2000,
+      stallTimeoutMs: 6000,
       progressCheckIntervalMs: 100
     });
     console.log("PASS chunk watchdog preserves a child with checkpoint progress");

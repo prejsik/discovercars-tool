@@ -95,7 +95,12 @@ function isRunPayloadComplete(payload) {
 }
 
 function isChunkPayloadComplete(payload, expected = {}) {
-  if (!isRunPayloadComplete(payload)) {
+  return isRunPayloadComplete(payload) && isChunkPayloadAttempted(payload, expected);
+}
+
+function isChunkPayloadAttempted(payload, expected = {}) {
+  const scenarios = getPayloadScenarios(payload);
+  if (!scenarios.length) {
     return false;
   }
 
@@ -115,18 +120,28 @@ function isChunkPayloadComplete(payload, expected = {}) {
     }
   }
 
-  const actualScenarios = new Set(getPayloadScenarios(payload).map((scenario) => {
+  const actualScenarios = new Set(scenarios.map((scenario) => {
     const startDate = scenario.start_date || String(scenario.pickup_date || "").slice(0, 10);
     return `${startDate}|${Number(scenario.rental_days)}`;
   }));
 
   return expectedScenarios.size > 0
+    && actualScenarios.size === scenarios.length
     && actualScenarios.size === expectedScenarios.size
-    && [...expectedScenarios].every((scenario) => actualScenarios.has(scenario));
+    && [...expectedScenarios].every((scenario) => actualScenarios.has(scenario))
+    && scenarios.every((scenario) => {
+      if (scenario.execution?.fallback_reason === "fatal_scenario_error") return false;
+      if (!Array.isArray(scenario.results) || !Array.isArray(scenario.errors)) return false;
+      const observed = new Set([...scenario.results, ...scenario.errors]
+        .map((row) => normalizeLocationKey(row?.location)));
+      return observed.size === expectedLocations.size
+        && [...expectedLocations].every((location) => observed.has(location));
+    });
 }
 
 module.exports = {
   isChunkPayloadComplete,
+  isChunkPayloadAttempted,
   isRunPayloadComplete,
   isScenarioCheckpointComplete,
   resolveGlobalConcurrency

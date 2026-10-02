@@ -14,11 +14,10 @@ const {
 } = require("./dateUtils");
 const { searchCheapestOffers } = require("./discoverCars");
 const { createSharedBrowserProvider } = require("./discovercars/scraper");
-const { isScenarioCheckpointComplete } = require("./executionPolicy");
+const { isScenarioCheckpointComplete, isChunkPayloadAttempted } = require("./executionPolicy");
 const {
   buildOutputPayload,
-  printCompactScenarioTable,
-  savePayloadToFile
+  printCompactScenarioTable
 } = require("./formatters");
 const { getProfileLocations } = require("./locationRegistry");
 
@@ -1323,7 +1322,10 @@ async function runScenarioWithFallback({ scenario, cli, logger, quietLegacyLogs,
     speedMode: cli.speedMode,
     browserProvider,
     quietLegacyLogs,
-    logger
+    logger,
+    onLocationCompleted: ({ location, ok }) => {
+      process.stderr.write(`[progress] ${scenario.scenario_id}: ${location}: ${ok ? "offers collected" : "checked with errors"}\n`);
+    }
   };
 
   const primaryStrategy = String(cli.strategy || "legacy-batch").toLowerCase();
@@ -1605,6 +1607,25 @@ async function main() {
   cli.speedMode = resolvedProfile.speedMode;
 
   const runSignature = buildRunSignature(cli, scenarios, resolvedProfile);
+  const collectionRunId = process.env.GITHUB_RUN_ID || null;
+  const savedEvidence = new Map();
+  const previousOutput = cli.resume && !cli.resetState && cli.savePath ? readJsonSafe(cli.savePath) : null;
+  if (previousOutput?.collection_run_signature === runSignature
+    && previousOutput.collection_run_id === collectionRunId) {
+    const expectedById = new Map(scenarios.map((scenario) => [scenario.scenario_id, scenario]));
+    const previousScenarios = Array.isArray(previousOutput.scenarios) ? previousOutput.scenarios : [previousOutput];
+    for (const previous of previousScenarios) {
+      const expected = expectedById.get(previous?.scenario_id);
+      const sourceTimes = [previous?.generated_at, ...Object.values(previous?.source_generated_at_by_location || {})];
+      const fresh = sourceTimes.every((value) => {
+        const age = runStartedAtMs - Date.parse(value);
+        return Number.isFinite(age) && age >= 0 && age <= 2 * 60 * 60_000;
+      });
+      if (expected && fresh && isChunkPayloadAttempted(previous, {
+        startDates: [expected.start_date], durations: [expected.rental_days], locations: cli.locations
+      })) savedEvidence.set(previous.scenario_id, previous);
+    }
+  }
   const checkpointController = createCheckpointController({
     enabled: cli.resume,
     checkpointPath: cli.checkpointPath,
@@ -1716,7 +1737,19 @@ async function main() {
         failed_after_fallback: [...cli.locations]
       };
       payloadBuffer[scenarioIndex] = scenarioPayload;
-
+    } finally {
+      // Partial scenarios are evidence, but must never become reusable completions.
+      if (cli.savePath) {
+        for (const recorded of payloadBuffer.filter(Boolean)) savedEvidence.set(recorded.scenario_id, recorded);
+        const partial = buildMultiScenarioPayload({
+          scenarios: [...savedEvidence.values()], cli, resolvedProfile
+        });
+        partial.run_status = "in_progress";
+        partial.collection_run_signature = runSignature;
+        partial.collection_run_id = collectionRunId;
+        writeJsonAtomic(cli.savePath, partial);
+      }
+      process.stderr.write(`[progress] ${scenario.scenario_id}: scenario recorded\n`);
     }
   };
 
@@ -1796,6 +1829,8 @@ async function main() {
 
   payload.execution_duration_ms = executionDurationMs;
   payload.execution_duration_seconds = executionDurationSeconds;
+  payload.collection_run_signature = runSignature;
+  payload.collection_run_id = collectionRunId;
   const failedScenarioCount = scenarioPayloads.filter(
     (scenario) => !(scenario.results || []).length && (scenario.errors || []).length
   ).length;
@@ -1817,9 +1852,9 @@ async function main() {
   }
 
   if (cli.savePath) {
-    const savedPath = savePayloadToFile(payload, cli.savePath);
+    writeJsonAtomic(cli.savePath, payload);
     if (!cli.jsonOnly) {
-      console.log(`Saved JSON to ${savedPath}`);
+      console.log(`Saved JSON to ${cli.savePath}`);
     }
   }
 

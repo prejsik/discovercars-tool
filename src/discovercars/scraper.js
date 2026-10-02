@@ -176,6 +176,7 @@ class DiscoverCarsScraper {
 
           const location = locations[currentIndex];
           outcomes[currentIndex] = await this.runSingleLocation(location, getBrowser);
+          this.config.onLocationCompleted?.({ location, ok: outcomes[currentIndex]?.ok === true });
         }
       });
 

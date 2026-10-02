@@ -259,6 +259,8 @@ async function searchCheapestOffers(options) {
           error: errorMessage
         });
         options.logger.error(`[ERROR] ${location}: ${errorMessage}`);
+      } finally {
+        options.onLocationCompleted?.({ location, ok: !errors.some((item) => item.location === location) });
       }
     }
   } finally {
@@ -311,6 +313,7 @@ async function runLegacyFallbackBatch(options) {
     timeoutMs: options.timeoutMs,
     headless: !options.headful,
     locationConcurrency: options.locationConcurrency,
+    onLocationCompleted: options.onLocationCompleted,
     directCandidateLimit: options.directCandidateLimit,
     directOffersWaitMs: options.directOffersWaitMs,
     apiFirst: options.apiFirst,

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-const { isChunkPayloadComplete, resolveGlobalConcurrency } = require("./executionPolicy");
+const { isChunkPayloadComplete, isChunkPayloadAttempted, resolveGlobalConcurrency } = require("./executionPolicy");
 const { mergePayloads } = require("./mergeDiscovercarsResults");
 const { WARSAW_TIME_ZONE, addDaysToDateParts, getZonedDateParts } = require("./dateUtils");
 const { getDailyLocations } = require("./locationRegistry");
@@ -352,7 +352,8 @@ function runCommand(command, args, {
   label,
   progressPath,
   stallTimeoutMs = 0,
-  progressCheckIntervalMs = 30_000
+  progressCheckIntervalMs = 30_000,
+  acceptExitCodes = [0]
 }) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
@@ -396,7 +397,7 @@ function runCommand(command, args, {
       : null;
     watchdog?.unref();
 
-    const finish = (error) => {
+    const finish = (error, exitCode) => {
       if (finished) {
         return;
       }
@@ -408,7 +409,7 @@ function runCommand(command, args, {
       if (error) {
         reject(error);
       } else {
-        resolve();
+        resolve({ exitCode });
       }
     };
 
@@ -420,8 +421,8 @@ function runCommand(command, args, {
         return;
       }
       logStream.write(`[${new Date().toISOString()}] ${label} exited with code ${code}\n`);
-      if (code === 0) {
-        finish();
+      if (!forcedError && acceptExitCodes.includes(code)) {
+        finish(null, code);
       } else {
         finish(forcedError || new Error(`${label} failed with exit code ${code}`));
       }
@@ -474,13 +475,23 @@ async function runChunk(chunk, options) {
   fs.mkdirSync(chunk.dir, { recursive: true });
   for (let attempt = 0; attempt <= options.chunkRetries; attempt += 1) {
     try {
-      await runCommand(process.execPath, buildScraperArgs(chunk, options, attempt), {
+      const outcome = await runCommand(process.execPath, buildScraperArgs(chunk, options, attempt), {
         cwd: process.cwd(),
         logPath: chunk.logPath,
         label: attempt === 0 ? chunk.label : `${chunk.label}-resume-${attempt}`,
         progressPath: chunk.checkpointPath,
-        stallTimeoutMs: options.chunkStallTimeoutMs
+        stallTimeoutMs: options.chunkStallTimeoutMs,
+        acceptExitCodes: [0, 2]
       });
+      if (outcome.exitCode === 2) {
+        const payload = JSON.parse(fs.readFileSync(chunk.resultsPath, "utf8"));
+        if (payload.run_status !== "degraded" || !isChunkPayloadAttempted(payload, {
+          startDates: chunk.dates, durations: options.durations, locations: options.locations
+        })) {
+          throw new Error(`${chunk.label} exited with warnings without a full attempted scope.`);
+        }
+        console.warn(`${chunk.label} checked all scenarios with location errors; preserving results for quality checks.`);
+      }
       break;
     } catch (error) {
       if (attempt >= options.chunkRetries) {
