@@ -1149,15 +1149,7 @@ jobs:
         continue-on-error: true
 
       - name: Notify Telegram
-        if: >-
-          always() &&
-          needs.scrape.outputs.should_run == 'true' &&
-          (
-            (needs.assemble.outputs.quality_status || 'failure') != 'failure' ||
-            github.event_name != 'schedule' ||
-            github.event.schedule == '17 21 * * *' ||
-            needs.scrape.outputs.schedule_slot == 'day'
-          )
+        if: always() && needs.scrape.outputs.should_run == 'true'
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

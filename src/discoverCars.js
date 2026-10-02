@@ -184,7 +184,8 @@ function reduceOffersToCheapestPerProvider(offers) {
 }
 
 function buildLocationBreakdown(location, offers) {
-  const sortedOffers = sortOffersByPrice(offers);
+  // Supplier pickup labels can differ from the point used for this search.
+  const sortedOffers = sortOffersByPrice((offers || []).map((offer) => ({ ...offer, location })));
   const providerOffers = reduceOffersToCheapestPerProvider(sortedOffers);
   const top3Offers = providerOffers.slice(0, 3);
   const cheapestOffer = top3Offers[0] || null;

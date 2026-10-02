@@ -684,11 +684,35 @@ runTest("scheduled daily runs skip Node tests and retain the date-sensitive Exce
   assert.match(excelPreflightStep, /python tests\/run-excel-rate-updater-tests\.py/);
 });
 
-runTest("scheduled fallback windows send a Telegram failure only after the final attempt", () => {
+runTest("every executed run notifies Telegram even if later fallback triggers skipped it", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
   const notifyStep = workflow.match(/- name: Notify Telegram[\s\S]*?(?=\n      - name:)/)?.[0] || "";
 
-  assert.match(notifyStep, /github\.event\.schedule == '17 21 \* \* \*'/);
+  assert.match(notifyStep, /if: always\(\) && needs\.scrape\.outputs\.should_run == 'true'/);
+  assert.doesNotMatch(notifyStep.split("shell: bash")[0], /github\.event\.schedule|quality_status/);
+});
+
+runTest("location breakdown uses the requested point for supplier pickup labels without altering prices", () => {
+  for (const [requested, supplierLabel] of [
+    ["Warsaw Chopin Airport (WAW)", "Warsaw Airport (WAW)"],
+    ["Warsaw West Train Station", "Warsaw Novotel Hotel"],
+    ["Warsaw Train Station", "Warsaw Hotel Mercure"]
+  ]) {
+    const offers = [
+      { location: supplierLabel, provider_name: "Other", total_price: 61.17, currency: "PLN", transmission: "automatic" },
+      { location: supplierLabel, provider_name: "MM Cars Rental", total_price: 70, currency: "PLN", transmission: "automatic" }
+    ];
+    const before = JSON.parse(JSON.stringify(offers));
+    const result = buildLocationBreakdown(requested, offers);
+    assert.equal(result.location, requested);
+    for (const offer of [result.cheapest_offer, ...result.top_3_offers, result.mm_cars_rental_offer]) {
+      assert.equal(offer.location, requested);
+    }
+    assert.deepEqual(result.top_3_offers.map(offer => offer.total_price), [61.17, 70]);
+    assert.equal(result.mm_provider_rank, 2);
+    assert.equal(result.cheaper_offer_count, 1);
+    assert.deepEqual(offers, before);
+  }
 });
 
 function resolveWorkflowBash() {

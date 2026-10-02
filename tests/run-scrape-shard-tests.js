@@ -5,6 +5,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { buildScrapeScope } = require("../src/scrapeScope");
 const { mergePayloads } = require("../src/mergeDiscovercarsResults");
+const { buildLocationBreakdown } = require("../src/discoverCars");
+const { buildOutputPayload } = require("../src/formatters");
 
 // Fixtures and their child processes belong to this test run, not the hosting CI run.
 process.env.GITHUB_RUN_ID = "run-123";
@@ -204,6 +206,37 @@ test("workflow artifact names merge successfully and wrong run names are rejecte
   assert.equal(result.results.scenarios.length, 1);
   fs.renameSync(path.join(dir, "discovercars-raw-run-123-1"), path.join(dir, "discovercars-raw-other-run-1"));
   assert.throws(() => merge({ plan: p, inputDir: dir, output: path.join(temp(), "results.json") }), /artifact|run/i);
+});
+
+test("supplier pickup labels cannot break collection scope or merge for airport and station searches", async () => {
+  const points = [
+    ["Warsaw Chopin Airport (WAW)", "Warsaw Airport (WAW)"],
+    ["Warsaw West Train Station", "Warsaw Novotel Hotel"],
+    ["Warsaw Train Station", "Warsaw Hotel Mercure"]
+  ];
+  const p = api().buildPlan({ scope: buildScrapeScope({ now: NOW, startDates: [DATES[0]], durations: [2],
+    locations: points.map(([location]) => location) }), runId: "run-123", now: NOW });
+  const views = Object.fromEntries(points.map(([location, pickup]) => {
+    const automatic = [{ location: pickup, provider_name: "Other", total_price: 61.17, currency: "PLN", transmission: "automatic" },
+      { location: pickup, provider_name: "MM Cars Rental", total_price: 70, currency: "PLN", transmission: "automatic" }];
+    return [location, {
+      automatic: buildLocationBreakdown(location, automatic),
+      all: buildLocationBreakdown(location, [...automatic, { location: pickup, provider_name: "Manual", total_price: 50, currency: "PLN", transmission: "manual" }])
+    }];
+  }));
+  const formatted = buildOutputPayload({
+    results: Object.values(views).map(view => view.automatic.cheapest_offer), errors: [], locations: p.scope.locations,
+    locationBreakdown: Object.values(views).map(view => ({ ...view.automatic, offer_views: view })),
+    weekend: { pickupIso: "2026-10-02T11:00:00+02:00", dropoffIso: "2026-10-04T11:00:00+02:00", rentalDays: 2, timeZone: "Europe/Warsaw" }
+  });
+  const s = { ...scenario(), ...formatted, locations: p.scope.locations, generated_at: FRESH };
+  const a = await artifact(p, 1, [s]);
+  assert.equal(a.result.exitCode, 0);
+  const merged = merge({ plan: p, inputDir: inputs(a), output: path.join(temp(), "results.json") });
+  assert.equal(merged.summary.missing_location_check_count, 0);
+  assert.equal(merged.summary.status, "success");
+  assert.deepEqual(merged.results.scenarios[0].results.map(row => row.total_price), [61.17, 61.17, 61.17]);
+  assert.equal(merged.results.scenarios[0].generated_at, FRESH);
 });
 
 test("two-shard fixture matches unsharded offer views, rankings, prices, timestamps and coverage", async () => {
