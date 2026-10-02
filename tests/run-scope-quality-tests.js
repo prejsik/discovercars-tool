@@ -98,6 +98,29 @@ test("complete 60 by 13 grid is complete with 1560 location checks", () => {
   assert.equal(quality.missing_scenario_count, 0);
 });
 
+test("null-padded rankings count as checked locations but not available prices", () => {
+  const expectedScope = scopeFixture(["2026-10-02"], [2], ["Warsaw", "Gdansk"]);
+  const item = scenario("2026-10-02", 2, ["Warsaw"]);
+  item.errors = [{ location: "Gdansk", error: "No offers found" }];
+  item.top_3_plus_mm_by_location.Gdansk = { top_3: [null, null, null], mm_cars_rental: null };
+  const quality = buildQualityReport({ ...publicationInput, expectedScope, results: { scenarios: [item] } });
+  assert.equal(quality.matched_location_check_count, 2);
+  assert.equal(quality.missing_top3_count, 1);
+  assert.equal(quality.top3_coverage_percent, 50);
+  assert.equal(quality.coverage.find((row) => row.location === "Gdansk").top3_count, 0);
+  assert.match(quality.completion_messages.join(" "), /dane dla 1\/2/);
+  assert.equal(quality.publication_status, "partial");
+
+  item.results = [];
+  item.top_3_plus_mm_by_location.Warsaw = { top_3: [null, null, null], mm_cars_rental: null };
+  const empty = buildQualityReport({ ...publicationInput, expectedScope, results: { scenarios: [item] } });
+  assert.equal(empty.top3_coverage_percent, 0);
+  assert.equal(empty.publication_status, "blocked");
+  const legacy = buildScrapeQualityReport({ expectedLocations: expectedScope.locations, results: { scenarios: [item] } });
+  assert.equal(legacy.top3_coverage_percent, 0);
+  assert.equal(legacy.status, "failure");
+});
+
 test("a duplicate cannot replace a missing scenario or inflate coverage", () => {
   const expectedScope = scopeFixture(["2026-10-02"], [2, 3]);
   const quality = buildScrapeQualityReport({ expectedScope, results: { scenarios: [scenario(), scenario()] } });

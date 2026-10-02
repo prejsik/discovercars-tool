@@ -55,7 +55,7 @@ function getExcelErrorMessage(excelSummary) {
 
 function hasLocationData(scenario, location) {
   const data = scenario?.top_3_plus_mm_by_location?.[location];
-  return Boolean(data && (Array.isArray(data.top_3) && data.top_3.length > 0));
+  return Boolean(data && Array.isArray(data.top_3) && data.top_3.some(Boolean));
 }
 
 function hasMmData(scenario, location) {

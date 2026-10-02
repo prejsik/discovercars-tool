@@ -141,6 +141,47 @@ test("run persists descriptor before child, freezes runner flags and final metad
   assert.equal(merged.results.scenarios.length, 1); assert.equal(merged.results.run_status, "degraded");
 });
 
+test("fully attempted shard keeps location errors as degraded evidence without failing execution", async () => {
+  const p = plan([DATES[0]]);
+  const items = [2, 3].map((duration) => {
+    const item = scenario(DATES[0], duration);
+    item.results = item.results.filter((row) => row.location === "Warsaw");
+    delete item.top_3_by_location.Gdansk;
+    item.errors = [{ location: "Gdansk", error: "No offers found" }];
+    return item;
+  });
+  const a = await artifact(p, 1, items);
+  assert.equal(a.result.exitCode, 0);
+  assert.equal(a.result.metadata.status, "degraded");
+  assert.equal(a.result.metadata.exit_code, 0);
+  assert.equal(a.result.metadata.missing_scenario_count, 0);
+  const merged = merge({ plan: p, inputDir: inputs(a), output: path.join(temp(), "results.json") });
+  assert.equal(merged.summary.status, "degraded");
+  assert.equal(merged.summary.missing_location_check_count, 2);
+  assert.deepEqual(merged.results.scenarios.map((item) => item.errors), items.map((item) => item.errors));
+});
+
+test("missing, fatal and nonzero collection outcomes cannot masquerade as completed attempts", async () => {
+  const p = plan([DATES[0]]);
+  for (const mode of ["missing-scenario", "missing-location", "fatal-scenario", "child-failure"]) {
+    const items = [scenario(DATES[0], 2), scenario(DATES[0], 3)];
+    if (mode === "missing-scenario") items.pop();
+    if (mode === "missing-location") {
+      items[0].results = items[0].results.filter((row) => row.location === "Warsaw");
+      delete items[0].top_3_by_location.Gdansk;
+    }
+    if (mode === "fatal-scenario") {
+      items[0].results = [];
+      items[0].errors = p.scope.locations.map((location) => ({ location, error: "Fatal scenario error" }));
+      items[0].top_3_by_location = {};
+      items[0].execution = { fallback_reason: "fatal_scenario_error" };
+    }
+    const a = await artifact(p, 1, items, { exitCode: mode === "child-failure" ? 1 : 0 });
+    assert.notEqual(a.result.exitCode, 0, mode);
+    assert.equal(a.result.metadata.exit_code, a.result.exitCode, mode);
+  }
+});
+
 test("restart restores only fresh completed subsets without changing timestamps or old evidence", async () => {
   const p = plan(); const old = await artifact(p, 1, [scenario(), scenario(DATES[0], 3, "2026-10-01T07:00:00.000Z")], { exitCode: 1, stateOnly: true });
   const statePath = path.join(old.dataDir, chunkLabel(p.shards[0].start_dates), "state.json"); const before = fs.readFileSync(statePath, "utf8");

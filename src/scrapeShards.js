@@ -4,7 +4,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { validateScrapeScope } = require("./scrapeScope");
 const { mergePayloads } = require("./mergeDiscovercarsResults");
-const { isScenarioCheckpointComplete } = require("./executionPolicy");
+const { isScenarioCheckpointComplete, isChunkPayloadAttempted } = require("./executionPolicy");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const TTL_MS = 2 * 60 * 60 * 1000;
@@ -351,17 +351,22 @@ async function runShard({ plan, shard: shardIndex, outputDir, restoreDir, repoRo
   }
   const missingCount = shard.scenario_keys.length - data.scenarios.length;
   const incomplete = data.scenarios.some((scenario) => !isScenarioCheckpointComplete(scenario, shard.locations));
+  const fullyAttempted = isChunkPayloadAttempted({ scenarios: data.scenarios, locations: shard.locations }, {
+    locations: shard.locations, startDates: shard.start_dates, durations: shard.durations
+  });
   const failed = Boolean(error || interrupted || childResult.exitCode !== 0);
-  const status = interrupted ? "interrupted" : failed ? "failed" : missingCount || incomplete || data.chunkFailures.length ? "degraded" : "success";
+  const status = interrupted ? "interrupted" : failed ? "failed" : missingCount || incomplete || !fullyAttempted || data.chunkFailures.length ? "degraded" : "success";
+  // Completed location attempts may still carry errors for the downstream quality gate.
+  const exitCode = failed ? childResult.exitCode || 1 : fullyAttempted && !data.chunkFailures.length ? 0 : 1;
   const duration = childResult.durationSeconds === undefined ? (Date.now() - startedMs) / 1000 : childResult.durationSeconds;
   const metadata = {
-    ...descriptor, status, exit_code: failed ? childResult.exitCode || 1 : 0,
+    ...descriptor, status, exit_code: exitCode,
     finished_at: new Date(now()).toISOString(), duration_seconds: Math.max(0, duration),
     error: error || (interrupted ? "Collector interrupted" : childResult.exitCode ? `Collector exited with code ${childResult.exitCode}` : null),
     missing_scenario_count: missingCount, scenario_count: data.scenarios.length, chunk_failures: data.chunkFailures, restore
   };
   writeJson(path.join(outputDir, METADATA), metadata);
-  return { exitCode: failed ? metadata.exit_code : status === "success" ? 0 : 1, metadata };
+  return { exitCode, metadata };
 }
 function validateMetadata(meta, descriptor, plan, shard) {
   validateDescriptor(meta, plan, shard);

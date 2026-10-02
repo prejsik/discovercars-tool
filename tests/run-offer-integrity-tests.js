@@ -45,7 +45,8 @@ const apiPayload = (entries) => ({ data: { offers: entries.map((entry) => ({
     isAutomaticTransmission: entry.transmission === "automatic" ? 1 : entry.transmission === "manual" ? 0 : undefined
   } }
 })) } });
-const card = (entry, hidden = false) => `<article class="SearchCar"${hidden ? ' style="display:none"' : ""}${entry.offerId ? ` data-offer-id="${entry.offerId}"` : ""}>
+const card = (entry, hidden = false, leadingImageAlt = "") => `<article class="SearchCar"${hidden ? ' style="display:none"' : ""}${entry.offerId ? ` data-offer-id="${entry.offerId}"` : ""}>
+  ${leadingImageAlt ? `<img alt="${leadingImageAlt}">` : ""}
   <h3 class="CarTitle-Name">${entry.carName}</h3>
   <div class="SupplierInfo"><img alt="${entry.provider}"></div>
   <p>${entry.transmission || "Unknown"} transmission</p>
@@ -93,6 +94,95 @@ async function fixture(browser, options = {}) {
   if (options.form) scraper.resolveLocationCandidates = async () => [];
   return { scraper, fakeBrowser, close: () => context.close() };
 }
+
+const supplierLogoNames = ["CarFree Rent a Car", "AddCar", "GO Rental Cars", "Dolcar Rent a Car"];
+
+for (const provider of supplierLogoNames) {
+  test(`rendered supplier logo preserves the provider name ${provider}`, async (browser) => {
+    const f = await fixture(browser, { dom: [offer({ provider })], config: { domOnly: true } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.offerViews.automatic.map((entry) => entry.provider), [provider]);
+      assert.equal(result.cheapest.totalPrice, 100);
+      assert.equal(result.cheapest.source, "dom");
+      assert.equal(result.sourceValidation.status, "dom_incomplete");
+    } finally { await f.close(); }
+  });
+}
+
+test("card-scoped supplier logo takes precedence over a preceding generic car image", async (browser) => {
+  const f = await fixture(browser, {
+    extraHtml: card(offer({ provider: "GO Rental Cars" }), false, "Renault Captur"),
+    config: { domOnly: true }
+  });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.offerViews.automatic.map((entry) => entry.provider), ["GO Rental Cars"]);
+  } finally { await f.close(); }
+});
+
+test("real rendered supplier logos confirm the matching API leaderboard through the comparator", async (browser) => {
+  const api = [
+    offer({ provider: "MM Cars Rental", totalPrice: 100 }),
+    offer({ provider: "CarFree Rent a Car", totalPrice: 140 }),
+    offer({ provider: "AddCar", totalPrice: 160 }),
+    offer({ provider: "GO Rental Cars", totalPrice: 180 }),
+    offer({ provider: "Dolcar Rent a Car", totalPrice: 200 })
+  ];
+  const f = await fixture(browser, {
+    dom: api,
+    config: { domOnly: true, requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental", ...supplierLogoNames] } }
+  });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.ok, true);
+    const dom = result.offerViews.automatic;
+    const comparison = f.scraper.compareApiAndBrowserOutcomes(api, dom);
+    assert.deepEqual(comparison.reasons, []);
+    assert.equal(comparison.confirmed, true);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.deepEqual(dom.map((entry) => entry.provider), ["MM Cars Rental", ...supplierLogoNames]);
+    assert.ok(dom.every((entry) => entry.source === "dom" && entry.transmission === "automatic"));
+  } finally { await f.close(); }
+});
+
+test("hidden supplier-logo cards cannot complete or confirm the rendered leaderboard", async (browser) => {
+  for (const provider of supplierLogoNames) {
+    const api = [offer({ provider: "MM Cars Rental", totalPrice: 100 }), offer({ provider: "Budget", totalPrice: 140 }),
+      offer({ provider, totalPrice: 160 })];
+    const f = await fixture(browser, {
+      dom: api.slice(0, 2), hidden: [api[2]],
+      config: { domOnly: true, requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental", "Budget", provider] } }
+    });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.offerViews.automatic.map((entry) => entry.provider), ["MM Cars Rental", "Budget"]);
+      assert.equal(result.sourceValidation.status, "dom_incomplete");
+      const comparison = f.scraper.compareApiAndBrowserOutcomes(api, result.offerViews.automatic);
+      assert.equal(comparison.confirmed, false);
+      assert.ok(comparison.reasons.includes("dom_top3_incomplete"));
+      assert.ok(comparison.reasons.includes("dom_required_provider_missing"));
+    } finally { await f.close(); }
+  }
+});
+
+test("generic image fallback keeps its vehicle and category guards without a supplier logo", async (browser) => {
+  const f = await fixture(browser, {
+    extraHtml: `<article class="SearchCar"><h3 class="CarTitle-Name">Toyota Yaris</h3>
+      <img alt="Toyota Yaris"><img alt="SUV"><img alt="Compact"><img alt="Rental Cars">
+      <img alt="X"><img alt="${"x".repeat(81)}"><img alt="Budget">
+      <p>Automatic transmission</p><p>Total for 1 day PLN 100</p></article>`,
+    config: { domOnly: true }
+  });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.offerViews.automatic.map((entry) => entry.provider), ["Budget"]);
+  } finally { await f.close(); }
+});
 
 for (const reversed of [false, true]) {
   test(`equal manual/automatic API prices preserve both views (${reversed ? "automatic first" : "manual first"})`, () => {

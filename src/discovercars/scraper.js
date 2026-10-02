@@ -1944,8 +1944,13 @@ class DiscoverCarsScraper {
           ".CarTitle-Name, h1, h2, h3, [data-testid*='car'], [data-testid*='vehicle'], [class*='car-name'], [class*='vehicle-name']"
         );
         const searchCarName = normalize(searchCarNameElement?.textContent || lines[0] || "");
-        const searchCarProvider = Array.from(
-          node.querySelectorAll("[class*='SupplierInfo'] img[alt], [class*='supplier'] img[alt], img[alt]")
+        const supplierLogoProvider = Array.from(
+          node.querySelectorAll("[class*='SupplierInfo'] img[alt], [class*='supplier'] img[alt]")
+        )
+          .map((image) => normalize(image.getAttribute("alt") || ""))
+          .find((alt) => alt.length >= 2 && alt.length <= 80) || "";
+        const searchCarProvider = supplierLogoProvider || Array.from(
+          node.querySelectorAll("img[alt]")
         )
           .map((image) => normalize(image.getAttribute("alt") || ""))
           .find((alt) => {
