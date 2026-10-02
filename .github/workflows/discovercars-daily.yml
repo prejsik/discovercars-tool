@@ -1127,26 +1127,29 @@ jobs:
           fi
 
       - name: Validate completed Pages bundles
+        id: pages-validation
         if: steps.pages-site.outcome == 'success'
         run: node src/publicationPolicy.js --validate-only=pages
 
       - name: Configure GitHub Pages
-        if: steps.pages-site.outcome == 'success'
+        id: pages-configure
+        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success'
         uses: actions/configure-pages@v5
-        continue-on-error: true
 
       - name: Upload GitHub Pages artifact
-        if: steps.pages-site.outcome == 'success'
+        id: pages-upload
+        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success' && steps.pages-configure.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
-        continue-on-error: true
         with:
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: pages
 
       - name: Deploy GitHub Pages
         id: pages-deployment
-        if: steps.pages-site.outcome == 'success'
+        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success' && steps.pages-upload.outcome == 'success'
         uses: actions/deploy-pages@v4
-        continue-on-error: true
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Notify Telegram
         if: always() && needs.scrape.outputs.should_run == 'true'
@@ -1157,6 +1160,7 @@ jobs:
           PAGE_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.run_report_url || '' }}
           PAGES_EXCEL_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_url || '' }}
           PAGES_EXCEL_REPORT_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_report_url || '' }}
+          PAGES_PUBLICATION_FAILED: ${{ needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure' && steps.pages-deployment.outcome != 'success' }}
           ARTIFACT_URL: ${{ needs.assemble.outputs.artifact_url }}
           EXCEL_ARTIFACT_URL: ${{ needs.assemble.outputs.excel_artifact_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

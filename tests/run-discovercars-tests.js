@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { chromium } = require("playwright");
 
 const { loadConfig } = require("../src/discovercars/config");
 const { parseMoney, toCsv } = require("../src/discovercars/utils");
@@ -15,7 +16,7 @@ const {
   searchApiPayloadMatchesPeriod
 } = require("../src/discovercars/scraper");
 const { mergePricingRecommendations } = require("../src/mergePricingRecommendations");
-const { buildLocationBreakdown } = require("../src/discoverCars");
+const { buildLocationBreakdown, searchCheapestOffers } = require("../src/discoverCars");
 const { buildPricingRecommendations } = require("../src/pricingRecommendations");
 const { buildHtmlReport, buildReportData, generateReportFromFile } = require("../src/reportHtml");
 const { buildPublicResultsPayload } = require("../src/publicResults");
@@ -38,7 +39,7 @@ const {
   isScenarioCheckpointComplete,
   resolveGlobalConcurrency
 } = require("../src/executionPolicy");
-const { buildGeoLocationOverrides, buildLocationZones, getDailyLocations } = require("../src/locationRegistry");
+const { buildGeoLocationOverrides, buildLocationZones, buildPinnedLocationIds, getDailyLocations } = require("../src/locationRegistry");
 const {
   filterOffersByTransmission,
   findTransmissionInCandidate,
@@ -2506,7 +2507,432 @@ runTest("buildScrapeQualityReport exposes API DOM drift monitoring", () => {
   assert.equal(report.api_dom_monitoring.adaptive_validation_triggered, true);
 });
 
+const registeredPointCases = [
+  ["Bydgoszcz Airport (BZG)", 5827],
+  ["Gdansk Downtown", 3451],
+  ["Gdansk Airport (GDN)", 2106],
+  ["Katowice Downtown", 4145],
+  ["Katowice Airport (KTW)", 4144],
+  ["Krakow Train Station", 8504],
+  ["Krakow Airport (KRK)", 4146],
+  ["Lodz Downtown", 3446],
+  ["Lodz Lublinek Airport (LCJ)", 1942],
+  ["Lubin Downtown", 7306],
+  ["Olsztyn Downtown", 5856],
+  ["Opole Downtown", 6089],
+  ["Poznan Downtown", 3449],
+  ["Poznan Airport (POZ)", 1663],
+  ["Torun Downtown", 5829],
+  ["Warsaw West Train Station", 356108],
+  ["Warsaw Train Station", 8305],
+  ["Warsaw Chopin Airport (WAW)", 1664],
+  ["Wroclaw Downtown", 3459],
+  ["Wroclaw Train Station", 8507],
+  ["Wroclaw Airport (WRO)", 2103]
+];
+
+function readSearchLocationIds(url) {
+  const sq = new URL(url).searchParams.get("sq");
+  const payload = JSON.parse(Buffer.from(sq, "base64").toString("utf8"));
+  return [payload.PickupLocationId, payload.DropOffLocationId];
+}
+
+function createEmptyDomPage(candidates) {
+  const signal = { first: () => signal, isVisible: async () => true };
+  const hidden = { first: () => hidden, isVisible: async () => false };
+  let currentUrl = "";
+  return {
+    request: { get: async () => ({ ok: () => true, json: async () => ({ result: candidates }) }) },
+    goto: async (url) => { currentUrl = url; },
+    url: () => currentUrl,
+    waitForLoadState: async () => {},
+    waitForTimeout: async () => {},
+    getByText: (pattern) => pattern.test("Searching 1,000+ car rental brands") ? hidden : signal,
+    locator: () => signal,
+    evaluate: async () => []
+  };
+}
+
+function createDirectCollectorFixture(candidates) {
+  const searchedUrls = [];
+  const autocompleteUrls = [];
+  const handlers = new Map();
+  const signal = { first: () => signal, isVisible: async () => true };
+  let currentUrl = "";
+  const page = {
+    request: { get: async (url) => {
+      autocompleteUrls.push(url);
+      return { ok: () => true, json: async () => ({ result: candidates }) };
+    } },
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    on: (event, handler) => handlers.set(event, handler),
+    off: (event) => handlers.delete(event),
+    goto: async (url) => {
+      currentUrl = url;
+      searchedUrls.push(url);
+      await handlers.get("response")?.({
+        url: () => "https://www.discovercars.com/api/v2/search/fixture",
+        headers: () => ({ "content-type": "application/json" }),
+        json: async () => ({ data: { offers: [{
+          supplier: { name: "Fixture Supplier", rating: { score: "8.8" } },
+          price: { raw: 120, formatted: "PLN 120.00" },
+          vehicle: { carName: "Toyota Corolla", sipp: "CDAR", specifications: { isAutomaticTransmission: 1 } }
+        }] } })
+      });
+    },
+    url: () => currentUrl,
+    waitForLoadState: async () => {},
+    waitForTimeout: async () => {},
+    getByText: () => signal,
+    locator: () => signal,
+    evaluate: async () => [],
+    content: async () => ""
+  };
+  const browser = { newContext: async () => ({
+    route: async () => {},
+    addCookies: async () => {},
+    newPage: async () => page,
+    close: async () => {}
+  }) };
+  return { searchedUrls, autocompleteUrls, browser };
+}
+
+async function runLocationResolutionTests() {
+  async function check(name, fn) {
+    try {
+      await fn();
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      console.error(`FAIL ${name}`);
+      console.error(error instanceof Error ? error.stack : String(error));
+      process.exitCode = 1;
+    }
+  }
+
+  const config = { ...loadConfig(["--config", "discovercars.config.example.json"]),
+    baseUrl: "https://www.discovercars.com", locationCandidateCache: new Map() };
+  const directOptions = {
+    strategy: "direct-only", speedMode: "fast", retries: 1, timeoutMs: 1000,
+    currency: "PLN", residenceCountry: "PL", transmissionFilter: "automatic",
+    weekend: { pickupIso: "2026-07-20T11:00:00", dropoffIso: "2026-07-22T11:00:00", rentalDays: 2, timeZone: "Europe/Warsaw" },
+    logger: { info() {}, warn() {}, error() {} }
+  };
+  const originalFetch = global.fetch;
+  try {
+    for (const [location, expectedId] of registeredPointCases) {
+      await check(`canonical point ${location} uses its verified ID in both resolvers despite a stale city cache`, async () => {
+        const cacheKey = `https://www.discovercars.com|${location.toLowerCase()}`;
+        const scraper = new DiscoverCarsScraper({ ...config,
+          locationCandidateCache: new Map([[cacheKey, [{ placeID: 123, place: "Warsaw (all locations)", city: "Warsaw" }]]]) });
+        assert.deepEqual((await scraper.resolveLocationCandidates({}, location)).map(item => item.placeID), [expectedId]);
+        assert.deepEqual((await scraper.resolveLocationCandidatesViaApi(location)).map(item => item.placeID), [expectedId]);
+      });
+      await check(`direct collector emits the verified pickup and dropoff IDs for ${location}`, async () => {
+        const fixture = createDirectCollectorFixture([
+          { placeID: 123, place: "Warsaw (all locations)", city: "Warsaw" },
+          { placeID: expectedId, place: location, city: "Warsaw" }
+        ]);
+        const result = await searchCheapestOffers({ ...directOptions, locations: [location],
+          browserProvider: { getBrowser: async () => fixture.browser } });
+        assert.deepEqual(result.errors, []);
+        assert.equal(result.results[0].location, location);
+        assert.deepEqual(fixture.searchedUrls.map(readSearchLocationIds), [[expectedId, expectedId]]);
+        assert.deepEqual(fixture.autocompleteUrls, []);
+      });
+    }
+
+    const lookupCases = [
+      { name: "normalized canonical WA2 cannot be replaced by a mismatched point", location: "  WARSAW   TRAIN STATION  ", expected: [8305], candidates: [
+        { placeID: 123, place: "Warsaw (all locations)", city: "Warsaw" },
+        { placeID: 356108, place: "Warsaw West Train Station", city: "Warsaw" }
+      ] },
+      { name: "custom exact point excludes generic and longer mismatched names", location: " Berlin   Train Station ", expected: [901], candidates: [
+        { placeID: 900, place: "Berlin (all locations)", city: "Berlin" },
+        { placeID: 902, place: "Berlin Train Station West", city: "Berlin" },
+        { placeID: 901, place: "BERLIN TRAIN STATION", city: "Berlin" }
+      ] },
+      { name: "custom city keeps all-locations ahead of its specific points", location: "Berlin", expected: [900, 901, 902], candidates: [
+        { placeID: 901, place: "Berlin Downtown", city: "Berlin" },
+        { placeID: 900, place: "Berlin (all locations)", city: "Berlin" },
+        { placeID: 902, place: "Berlin Airport", city: "Berlin" }
+      ] },
+      { name: "legacy Warsaw alias remains city-wide", location: "Warsaw", expected: [123, 8305, 1664], candidates: [
+        { placeID: 8305, place: "Warsaw Train Station", city: "Warsaw" },
+        { placeID: 123, place: "Warsaw (all locations)", city: "Warsaw" },
+        { placeID: 1664, place: "Warsaw Chopin Airport (WAW)", city: "Warsaw" }
+      ] },
+      { name: "unknown point is unsupported instead of relabelling another station", location: "Berlin East Train Station", expected: [], candidates: [
+        { placeID: 900, place: "Berlin (all locations)", city: "Berlin" },
+        { placeID: 902, place: "Berlin West Train Station", city: "Berlin" }
+      ] },
+      { name: "partial point name cannot select a different specific point", location: "Berlin Train Station", expected: [], candidates: [
+        { placeID: 902, place: "Berlin Train Station West", city: "Berlin" }
+      ] }
+    ];
+    for (const testCase of lookupCases) {
+      for (const route of ["browser", "api", "cached"]) {
+        await check(`${route} resolution: ${testCase.name}`, async () => {
+          global.fetch = async () => ({ ok: true, json: async () => ({ result: testCase.candidates }) });
+          const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+          if (route === "cached") scraper.locationCandidateCache.set(
+            `https://www.discovercars.com|${testCase.location.trim().replace(/\s+/g, " ").toLowerCase()}`, testCase.candidates);
+          const page = { request: { get: async () => ({ ok: () => true, json: async () => ({ result: testCase.candidates }) }) } };
+          const result = route === "api" ? await scraper.resolveLocationCandidatesViaApi(testCase.location)
+            : await scraper.resolveLocationCandidates(page, testCase.location);
+          assert.deepEqual(result.map(item => item.placeID), testCase.expected);
+        });
+      }
+      await check(`direct collector: ${testCase.name}`, async () => {
+        const fixture = createDirectCollectorFixture(testCase.candidates);
+        const result = await searchCheapestOffers({ ...directOptions, locations: [testCase.location],
+          browserProvider: { getBrowser: async () => fixture.browser } });
+        if (!testCase.expected.length) {
+          assert.deepEqual(result.results, []);
+          assert.equal(result.errors.length, 1);
+          assert.deepEqual(fixture.searchedUrls, []);
+        } else {
+          assert.deepEqual(result.errors, []);
+          assert.deepEqual(fixture.searchedUrls.map(readSearchLocationIds), [[testCase.expected[0], testCase.expected[0]]]);
+        }
+      });
+    }
+
+    await check("API exact-point search never retries the generic city after empty exact offers", async () => {
+      const searchedIds = [];
+      global.fetch = async (url) => {
+        const isAutocomplete = new URL(url).pathname.includes("autocomplete");
+        if (!isAutocomplete) searchedIds.push(readSearchLocationIds(url)[0]);
+        return { ok: true, json: async () => isAutocomplete ? { result: lookupCases[1].candidates } : { data: { offers: [] } } };
+      };
+      const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+      await assert.rejects(scraper.runSingleLocationViaApi("Berlin Train Station"), /No automatic offers/);
+      assert.deepEqual(searchedIds, [901]);
+    });
+
+    await check("missing autocomplete API permits exact-identity form fallback", async () => {
+      const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+      const page = { request: { get: async () => ({ ok: () => true, json: async () => ({ result: [] }) }) } };
+      assert.deepEqual(await scraper.tryDirectSearchFlow(page, "Berlin East Train Station", {}), []);
+    });
+
+    await check("empty exact-point DOM results retain identity-checked form fallback", async () => {
+      const scraper = new DiscoverCarsScraper({ ...config, domOnly: true, locationCandidateCache: new Map() });
+      const page = createEmptyDomPage(lookupCases[1].candidates);
+      assert.deepEqual(await scraper.tryDirectSearchFlow(page, "Berlin Train Station", scraper.createResponseCollector()), []);
+    });
+
+    await check("legacy city aliases retain form fallback when autocomplete is unavailable", async () => {
+      for (const location of ["Warsaw", "Krakow", "Gdansk", "Katowice", "Wroclaw", "Poznan", "Lodz", "Bydgoszcz", "Torun"]) {
+        const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+        assert.deepEqual(await scraper.tryDirectSearchFlow(createEmptyDomPage([]), location, {}), []);
+      }
+    });
+
+    await check("empty Galeria geo results cannot fall back to a different specific point", async () => {
+      global.fetch = async () => ({ ok: true, json: async () => ({ success: true,
+        data: { guid: "geo-fixture", sq: "geo-query", url: "/search/geo-fixture?sq=geo-query" } }) });
+      const scraper = new DiscoverCarsScraper({ ...config, domOnly: true, locationCandidateCache: new Map() });
+      await assert.rejects(scraper.tryDirectSearchFlow(createEmptyDomPage([]), "Galeria Krakowska Shopping Mall",
+        scraper.createResponseCollector()), /geo.*point|point.*geo/i);
+    });
+
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route("**/*", route => route.abort());
+      const input = page.locator("input");
+      const formHtml = (options) => `<input value="Berlin Train Station"><div>${options.map(([id, label]) =>
+        `<button class="Autocomplete-AutocompleteItem" data-place-id="${id}" onclick="const input=document.querySelector('input');input.value=this.textContent;input.dataset.placeId=this.dataset.placeId;document.querySelectorAll('.Autocomplete-AutocompleteItem').forEach(item=>item.remove())">${label}</button>`).join("")}</div>`;
+      for (const [name, options, expectedId] of [
+        ["form selects only the normalized exact custom point", [[900, "Berlin (all locations)"], [902, "Berlin Train Station West"], [901, "BERLIN   TRAIN STATION"]], "901"],
+        ["form refuses a different specific point", [[902, "Berlin Train Station West"]], null],
+        ["typed text alone cannot establish an autocomplete selection", [], null]
+      ]) {
+        await check(name, async () => {
+          await page.setContent(formHtml(options));
+          const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+          assert.equal(await scraper.chooseAutocompleteOption(page, "Berlin Train Station", input), expectedId !== null);
+          assert.equal(await input.getAttribute("data-place-id"), expectedId);
+        });
+      }
+      const detailedFormHtml = (options) => `<input><div>${options.map(([id, label, details, selectedValue]) =>
+        `<button class="Autocomplete-AutocompleteItem" data-place-id="${id}" data-selected-value="${selectedValue}" onclick="const input=document.querySelector('input');input.value=this.dataset.selectedValue;input.dataset.placeId=this.dataset.placeId;document.querySelectorAll('.Autocomplete-AutocompleteItem').forEach(item=>item.remove())"><span class="Autocomplete-AutocompleteItemName" style="display:block">${label}</span><span class="Autocomplete-AutocompleteItemAddress" style="display:block">${details}</span></button>`).join("")}</div>`;
+      for (const [name, location, options, expectedId] of [
+        ["canonical form matches the exact name descendant despite city and address text", "Warsaw Train Station", [
+          [123, "Warsaw (all locations)", "Warsaw, Poland", "Warsaw (all locations), Poland"],
+          [356108, "Warsaw West Train Station", "Aleje Jerozolimskie, Warsaw, Poland", "Warsaw West Train Station, Warsaw, Poland"],
+          [8305, "Warsaw Train Station", "Warsaw, Poland", "Warsaw Train Station, Warsaw, Poland"]
+        ], "8305"],
+        ["custom form matches the normalized exact name descendant with a comma-delimited selected value", "Berlin Train Station", [
+          [902, "Berlin Train Station West", "Berlin, Germany", "Berlin Train Station West, Berlin, Germany"],
+          [901, "BERLIN   TRAIN STATION", "Berlin, Germany", "Berlin Train Station, Berlin, Germany"]
+        ], "901"],
+        ["metadata rows cannot select Station West for Station", "Berlin Train Station", [
+          [902, "Berlin Train Station West", "Berlin, Germany", "Berlin Train Station, Berlin, Germany"]
+        ], null],
+        ["an address mentioning the requested station is not an exact name match", "Berlin Train Station", [
+          [902, "Berlin Train Station West", "Berlin Train Station", "Berlin Train Station, Berlin, Germany"]
+        ], null],
+        ["an exact row label cannot validate a different selected point before the comma", "Berlin Train Station", [
+          [901, "Berlin Train Station", "Berlin, Germany", "Berlin Train Station West, Berlin, Germany"]
+        ], null]
+      ]) {
+        await check(name, async () => {
+          await page.setContent(detailedFormHtml(options));
+          const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+          assert.equal(await scraper.chooseAutocompleteOption(page, location, input), expectedId !== null);
+          if (expectedId !== null) {
+            assert.equal(await input.getAttribute("data-place-id"), expectedId);
+            assert.equal(await scraper.locationSelectionLooksValid(page, input, location), true);
+          }
+        });
+      }
+      await check("typed comma-delimited text is not proof of exact point selection", async () => {
+        await page.setContent('<input value="Warsaw Train Station, Warsaw, Poland">');
+        const scraper = new DiscoverCarsScraper(config);
+        assert.equal(await scraper.locationSelectionLooksValid(page, input, "Warsaw Train Station"), false);
+      });
+      await check("editing a selected comma suffix invalidates its selection evidence", async () => {
+        await page.setContent(detailedFormHtml([[901, "Berlin Train Station", "Berlin, Germany", "Berlin Train Station, Berlin, Germany"]]));
+        const scraper = new DiscoverCarsScraper(config);
+        assert.equal(await scraper.chooseAutocompleteOption(page, "Berlin Train Station", input), true);
+        await input.fill("Berlin Train Station, Hamburg, Germany");
+        assert.equal(await scraper.locationSelectionLooksValid(page, input, "Berlin Train Station"), false);
+      });
+      await check("a selected point suffix without a comma is rejected", async () => {
+        await page.setContent(detailedFormHtml([[901, "Berlin Train Station", "Berlin, Germany", "Berlin Train Station Berlin Germany"]]));
+        const scraper = new DiscoverCarsScraper(config);
+        assert.equal(await scraper.chooseAutocompleteOption(page, "Berlin Train Station", input), false);
+        assert.equal(await scraper.locationSelectionLooksValid(page, input, "Berlin Train Station"), false);
+      });
+      await check("an uncached custom city selects its exact all-locations label with metadata", async () => {
+        await page.setContent(detailedFormHtml([
+          [901, "Berlin Airport", "Berlin, Germany", "Berlin Airport, Berlin, Germany"],
+          [900, "Berlin (all locations)", "Berlin, Germany", "Berlin (all locations), Berlin, Germany"]
+        ]));
+        const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+        assert.equal(await scraper.chooseAutocompleteOption(page, "Berlin", input), true);
+        assert.equal(await input.getAttribute("data-place-id"), "900");
+        assert.equal(await scraper.locationSelectionLooksValid(page, input, "Berlin"), true);
+      });
+      for (const label of ["Berlin Airport", "Berlin Airport (all locations)"]) {
+        await check(`uncached city Berlin does not select the prefix-related label ${label}`, async () => {
+          await page.setContent(detailedFormHtml([[901, label, "Berlin, Germany", "Berlin (all locations), Berlin, Germany"]]));
+          const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+          assert.equal(await scraper.chooseAutocompleteOption(page, "Berlin", input), false);
+          assert.equal(await input.getAttribute("data-place-id"), null);
+        });
+      }
+      await check("form validation rejects a mismatched station value", async () => {
+        await page.setContent('<input value="Berlin Train Station West">');
+        const scraper = new DiscoverCarsScraper(config);
+        assert.equal(await scraper.locationSelectionLooksValid(page, input, "Berlin Train Station"), false);
+      });
+      await check("legacy city form still selects its all-locations entry", async () => {
+        await page.setContent(formHtml([[8305, "Warsaw Train Station"], [123, "Warsaw (all locations)"]]));
+        const scraper = new DiscoverCarsScraper(config);
+        assert.equal(await scraper.chooseAutocompleteOption(page, "Warsaw", input), true);
+        assert.equal(await input.getAttribute("data-place-id"), "123");
+      });
+    } finally {
+      await browser.close();
+    }
+
+    await check("canonical form search rejects a different pickup or dropoff ID", async () => {
+      const scraper = new DiscoverCarsScraper(config);
+      for (const [pickupId, dropoffId] of [[123, 123], [8305, 123]]) {
+        const sq = Buffer.from(JSON.stringify({ PickupLocationId: pickupId, DropOffLocationId: dropoffId }), "utf8").toString("base64");
+        const url = `https://www.discovercars.com/search/00000000-0000-4000-8000-000000000000?sq=${encodeURIComponent(sq)}`;
+        const page = { url: () => url, goto: async () => {}, evaluate: async () => "" };
+        await assert.rejects(scraper.ensureConfiguredSearchPeriod(page, "Warsaw Train Station"), /location.*ID|ID.*location/i);
+      }
+      await assert.rejects(scraper.ensureConfiguredSearchPeriod({ url: () => "about:blank", evaluate: async () => "" },
+        "Warsaw Train Station"), /location.*ID|ID.*location/i);
+      await scraper.ensureConfiguredSearchPeriod({ url: () => scraper.buildDirectSearchUrl("https://www.discovercars.com", 8305),
+        goto: async () => {} }, "Warsaw Train Station");
+    });
+    await check("cached custom point 901 rejects a submitted generic-city ID900", async () => {
+      const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map([
+        ["https://www.discovercars.com|berlin train station", [{ placeID: 901, place: "Berlin Train Station", city: "Berlin" }]]
+      ]) });
+      for (const [pickupId, dropoffId] of [[900, 900], [901, 900]]) {
+        const sq = Buffer.from(JSON.stringify({ PickupLocationId: pickupId, DropOffLocationId: dropoffId }), "utf8").toString("base64");
+        const url = `https://www.discovercars.com/search/00000000-0000-4000-8000-000000000000?sq=${encodeURIComponent(sq)}`;
+        await assert.rejects(scraper.ensureConfiguredSearchPeriod({ url: () => url, goto: async () => {} },
+          "Berlin Train Station"), /location.*ID|ID.*location/i);
+      }
+      await scraper.ensureConfiguredSearchPeriod({ url: () => scraper.buildDirectSearchUrl("https://www.discovercars.com", 901),
+        goto: async () => {} }, "Berlin Train Station");
+    });
+
+    await check("WA2 API search emits station 8305 rather than generic city 123", async () => {
+      const searchedIds = [];
+      global.fetch = async (url) => {
+        if (new URL(url).pathname.includes("autocomplete")) return { ok: true, json: async () => ({ result: [
+          { placeID: 123, place: "Warsaw (all locations)", city: "Warsaw" },
+          { placeID: 8305, place: "Warsaw Train Station", city: "Warsaw" }
+        ] }) };
+        searchedIds.push(readSearchLocationIds(url));
+        return { ok: true, json: async () => ({ data: { offers: [{
+          supplier: { name: "Fixture Supplier" }, price: { raw: 120, formatted: "PLN 120.00" },
+          vehicle: { sipp: "CDAR", specifications: { isAutomaticTransmission: 1 } }
+        }] } }) };
+      };
+      const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+      const result = await scraper.runSingleLocationViaApi("Warsaw Train Station");
+      assert.equal(result.results[0].location, "Warsaw Train Station");
+      assert.deepEqual(searchedIds, [[8305, 8305]]);
+    });
+
+    await check("Galeria remains geo-only in API and direct collector searches", async () => {
+      assert.equal(buildPinnedLocationIds()["Galeria Krakowska Shopping Mall"], undefined);
+      assert.equal(buildPinnedLocationIds().Warsaw, undefined);
+      const geoRequests = [];
+      global.fetch = async (url, options) => {
+        if (new URL(url).pathname.endsWith("create-search")) {
+          geoRequests.push(JSON.parse(options.body));
+          return { ok: true, json: async () => ({ success: true,
+            data: { guid: "geo-fixture", sq: "geo-query", url: "/search/geo-fixture?sq=geo-query" } }) };
+        }
+        assert.equal(new URL(url).pathname, "/api/v2/search/geo-fixture");
+        return { ok: true, json: async () => ({ data: { offers: [{
+          supplier: { name: "Fixture Supplier" }, price: { raw: 120, formatted: "PLN 120.00" },
+          vehicle: { sipp: "CDAR", specifications: { isAutomaticTransmission: 1 } }
+        }] } }) };
+      };
+      const scraper = new DiscoverCarsScraper({ ...config, locationCandidateCache: new Map() });
+      assert.equal((await scraper.runSingleLocationViaApi("Galeria Krakowska Shopping Mall")).ok, true);
+      const fixture = createDirectCollectorFixture([{ placeID: 8504, place: "Krakow Train Station", city: "Krakow" }]);
+      const result = await searchCheapestOffers({ ...directOptions, driverAge: 47, residenceCountry: "Germany",
+        weekend: { ...directOptions.weekend, pickupIso: "2026-07-20T09:30:00", dropoffIso: "2026-07-22T17:45:00" },
+        locations: ["Galeria Krakowska Shopping Mall"],
+        browserProvider: { getBrowser: async () => fixture.browser } });
+      assert.deepEqual(result.errors, []);
+      assert.deepEqual(fixture.autocompleteUrls, []);
+      assert.deepEqual(fixture.searchedUrls, ["https://www.discovercars.com/search/geo-fixture?sq=geo-query"]);
+      assert.equal(geoRequests.length, 2);
+      assert.equal(geoRequests[1].driver_age, "47");
+      assert.equal(geoRequests[1].residence_country, "DE");
+      assert.equal(geoRequests[1].pickup_from, "2026-07-20 09:30");
+      assert.equal(geoRequests[1].pickup_to, "2026-07-22 17:45");
+      assert.equal(geoRequests[1].pick_time, "09:30");
+      assert.equal(geoRequests[1].drop_time, "17:45");
+      for (const payload of geoRequests) {
+        assert.equal(payload.latitude, 50.0662682);
+        assert.equal(payload.longitude, 19.9461205);
+        assert.equal(payload.radius_meters, 20000);
+        assert.equal(payload.pickup_id, 0);
+        assert.equal(payload.geo_location_name, "Pawia 5, 31-154 Krakow, Poland");
+      }
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function runAsyncTests() {
+  await runLocationResolutionTests();
   const stationConfig = loadConfig(["--config", "discovercars.config.example.json"]);
   const stationScraper = new DiscoverCarsScraper({ ...stationConfig,
     locationCandidateCache: new Map([["https://www.discovercars.com|wroclaw train station", [{ placeID: 3459 }]]]) });

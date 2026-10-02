@@ -2,8 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { chromium } = require("playwright");
-const { buildPinnedLocationIds } = require("../locationRegistry");
-const DEFAULT_PINNED_LOCATION_IDS = buildPinnedLocationIds();
+const { buildPinnedLocationIds, loadLocationRegistry, selectLocationCandidates } = require("../locationRegistry");
+const DEFAULT_LOCATION_REGISTRY = loadLocationRegistry();
+const DEFAULT_PINNED_LOCATION_IDS = buildPinnedLocationIds(DEFAULT_LOCATION_REGISTRY);
 const {
   ensureDir,
   formatMoney,
@@ -20,6 +21,8 @@ const {
   normalizeTransmission,
   normalizeTransmissionFilter
 } = require("../extractors");
+const DEFAULT_CITY_LOCATION_NAMES = new Set(DEFAULT_LOCATION_REGISTRY.locations.map(
+  (location) => normalizeWhitespace(location.city).toLowerCase()));
 
 const COOKIE_BUTTON_PATTERNS = [
   /accept all/i,
@@ -117,6 +120,7 @@ class DiscoverCarsScraper {
   constructor(config) {
     this.config = { ...config, pinnedLocationIds: config.pinnedLocationIds || DEFAULT_PINNED_LOCATION_IDS };
     this.locationCandidateCache = config.locationCandidateCache || SHARED_LOCATION_CANDIDATE_CACHE;
+    this.pickupLocationSelections = new WeakMap();
     this.apiDomDriftState = config.apiDomDriftState || SHARED_API_DOM_DRIFT_STATE;
     this.apiDomTelemetry = {
       api_attempt_count: 0,
@@ -340,7 +344,7 @@ class DiscoverCarsScraper {
 
         await this.fillSearchForm(page, location);
         await this.submitSearch(page);
-        await this.ensureConfiguredSearchPeriod(page);
+        await this.ensureConfiguredSearchPeriod(page, location);
         await this.waitForResults(page, { collector: domOnly ? null : responseCollector });
         const fallbackCollectorWaitMs = normalizeTransmissionFilter(this.config.transmissionFilter) ? 1000 : 20000;
         if (!domOnly) await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
@@ -757,7 +761,9 @@ class DiscoverCarsScraper {
     const domOnly = this.config.domOnly === true || options.domOnly === true;
     const geoLocation = resolveGeoLocationOverride(location, this.config.geoLocationOverrides);
     if (geoLocation) {
-      return await this.tryDirectGeoSearchFlow(page, location, collector, geoLocation, { ...options, domOnly });
+      const offers = await this.tryDirectGeoSearchFlow(page, location, collector, geoLocation, { ...options, domOnly });
+      if (!offers.length) throw new Error(`No offers found for geo pick-up point "${location}".`);
+      return offers;
     }
 
     const candidates = await this.resolveLocationCandidates(page, location);
@@ -824,11 +830,11 @@ class DiscoverCarsScraper {
   }
 
   async resolveLocationCandidates(page, location) {
-    const pinnedId = this.config.pinnedLocationIds?.[location];
-    if (pinnedId) return [{ placeID: pinnedId, place: location }];
+    const pinned = selectLocationCandidates(location, [], this.config.pinnedLocationIds);
+    if (pinned.length) return pinned;
     const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
-      return [...this.locationCandidateCache.get(cacheKey)];
+      return selectLocationCandidates(location, this.locationCandidateCache.get(cacheKey));
     }
 
     const baseUrl = new URL(this.config.baseUrl);
@@ -841,27 +847,17 @@ class DiscoverCarsScraper {
     const payload = await response.json().catch(() => null);
     const rawCandidates = Array.isArray(payload?.result) ? payload.result : [];
 
-    const normalizedLocation = normalizeWhitespace(location).toLowerCase();
-    const allLocations = rawCandidates.filter((item) => /all locations/i.test(String(item.place || "")));
-    const cityMatches = rawCandidates.filter((item) => normalizeWhitespace(item.city).toLowerCase().includes(normalizedLocation));
-    const exactMatches = rawCandidates.filter((item) => normalizeWhitespace(item.place).toLowerCase().includes(normalizedLocation));
-
-    const candidates = [
-      ...allLocations,
-      ...cityMatches,
-      ...exactMatches,
-      ...rawCandidates
-    ];
+    const candidates = selectLocationCandidates(location, rawCandidates);
     this.locationCandidateCache.set(cacheKey, candidates);
     return [...candidates];
   }
 
   async resolveLocationCandidatesViaApi(location) {
-    const pinnedId = this.config.pinnedLocationIds?.[location];
-    if (pinnedId) return [{ placeID: pinnedId, place: location }];
+    const pinned = selectLocationCandidates(location, [], this.config.pinnedLocationIds);
+    if (pinned.length) return pinned;
     const cacheKey = `${new URL(this.config.baseUrl).origin}|${normalizeWhitespace(location).toLowerCase()}`;
     if (this.locationCandidateCache.has(cacheKey)) {
-      return [...this.locationCandidateCache.get(cacheKey)];
+      return selectLocationCandidates(location, this.locationCandidateCache.get(cacheKey));
     }
 
     const baseUrl = new URL(this.config.baseUrl);
@@ -872,17 +868,7 @@ class DiscoverCarsScraper {
       return [];
     }
 
-    const normalizedLocation = normalizeWhitespace(location).toLowerCase();
-    const allLocations = rawCandidates.filter((item) => /all locations/i.test(String(item.place || "")));
-    const cityMatches = rawCandidates.filter((item) => normalizeWhitespace(item.city).toLowerCase().includes(normalizedLocation));
-    const exactMatches = rawCandidates.filter((item) => normalizeWhitespace(item.place).toLowerCase().includes(normalizedLocation));
-
-    const candidates = [
-      ...allLocations,
-      ...cityMatches,
-      ...exactMatches,
-      ...rawCandidates
-    ];
+    const candidates = selectLocationCandidates(location, rawCandidates);
     this.locationCandidateCache.set(cacheKey, candidates);
     return [...candidates];
   }
@@ -1136,38 +1122,54 @@ class DiscoverCarsScraper {
     throw new Error(`Could not select pick-up location "${location}" from autocomplete.`);
   }
 
-  async chooseAutocompleteOption(page, location, input) {
-    const escapedLocation = escapeRegExp(location);
-    const exactishPattern = new RegExp(escapedLocation, "i");
-    const allLocationsPattern = new RegExp(`${escapedLocation}.*all locations`, "i");
-    const autocompleteItemSelector = ".Autocomplete-AutocompleteItem, [class*='AutocompleteItem']";
-    const optionCandidates = [
-      page.locator(autocompleteItemSelector).filter({ hasText: allLocationsPattern }).first(),
-      page.locator(autocompleteItemSelector).filter({ hasText: exactishPattern }).first(),
-      page.locator(autocompleteItemSelector).first(),
-      page.getByRole("option", { name: exactishPattern }).first(),
-      page.locator("[role='option']").filter({ hasText: exactishPattern }).first(),
-      page.locator("li").filter({ hasText: exactishPattern }).first(),
-      page.locator("[class*='option']").filter({ hasText: exactishPattern }).first(),
-      page.locator("[class*='suggest']").filter({ hasText: exactishPattern }).first()
-    ];
+  isCityLocationRequest(location) {
+    const requested = normalizeWhitespace(location).toLowerCase();
+    if (DEFAULT_CITY_LOCATION_NAMES.has(requested)) return true;
+    const cacheKey = `${new URL(this.config.baseUrl || "https://www.discovercars.com").origin}|${requested}`;
+    return (this.locationCandidateCache.get(cacheKey) || []).some((candidate) =>
+      normalizeWhitespace(candidate.city).toLowerCase() === requested);
+  }
 
-    for (const option of optionCandidates) {
+  async chooseAutocompleteOption(page, location, input) {
+    this.pickupLocationSelections.delete(input);
+    const isCitySearch = this.isCityLocationRequest(location);
+    const escapedLocation = normalizeWhitespace(location).split(" ").map(escapeRegExp).join("\\s+");
+    const exactishPattern = new RegExp(`^\\s*${escapedLocation}\\s*$`, "i");
+    const allLocationsPattern = new RegExp(`^\\s*${escapedLocation}\\s*(?:\\(\\s*all locations\\s*\\)|,\\s*all locations)\\s*$`, "i");
+    const autocompleteItemSelector = ".Autocomplete-AutocompleteItem, [class~='AutocompleteItem'], [class$='-AutocompleteItem']";
+    const nameSelector = "[class*='Name'], [class*='Label'], [class*='Title'], [class*='Place'], [data-testid='location-name']";
+    const matchingOptions = (pattern) => [
+      page.locator(autocompleteItemSelector).filter({ has: page.locator(nameSelector).filter({ hasText: pattern }) }).first(),
+      page.locator(autocompleteItemSelector).filter({ hasNot: page.locator(nameSelector) }).filter({ has: page.getByText(pattern) }).first(),
+      page.locator(autocompleteItemSelector).filter({ hasText: pattern }).first(),
+      page.getByRole("option", { name: pattern }).first(),
+      page.locator("[role='option']").filter({ hasText: pattern }).first(),
+      page.locator("li").filter({ hasText: pattern }).first(),
+      page.locator("[class*='option']").filter({ hasText: pattern }).first(),
+      page.locator("[class*='suggest']").filter({ hasText: pattern }).first()
+    ];
+    const exactOptions = matchingOptions(exactishPattern).map((option) => [option, false]);
+    const cityOptions = matchingOptions(allLocationsPattern).map((option) => [option, true]);
+    const optionCandidates = isCitySearch ? [...cityOptions, ...exactOptions] : [...exactOptions, ...cityOptions];
+
+    for (const [option, genericCity] of optionCandidates) {
       if (await option.isVisible().catch(() => false)) {
-        await option.click({ timeout: 5000, force: true }).catch(() => {});
+        const clicked = await option.click({ timeout: 5000, force: true }).then(() => true).catch(() => false);
+        if (!clicked) continue;
         await page.waitForTimeout(500);
         const pickerStillVisible = await page.locator(autocompleteItemSelector).first().isVisible().catch(() => false);
         if (!pickerStillVisible) {
-          return true;
+          this.pickupLocationSelections.set(input, {
+            location: normalizeWhitespace(location).toLowerCase(),
+            value: normalizeWhitespace(await input.inputValue().catch(() => "")).toLowerCase(),
+            genericCity
+          });
+          return await this.locationSelectionLooksValid(page, input, location);
         }
       }
     }
 
-    await input.press("ArrowDown").catch(() => {});
-    await page.waitForTimeout(200);
-    await input.press("Enter").catch(() => {});
-    await page.waitForTimeout(500);
-    return await this.locationSelectionLooksValid(page, input, location);
+    return false;
   }
 
   async locationSelectionLooksValid(page, input, expectedLocation) {
@@ -1180,10 +1182,16 @@ class DiscoverCarsScraper {
     }).catch(() => false);
 
     const hasValidationError = await this.hasPickupLocationValidationError(page);
-    const hasAnyValue = Boolean(value);
-    const valueLooksReasonable = hasAnyValue && new RegExp(escapeRegExp(expectedLocation), "i").test(value);
+    const expected = normalizeWhitespace(expectedLocation).toLowerCase();
+    const normalizedValue = value.toLowerCase();
+    const selected = this.pickupLocationSelections.get(input);
+    const parts = normalizedValue.split(",").map((part) => part.trim());
+    const genericNamePattern = new RegExp(`^${escapeRegExp(expected)}\\s*\\(\\s*all locations\\s*\\)$`, "i");
+    const selectedValueMatches = selected?.location === expected && selected.value === normalizedValue
+      && parts.every(Boolean) && (parts[0] === expected || (selected.genericCity && genericNamePattern.test(parts[0])));
+    const valueLooksReasonable = normalizedValue === expected || selectedValueMatches;
 
-    return !hasErrorClass && !hasValidationError && (valueLooksReasonable || hasAnyValue);
+    return !hasErrorClass && !hasValidationError && valueLooksReasonable;
   }
 
   async hasPickupLocationValidationError(page) {
@@ -1537,19 +1545,21 @@ class DiscoverCarsScraper {
     }
   }
 
-  async ensureConfiguredSearchPeriod(page) {
+  async ensureConfiguredSearchPeriod(page, location) {
     const discoveredSearchUrl = await this.findSearchUrl(page);
-    if (!discoveredSearchUrl) {
-      return;
+    const parsed = discoveredSearchUrl ? new URL(discoveredSearchUrl) : null;
+    const sqParam = parsed?.searchParams.get("sq");
+    const payload = sqParam ? decodeSqPayload(sqParam) : null;
+    const requested = normalizeWhitespace(location).toLowerCase();
+    const cacheKey = `${new URL(this.config.baseUrl).origin}|${requested}`;
+    const exactCandidate = this.isCityLocationRequest(location) ? null
+      : selectLocationCandidates(location, this.locationCandidateCache.get(cacheKey) || [])
+        .find((candidate) => normalizeWhitespace(candidate.place).toLowerCase() === requested);
+    const expectedId = selectLocationCandidates(location, [], this.config.pinnedLocationIds)[0]?.placeID || exactCandidate?.placeID;
+    if (expectedId && (Number(payload?.PickupLocationId) !== Number(expectedId)
+      || Number(payload?.DropOffLocationId) !== Number(expectedId))) {
+      throw new Error(`DiscoverCars form search did not confirm the resolved location ID for "${location}".`);
     }
-
-    const parsed = new URL(discoveredSearchUrl);
-    const sqParam = parsed.searchParams.get("sq");
-    if (!sqParam) {
-      return;
-    }
-
-    const payload = decodeSqPayload(sqParam);
     if (!payload || typeof payload !== "object") {
       return;
     }

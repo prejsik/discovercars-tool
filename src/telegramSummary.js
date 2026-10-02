@@ -175,8 +175,9 @@ function buildTelegramSummary(options = {}) {
     (env.PAGES_EXCEL_URL && env.PAGES_EXCEL_REPORT_URL)
       || env.EXCEL_ARTIFACT_URL
   );
+  const pagesPublicationFailed = env.PAGES_PUBLICATION_FAILED === "true";
   const publicationFailure = qualityStatus !== "failure"
-    && (!reportAvailable || !reportPublished || !excelReady || !excelPublished);
+    && (pagesPublicationFailed || !reportAvailable || !reportPublished || !excelReady || !excelPublished);
   const statusLabel = qualityStatus === "failure"
     ? "BŁĄD"
     : publicationFailure
@@ -212,13 +213,15 @@ function buildTelegramSummary(options = {}) {
   }
 
   if (publicationFailure) {
-    const reason = !reportAvailable
-      ? "raport HTML nie został wygenerowany"
-      : !reportPublished
-        ? "raport nie został udostępniony"
-        : !excelReady
-          ? "nie wygenerowano obu wymaganych plików Excel"
-          : "pliki Excel nie zostały udostępnione";
+    const reason = pagesPublicationFailed
+      ? "publikacja raportu i plików Excel na GitHub Pages nie powiodła się"
+      : !reportAvailable
+        ? "raport HTML nie został wygenerowany"
+        : !reportPublished
+          ? "raport nie został udostępniony"
+          : !excelReady
+            ? "nie wygenerowano obu wymaganych plików Excel"
+            : "pliki Excel nie zostały udostępnione";
     return [
       `DiscoverCars | ${statusLabel}`,
       "",

@@ -5,6 +5,7 @@ const os = require('node:os');
 const YAML = require('yaml');
 const { spawnSync } = require('node:child_process');
 const { publicationDecision } = require('../src/publicationPolicy');
+const { buildTelegramSummary } = require('../src/telegramSummary');
 
 const candidate = { status: 'success', source_started_at: '2026-10-01T07:00:00Z', generated_at: '2026-10-01T12:00:00Z' };
 assert.equal(publicationDecision(candidate, null).promote, true);
@@ -101,6 +102,106 @@ assert.doesNotMatch(job('publish'), /verifyActiveRecommendationsDom.js|tools\/up
 assert.doesNotMatch(job('assemble') + job('publish'), /quality\.outputs\.status \|\| needs\.scrape\.outputs\.scrape_quality_status/);
 assert.match(job('assemble'), /name: Withhold unvalidated workbooks/);
 assert.match(job('publish'), /--validate-only=pages/);
+
+function workflowValue(value, context) {
+  const evaluate = expression => Function('github', 'steps', 'needs', 'success', 'always', `return (${expression.replace(/steps\.([\w-]+)/g, 'steps["$1"]')});`)(
+    context.github, context.steps, context.needs, () => !context.failed, () => true
+  );
+  if (typeof value !== 'string') return value;
+  const expression = value.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
+  if (expression) return evaluate(expression[1]);
+  return value.replace(/\$\{\{\s*([\s\S]*?)\s*\}\}/g, (_, inner) => String(evaluate(inner)));
+}
+
+function pagesRetry({ attempt, artifacts = [], uploadFails = false, validationFails = false, configurationFails = false, deploymentFails = false }) {
+  const validation = pipeline.jobs.publish.steps.find(step => step.name === 'Validate completed Pages bundles');
+  const configuration = pipeline.jobs.publish.steps.find(step => step.name === 'Configure GitHub Pages');
+  const context = {
+    github: { run_id: '456', run_attempt: attempt },
+    failed: (validationFails && validation['continue-on-error'] !== true) || (configurationFails && configuration['continue-on-error'] !== true),
+    steps: { 'pages-site': { outcome: 'success', outputs: {} }, 'pages-validation': { outcome: validationFails ? 'failure' : 'success' },
+      'pages-configure': { outcome: validationFails ? 'skipped' : configurationFails ? 'failure' : 'success' } },
+    needs: { scrape: { outputs: { should_run: 'true', pages_enabled: 'true', scrape_quality_status: 'success' } },
+      assemble: { outputs: { quality_status: 'success' } } }
+  };
+  const retainedArtifacts = [...artifacts];
+  let deploymentRequests = 0;
+  let deployedSnapshot = null;
+  for (const step of pipeline.jobs.publish.steps.filter(item => /actions\/(upload-pages-artifact|deploy-pages)@/.test(item.uses || ''))) {
+    const condition = step.if || 'true';
+    const statusCheck = /\b(?:always|success|failure|cancelled)\s*\(/.test(condition);
+    const allowed = (statusCheck || !context.failed) && workflowValue(`\${{ ${condition} }}`, context);
+    let outcome = 'skipped';
+    if (allowed) {
+      outcome = 'success';
+      const inputName = step.uses.startsWith('actions/upload-pages-artifact') ? 'name' : 'artifact_name';
+      const artifactName = workflowValue(step.with?.[inputName] || 'github-pages', context);
+      if (inputName === 'name') {
+        if (uploadFails || retainedArtifacts.some(artifact => artifact.name === artifactName)) outcome = 'failure';
+        else retainedArtifacts.push({ name: artifactName, snapshot: `attempt-${attempt}` });
+      } else {
+        deploymentRequests += 1;
+        const selected = retainedArtifacts.filter(artifact => artifact.name === artifactName);
+        if (deploymentFails || selected.length !== 1) outcome = 'failure';
+        else deployedSnapshot = selected[0].snapshot;
+      }
+      if (outcome === 'failure' && step['continue-on-error'] !== true) context.failed = true;
+    }
+    if (step.id) context.steps[step.id] = { outcome, outputs: {} };
+  }
+  const notification = pipeline.jobs.publish.steps.find(step => step.name === 'Notify Telegram');
+  const env = { QUALITY_STATUS: 'success', ARTIFACT_URL: 'https://example.test/results', EXCEL_ARTIFACT_URL: 'https://example.test/excel' };
+  if (notification.env.PAGES_PUBLICATION_FAILED) env.PAGES_PUBLICATION_FAILED = String(workflowValue(notification.env.PAGES_PUBLICATION_FAILED, context));
+  const message = buildTelegramSummary({ env, qualityAlerts: { status: 'success' }, reportAvailable: true, excelAvailable: true });
+  return { artifacts: retainedArtifacts, deploymentRequests, deployedSnapshot, failed: context.failed, message };
+}
+
+const firstPagesAttempt = pagesRetry({ attempt: '1' });
+const pagesRetryCases = [
+  ['failed retry upload never deploys a retained previous-attempt snapshot', () => {
+    const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts, uploadFails: true });
+    assert.equal(result.deploymentRequests, 0);
+    assert.equal(result.deployedSnapshot, null);
+    assert.equal(result.failed, true);
+  }],
+  ['successful retry deploys its current snapshot while retaining the previous artifact', () => {
+    const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts });
+    assert.equal(result.deployedSnapshot, 'attempt-2');
+    assert.equal(result.artifacts.length, 2);
+    assert.equal(result.failed, false);
+    assert.match(result.message, /^DiscoverCars \| GOTOWE\n/);
+  }],
+  ['failed upload produces a publication alert even when downloadable artifacts exist', () => {
+    const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts, uploadFails: true });
+    assert.match(result.message, /^DiscoverCars \| BŁĄD PUBLIKACJI\n/);
+    assert.match(result.message, /GitHub Pages/);
+  }],
+  ['failed Pages deployment remains a job failure and produces a publication alert', () => {
+    const result = pagesRetry({ attempt: '2', deploymentFails: true });
+    assert.equal(result.failed, true);
+    assert.match(result.message, /^DiscoverCars \| BŁĄD PUBLIKACJI\n/);
+  }],
+  ['invalid Pages bundle is never deployed', () => {
+    const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts, validationFails: true });
+    assert.equal(result.deploymentRequests, 0);
+    assert.equal(result.failed, true);
+    assert.match(result.message, /^DiscoverCars \| BŁĄD PUBLIKACJI\n/);
+  }],
+  ['failed Pages configuration never uploads or deploys and produces a publication alert', () => {
+    const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts, configurationFails: true });
+    assert.equal(result.artifacts.length, firstPagesAttempt.artifacts.length);
+    assert.equal(result.deploymentRequests, 0);
+    assert.equal(result.failed, true);
+    assert.match(result.message, /^DiscoverCars \| BŁĄD PUBLIKACJI\n/);
+  }]
+];
+let pagesRetryFailureCount = 0;
+for (const [name, verify] of pagesRetryCases) {
+  try { verify(); console.log(`PASS Pages retry: ${name}`); }
+  catch (error) { pagesRetryFailureCount += 1; console.error(`FAIL Pages retry: ${name}: ${error.message}`); }
+}
+assert.equal(pagesRetryFailureCount, 0, 'Pages retry safety regressions');
+assert.match(buildTelegramSummary({ env: { QUALITY_STATUS: 'failure', PAGES_PUBLICATION_FAILED: 'true' } }), /^DiscoverCars \| BŁĄD\n/);
 
 const optionsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'discovercars-options-'));
 try {

@@ -89,7 +89,7 @@ function buildGeoLocationOverrides(registry = loadLocationRegistry()) {
 function buildPinnedLocationIds(registry = loadLocationRegistry()) {
   const ids = {};
   for (const location of registry.locations) {
-    if (!location.discovercars?.require_place_id) continue;
+    if (!location.discovercars?.require_place_id && location.discovercars?.place_id == null) continue;
     const id = Number(location.discovercars.place_id);
     if (!Number.isSafeInteger(id) || id <= 0) {
       throw new Error(`Invalid required DiscoverCars place ID: ${location.scraper_label}`);
@@ -97,6 +97,28 @@ function buildPinnedLocationIds(registry = loadLocationRegistry()) {
     ids[location.scraper_label] = id;
   }
   return ids;
+}
+
+function selectLocationCandidates(location, candidates, pinnedLocationIds = {}) {
+  const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const requested = normalize(location);
+  if (!requested) return [];
+  const pinned = Object.entries(pinnedLocationIds).find(([label]) => normalize(label) === requested);
+  if (pinned) return [{ placeID: pinned[1], place: location }];
+
+  const cityMatches = candidates.filter((item) => normalize(item?.city) === requested);
+  const exactMatches = candidates.filter((item) => normalize(item?.place) === requested);
+  // Only a city-name request may broaden to other points in that city.
+  const ordered = cityMatches.length
+    ? [...cityMatches.filter((item) => /all locations/i.test(String(item.place || ""))), ...cityMatches]
+    : exactMatches;
+  const seen = new Set();
+  return ordered.filter((item) => {
+    const id = String(item?.placeID || "").trim();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 module.exports = {
@@ -107,5 +129,6 @@ module.exports = {
   getDailyLocations,
   getProfileLocations,
   loadLocationRegistry,
+  selectLocationCandidates,
   validateLocationRegistry
 };

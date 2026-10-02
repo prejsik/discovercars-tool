@@ -580,7 +580,8 @@ function dedupeOffers(offers) {
       providerKey,
       offer.total_price.toFixed(2),
       normalizeWhitespace(offer.currency).toUpperCase(),
-      normalizeWhitespace(offer.car_name || "").toLowerCase()
+      normalizeWhitespace(offer.car_name || "").toLowerCase(),
+      normalizeTransmission(offer.transmission)
     ].join("|");
 
     if (seen.has(key)) {

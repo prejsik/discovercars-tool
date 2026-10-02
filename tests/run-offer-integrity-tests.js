@@ -4,6 +4,8 @@ const {
   DiscoverCarsScraper,
   extractOffersFromSearchApiPayload
 } = require("../src/discovercars/scraper");
+const { searchCheapestOffers } = require("../src/discoverCars");
+const { dedupeOffers } = require("../src/extractors");
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -103,6 +105,64 @@ for (const reversed of [false, true]) {
     assert.equal(result.results[0].offerId, "auto");
   });
 }
+
+for (const reversed of [false, true]) {
+  test(`legacy-batch preserves cheapest automatic and both views (${reversed ? "automatic first" : "manual first"})`, async () => {
+    const tied = [offer({ transmission: "manual", offerId: "manual" }), offer({ offerId: "auto" })];
+    const rows = [
+      ...(reversed ? tied.reverse() : tied),
+      offer({ offerId: "auto" }),
+      offer({ offerId: "auto-other-id" }),
+      offer({ totalPrice: 120, offerId: "more-expensive-auto" }),
+      offer({ provider: "Second", totalPrice: 140, offerId: "second" }),
+      offer({ provider: "Third", totalPrice: 160, offerId: "third" })
+    ];
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const requestUrl = new URL(url);
+      if (requestUrl.origin !== "https://www.discovercars.com") throw new Error(`Unexpected fixture URL: ${url}`);
+      const payload = requestUrl.pathname === "/api/v2/autocomplete"
+        ? { result: [{ placeID: 123, place: LOCATION }] }
+        : requestUrl.pathname.startsWith("/api/v2/search/") ? apiPayload(rows) : null;
+      if (!payload) throw new Error(`Unexpected fixture URL: ${url}`);
+      return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+    };
+    try {
+      const result = await searchCheapestOffers({
+        strategy: "legacy-batch",
+        locations: [LOCATION],
+        weekend: { pickupIso: "2026-10-02T11:00:00", dropoffIso: "2026-10-03T11:00:00", rentalDays: 1 },
+        currency: "PLN",
+        transmissionFilter: "automatic",
+        apiFirst: true,
+        apiDomSanityRate: 0,
+        browserProvider: { getBrowser: async () => { throw new Error("Fixture must stay offline and API-only"); } },
+        quietLegacyLogs: true,
+        logger: { info: () => {}, error: () => {} }
+      });
+      assert.deepEqual(result.errors, []);
+      assert.equal(result.results.length, 1);
+      assert.equal(result.results[0].provider_name, "Supplier");
+      assert.equal(result.results[0].total_price, 100);
+      assert.equal(result.results[0].transmission, "automatic");
+      const breakdown = result.locationBreakdown[0];
+      assert.equal(breakdown.offer_views.all.offer_count, 5);
+      assert.equal(breakdown.offer_views.automatic.offer_count, 4);
+      assert.equal(breakdown.offer_views.all.cheapest_offer.transmission, reversed ? "automatic" : "manual");
+      assert.equal(breakdown.offer_views.automatic.cheapest_offer.transmission, "automatic");
+      assert.equal(breakdown.offer_views.automatic.cheapest_offer.total_price, 100);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+}
+
+test("collected-offer dedupe normalizes transmission aliases and removes exact duplicates", () => {
+  const row = { location: LOCATION, provider_name: "Supplier", total_price: 100, currency: "PLN", car_name: "Toyota Yaris" };
+  const unique = dedupeOffers(["manual", "manual", "Manual Transmission", "automatic", "automatic", "Automatic Transmission"]
+    .map((transmission) => ({ ...row, transmission })));
+  assert.deepEqual(unique.map((entry) => entry.transmission), ["manual", "automatic"]);
+});
 
 test("API dedupe preserves model, currency and offer ID but removes repeated identical offers", () => {
   const rows = [

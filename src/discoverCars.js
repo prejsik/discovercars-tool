@@ -1,8 +1,8 @@
 const crypto = require("crypto");
 const path = require("path");
 const { chromium } = require("playwright");
-const { DiscoverCarsScraper } = require("./discovercars/scraper");
-const { buildPinnedLocationIds } = require("./locationRegistry");
+const { DiscoverCarsScraper, resolveGeoLocationOverride } = require("./discovercars/scraper");
+const { buildPinnedLocationIds, selectLocationCandidates } = require("./locationRegistry");
 const PINNED_LOCATION_IDS = buildPinnedLocationIds();
 const {
   dedupeOffers,
@@ -105,22 +105,6 @@ function makeExtractionContext(location, options, sourceUrl) {
     transmission_filter: options.transmissionFilter || "automatic",
     source_url: sourceUrl
   };
-}
-
-function dedupeLocationCandidates(candidates) {
-  const seen = new Set();
-  const unique = [];
-
-  for (const candidate of candidates) {
-    const placeId = String(candidate?.placeID || "").trim();
-    if (!placeId || seen.has(placeId)) {
-      continue;
-    }
-    seen.add(placeId);
-    unique.push(candidate);
-  }
-
-  return unique;
 }
 
 function normalizeOutputOffer(offer, fallbackCurrency) {
@@ -571,13 +555,30 @@ async function scrapeLocationOnce(browser, location, options) {
       await acceptCookies(page);
     }
 
-    const candidates = await resolveLocationCandidates(page, location);
-    if (!candidates.length) {
-      throw new Error("No location candidates found in DiscoverCars autocomplete API.");
+    const geoLocation = resolveGeoLocationOverride(location, options.geoLocationOverrides);
+    let searchUrls;
+    if (geoLocation) {
+      const scraper = new DiscoverCarsScraper({
+        baseUrl: baseOrigin,
+        pickupDate: toDatePart(options.weekend.pickupIso),
+        pickupTime: toTimePart(options.weekend.pickupIso),
+        dropoffDate: toDatePart(options.weekend.dropoffIso),
+        dropoffTime: toTimePart(options.weekend.dropoffIso),
+        residenceCountry: options.residenceCountry,
+        driverAge: options.driverAge,
+        currency: options.currency,
+        timeoutMs: options.timeoutMs
+      });
+      searchUrls = [(await scraper.createGeoSearch(geoLocation)).pageUrl];
+    } else {
+      const candidates = await resolveLocationCandidates(page, location);
+      if (!candidates.length) {
+        throw new Error("No location candidates found in DiscoverCars autocomplete API.");
+      }
+      searchUrls = candidates.slice(0, 1).map((candidate) => buildDirectSearchUrl(baseOrigin, candidate.placeID, options));
     }
 
-    for (const candidate of candidates.slice(0, 1)) {
-      const searchUrl = buildDirectSearchUrl(baseOrigin, candidate.placeID, options);
+    for (const searchUrl of searchUrls) {
       await page.goto(searchUrl, { waitUntil: "domcontentloaded" });
       await waitForResults(page, Math.min(options.timeoutMs, 20_000), options);
       await waitForCollectorOffers(collectedOffers, 6_000);
@@ -628,8 +629,8 @@ async function scrapeLocationOnce(browser, location, options) {
 }
 
 async function resolveLocationCandidates(page, location) {
-  const pinnedId = PINNED_LOCATION_IDS[location];
-  if (pinnedId) return [{ placeID: pinnedId, place: location }];
+  const pinned = selectLocationCandidates(location, [], PINNED_LOCATION_IDS);
+  if (pinned.length) return pinned;
   const endpoint = `https://www.discovercars.com/api/v2/autocomplete?location=${encodeURIComponent(location)}`;
   const response = await page.request.get(endpoint).catch(() => null);
   if (!response || !response.ok()) {
@@ -642,16 +643,7 @@ async function resolveLocationCandidates(page, location) {
     return [];
   }
 
-  const normalizedLocation = normalizeWhitespace(location).toLowerCase();
-  const allLocations = rawCandidates.filter((item) => /all locations/i.test(String(item.place || "")));
-  const cityMatches = rawCandidates.filter((item) =>
-    normalizeWhitespace(item.city).toLowerCase().includes(normalizedLocation)
-  );
-  const exactMatches = rawCandidates.filter((item) =>
-    normalizeWhitespace(item.place).toLowerCase().includes(normalizedLocation)
-  );
-
-  return dedupeLocationCandidates([...allLocations, ...cityMatches, ...exactMatches, ...rawCandidates]);
+  return selectLocationCandidates(location, rawCandidates);
 }
 
 async function tryExtractOffersFromResponse(response, collectedOffers, location, options) {
