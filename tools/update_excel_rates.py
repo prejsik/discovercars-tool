@@ -8,6 +8,7 @@ import calendar
 import hashlib
 import json
 import math
+import re
 from collections import defaultdict
 from copy import copy
 from datetime import date, datetime, timedelta
@@ -300,19 +301,39 @@ def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: st
                 "Input workbook does not match the baseline manifest; no workbook changes were made. "
                 f"Expected {expected_hash}, got {input_workbook_sha256}."
             )
-        if status not in CONFIRMED_BASELINE_STATUSES:
+        approved_extension = status == "user_approved_extension"
+        if approved_extension:
+            source = manifest.get("source_baseline") or {}
+            if (
+                manifest.get("approved_by") != "user"
+                or not manifest.get("approved_at")
+                or not isinstance(source, dict)
+                or source.get("status") not in CONFIRMED_BASELINE_STATUSES
+                or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("workbook_sha256") or ""))
+                or not isinstance(manifest.get("zone_additions"), dict)
+                or not manifest["zone_additions"]
+            ):
+                raise ValueError("Baseline extension requires explicit user approval and imported source provenance.")
+        elif status not in CONFIRMED_BASELINE_STATUSES:
             raise ValueError(
                 "Baseline workbook is not confirmed as imported. "
                 f"Current status: {status or 'missing'}."
             )
         return {
             "status": status,
-            "confirmed": True,
-            "calibration_eligible": True,
+            "confirmed": not approved_extension,
+            "recommendation_eligible": True,
+            "calibration_eligible": not approved_extension,
             "workbook_sha256": expected_hash,
             "confirmed_at": manifest.get("confirmed_at"),
             "confirmed_by": manifest.get("confirmed_by"),
             "manifest_path": str(manifest_path),
+            **({
+                "approved_at": manifest["approved_at"],
+                "approved_by": manifest["approved_by"],
+                "source_baseline": manifest["source_baseline"],
+                "zone_additions": manifest["zone_additions"],
+            } if approved_extension else {}),
         }
 
     if legacy_expected_hash and input_workbook_sha256.lower() != legacy_expected_hash:
@@ -2507,8 +2528,10 @@ def write_row_snapshot(ws: Any, row: int, snapshot: dict[str, Any]) -> None:
 def seed_missing_zones(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     """Seed an absent zone once; never overwrite an existing zone or mirror its rates."""
     zone_col = int(config["columns"]["zone"])
+    last_source_row = ws.max_row
+    max_col = ws.max_column
     rows_by_zone: dict[str, list[int]] = defaultdict(list)
-    for row in range(int(config["data_start_row"]), ws.max_row + 1):
+    for row in range(int(config["data_start_row"]), last_source_row + 1):
         rows_by_zone[normalize_code(ws.cell(row, zone_col).value)].append(row)
     pending: list[tuple[str, dict[str, Any]]] = []
     seeded_zones: dict[str, str] = {}
@@ -2520,10 +2543,9 @@ def seed_missing_zones(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
             unavailable_sources[target] = source
             continue
         for row in rows_by_zone[source]:
-            pending.append((target, snapshot_row(ws, row, ws.max_column)))
+            pending.append((target, snapshot_row(ws, row, max_col)))
         seeded_zones[target] = source
-    for target, snapshot in pending:
-        row = ws.max_row + 1
+    for row, (target, snapshot) in enumerate(pending, start=last_source_row + 1):
         write_row_snapshot(ws, row, snapshot)
         ws.cell(row, zone_col).value = target
     return {"seeded_row_count": len(pending), "seeded_zones": seeded_zones, "unavailable_sources": unavailable_sources}

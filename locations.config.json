@@ -17,6 +17,9 @@
       "opole_downtown",
       "poznan_downtown",
       "poznan_airport",
+      "szczecin_airport",
+      "szczecin_downtown",
+      "szczecin_train_station",
       "torun_downtown",
       "warsaw_west_station",
       "warsaw_train_station",
@@ -166,6 +169,30 @@
       "discovercars": { "place_id": 1663 }
     },
     {
+      "id": "szczecin_airport",
+      "scraper_label": "Szczecin Goleniow Airport (SZZ)",
+      "city": "Szczecin",
+      "kind": "airport",
+      "zones": ["SZLO"],
+      "discovercars": { "place_id": 1943, "require_place_id": true }
+    },
+    {
+      "id": "szczecin_downtown",
+      "scraper_label": "Szczecin Downtown",
+      "city": "Szczecin",
+      "kind": "city",
+      "zones": ["SZO1"],
+      "discovercars": { "place_id": 3445, "require_place_id": true }
+    },
+    {
+      "id": "szczecin_train_station",
+      "scraper_label": "Szczecin Train Station",
+      "city": "Szczecin",
+      "kind": "city",
+      "zones": ["SZ1"],
+      "discovercars": { "place_id": 355153, "require_place_id": true }
+    },
+    {
       "id": "torun_downtown",
       "scraper_label": "Torun Downtown",
       "city": "Torun",
@@ -243,7 +270,10 @@
     "Wroclaw": ["WR1", "WRLO"]
   },
   "zone_seeds": {
-    "WR2": "WR1"
+    "WR2": "WR1",
+    "SZLO": "LOLO",
+    "SZO1": "LOLO",
+    "SZ1": "LOLO"
   },
   "zone_mirrors": {
     "KRTI": "KRLO"

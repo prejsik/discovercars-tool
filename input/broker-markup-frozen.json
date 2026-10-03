@@ -8,7 +8,10 @@
       "GD1",
       "WA1",
       "WA2",
-      "WR2"
+      "WR2",
+      "SZLO",
+      "SZO1",
+      "SZ1"
     ],
     "extrapolated_bands": [
       "1",
@@ -18,7 +21,8 @@
       "8-20": "Measured durations 8-14; extended by agreement."
     },
     "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference.",
-    "station_proxy": "WR2 uses the frozen WR1 markup by explicit user agreement; no station-specific measurement."
+    "station_proxy": "WR2 uses the frozen WR1 markup by explicit user agreement; no station-specific measurement.",
+    "szczecin_proxy": "SZLO/SZO1/SZ1 use Katowice Downtown, the largest existing fixed markup in every duration band, by explicit user agreement on 2026-10-03. These are provisional estimates, not Szczecin measurements; no automatic recalibration."
   },
   "brokerMarkupCalibration": {
     "enabled": true,
@@ -56,6 +60,12 @@
       "OP1": "Opole Downtown",
       "PO1": "Poznan Downtown",
       "POLO": "Poznan Airport (POZ)",
+      "SZLO": "Katowice Downtown",
+      "SZO1": "Katowice Downtown",
+      "SZ1": "Katowice Downtown",
+      "Szczecin Goleniow Airport (SZZ)": "Katowice Downtown",
+      "Szczecin Downtown": "Katowice Downtown",
+      "Szczecin Train Station": "Katowice Downtown",
       "TO1": "Torun Downtown",
       "WA1": "Warsaw West Train Station",
       "WA2": "Warsaw Train Station",

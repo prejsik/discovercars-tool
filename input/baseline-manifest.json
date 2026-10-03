@@ -1,9 +1,21 @@
 {
   "schema_version": 1,
-  "status": "confirmed_imported",
-  "workbook_sha256": "2e74601300b325b176c99f53d3280e84033fea164e89a9fbd8b040a56a8f3997",
-  "confirmed_at": "2026-10-02",
-  "confirmed_by": "user",
+  "status": "user_approved_extension",
+  "workbook_sha256": "4e16e0a93f72eef1272cf4e38cbe83d890812752ce0dd0b462e3b3a4d41cbac5",
+  "approved_at": "2026-10-03",
+  "approved_by": "user",
   "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 02-Oct-26.xlsx",
-  "note": "User supplied the current imported baseline and approved its replacement on 2026-10-02 after a read-only compatibility audit. Preserve exact bytes, all rates, and all rows regardless of filters. Broker markup remains frozen; calibration changes require explicit user confirmation."
+  "source_baseline": {
+    "status": "confirmed_imported",
+    "workbook_sha256": "2e74601300b325b176c99f53d3280e84033fea164e89a9fbd8b040a56a8f3997",
+    "confirmed_at": "2026-10-02",
+    "confirmed_by": "user",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 02-Oct-26.xlsx"
+  },
+  "zone_additions": {
+    "SZLO": "LOLO",
+    "SZO1": "LOLO",
+    "SZ1": "LOLO"
+  },
+  "note": "User explicitly approved adding all three Szczecin zones to the baseline before publication on 2026-10-03. Each zone contains 900 rows copied from LOLO, with all original rows and rates preserved regardless of filters. New zone rates are approved starting values, not confirmed as imported into DiscoverCars. This baseline supports recommendations but must not calibrate broker markup. Broker markup remains frozen; calibration changes require explicit user confirmation."
 }

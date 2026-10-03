@@ -275,8 +275,12 @@ def main():
     assert_equal(august_gap_floor, 0, "no period floor on 31 August 2026")
     baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
     baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
-    assert_equal(baseline_confirmation["status"], "confirmed_imported", "confirmed baseline status")
-    assert_equal(baseline_confirmation["calibration_eligible"], True, "confirmed baseline calibration eligibility")
+    assert_equal(baseline_confirmation["status"], baseline_manifest["status"], "baseline status matches manifest")
+    assert_equal(
+        baseline_confirmation["calibration_eligible"],
+        baseline_manifest["status"] in {"confirmed_imported", "verified_live"},
+        "only imported baseline is eligible for calibration",
+    )
     city_cap_types = {"top1_gap", "force_top1_maintain"}
     assert target_matches_recommendation_types({"recommendation_type": "top1_gap"}, city_cap_types)
     assert target_matches_recommendation_types({"recommendation_type": "force_top1_maintain"}, city_cap_types)
@@ -592,6 +596,58 @@ def main():
         else:
             raise AssertionError("prepared baseline should not be accepted")
 
+        extension_manifest = {
+            **pending_manifest,
+            "status": "user_approved_extension",
+            "approved_by": "user",
+            "approved_at": "2026-10-03",
+            "source_baseline": {
+                "status": "confirmed_imported",
+                "workbook_sha256": "a" * 64,
+            },
+            "zone_additions": {"SZLO": "LOLO", "SZO1": "LOLO", "SZ1": "LOLO"},
+        }
+        (temporary_path / "baseline.json").write_text(json.dumps(extension_manifest), encoding="utf-8")
+        extension = load_baseline_confirmation(pending_config, baseline_manifest["workbook_sha256"])
+        assert_equal(extension["confirmed"], False, "approved additions are not yet confirmed imported")
+        assert_equal(extension["recommendation_eligible"], True, "explicitly approved additions support recommendations")
+        assert_equal(extension["calibration_eligible"], False, "approved additions cannot calibrate broker markup")
+        assert_equal(extension["zone_additions"], extension_manifest["zone_additions"], "approved zone provenance")
+        assert_equal(extension["source_baseline"], extension_manifest["source_baseline"], "imported source provenance survives")
+
+        for missing_field in ("approved_by", "approved_at", "source_baseline", "zone_additions"):
+            incomplete_extension = {key: value for key, value in extension_manifest.items() if key != missing_field}
+            (temporary_path / "baseline.json").write_text(json.dumps(incomplete_extension), encoding="utf-8")
+            try:
+                load_baseline_confirmation(pending_config, baseline_manifest["workbook_sha256"])
+            except ValueError as error:
+                assert "explicit user approval" in str(error)
+            else:
+                raise AssertionError(f"extension without {missing_field} should not be accepted")
+
+        for invalid_source in (
+            {"status": "prepared", "workbook_sha256": "a" * 64},
+            {"status": "confirmed_imported", "workbook_sha256": "not-a-hash"},
+            "not-a-source-object",
+        ):
+            (temporary_path / "baseline.json").write_text(
+                json.dumps({**extension_manifest, "source_baseline": invalid_source}), encoding="utf-8"
+            )
+            try:
+                load_baseline_confirmation(pending_config, baseline_manifest["workbook_sha256"])
+            except ValueError as error:
+                assert "explicit user approval" in str(error)
+            else:
+                raise AssertionError("extension with invalid imported source provenance should not be accepted")
+
+        (temporary_path / "baseline.json").write_text(json.dumps(extension_manifest), encoding="utf-8")
+        try:
+            load_baseline_confirmation(pending_config, "b" * 64)
+        except ValueError as error:
+            assert "does not match" in str(error)
+        else:
+            raise AssertionError("approved extension with a mismatched workbook must be rejected")
+
     location_zones = {
         str(location): {str(zone).upper() for zone in zones}
         for location, zones in example_config["location_zones"].items()
@@ -612,6 +668,9 @@ def main():
         "Opole Downtown": {"OP1"},
         "Poznan Downtown": {"PO1"},
         "Poznan Airport (POZ)": {"POLO"},
+        "Szczecin Goleniow Airport (SZZ)": {"SZLO"},
+        "Szczecin Downtown": {"SZO1"},
+        "Szczecin Train Station": {"SZ1"},
         "Torun Downtown": {"TO1"},
         "Warsaw West Train Station": {"WA1"},
         "Warsaw Train Station": {"WA2"},
@@ -628,7 +687,93 @@ def main():
     assert_equal(example_config["city_zone_airport_zones"]["KRGA"], ["KRLO"], "Krakow gallery-airport mapping")
     assert "KRTI" not in example_config["city_zone_airport_zones"]
     assert_equal(example_config["city_zone_airport_zones"]["WR2"], ["WRLO"], "Wroclaw station-airport mapping")
-    assert_equal(example_config["zone_seeds"], {"WR2": "WR1"}, "station initial baseline source")
+    assert_equal(example_config["city_zone_airport_zones"]["SZO1"], ["SZLO"], "Szczecin downtown-airport mapping")
+    assert_equal(example_config["city_zone_airport_zones"]["SZ1"], ["SZLO"], "Szczecin station-airport mapping")
+    assert_equal(example_config["zone_seeds"], {"WR2": "WR1", "SZLO": "LOLO", "SZO1": "LOLO", "SZ1": "LOLO"}, "approved initial baseline sources")
+
+    class MeasuredSeedWorksheet(openpyxl.worksheet.worksheet.Worksheet):
+        dimension_reads = 0
+
+        @property
+        def max_row(self):
+            self.dimension_reads += 1
+            return super().max_row
+
+        @property
+        def max_column(self):
+            self.dimension_reads += 1
+            return super().max_column
+
+    szczecin_book = openpyxl.Workbook()
+    szczecin_ws = MeasuredSeedWorksheet(szczecin_book)
+    for _ in range(4):
+        szczecin_ws.append(["header"])
+    for group in ("CDMV", "EDAV", "PDAH", "CFAV"):
+        szczecin_ws.append([group, None, None, "LOLO", "27-04-26", "03-10-26", "03-10-26", "03-10-26", 150, 99, 90, 80, 100, 120])
+    szczecin_ws["J5"].fill = PatternFill(fill_type="solid", fgColor="FF0000")
+    szczecin_ws.row_dimensions[5].hidden = True
+    header_rows_snapshot(szczecin_ws)
+    szczecin_header = header_rows_snapshot(szczecin_ws)
+    szczecin_source = list(szczecin_ws.values)
+    szczecin_ws.dimension_reads = 0
+    szczecin_seeding = seed_missing_zones(szczecin_ws, example_config)
+    assert szczecin_ws.dimension_reads <= 3, "seeding must not rescan all worksheet dimensions for each copied row"
+    assert_equal(szczecin_seeding["seeded_row_count"], 12, "all three Szczecin points receive all source classes, including hidden rows")
+    assert_equal(header_rows_snapshot(szczecin_ws), szczecin_header, "Szczecin seeding preserves headers")
+    assert_equal(list(szczecin_ws.values)[:8], szczecin_source, "Szczecin seeding does not alter old zones")
+    for zone, first_row in (("SZLO", 9), ("SZO1", 13), ("SZ1", 17)):
+        for offset in range(4):
+            expected = list(szczecin_source[4 + offset])
+            expected[3] = zone
+            assert_equal([szczecin_ws.cell(first_row + offset, col).value for col in range(1, 15)], expected, "Szczecin rates exactly match LOLO")
+        assert_equal(szczecin_ws.cell(first_row, 10)._style, szczecin_ws["J5"]._style, "Szczecin retains source formatting")
+    szczecin_ws["J9"] = 88
+    szczecin_ws["J13"] = 77
+    szczecin_ws["J17"] = 66
+    assert_equal(seed_missing_zones(szczecin_ws, example_config)["seeded_row_count"], 0, "existing Szczecin points are never reseeded")
+    assert_equal(szczecin_ws["J9"].value, 88, "Szczecin airport prices remain independent")
+    assert_equal(szczecin_ws["J13"].value, 77, "Szczecin downtown prices remain independent")
+    assert_equal(szczecin_ws["J17"].value, 66, "Szczecin station prices remain independent")
+    szczecin_book.close()
+
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        source = folder / "szczecin-baseline.xlsx"
+        build_minimal_workbook(source, [
+            [group, None, None, "LOLO", "27-04-26", "03-10-26", "03-10-26", "03-10-26"] + [150] * 6
+            for group in ("CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAH", "CFAV", "SWAV")
+        ])
+        recommendations = folder / "szczecin-recommendations.json"
+        recommendations.write_text(json.dumps({"recommendations": [{
+            "action": "decrease", "recommendation_type": "force_top1_undercut",
+            "location": location, "start_date": "2026-10-03", "rental_days": 2,
+            "suggested_rate_pln_day": rate, "benchmark_rate_pln_day": rate + 61, "target_rank": 1,
+            "broker_markup_model": "fixed_amount", "broker_markup_amount_pln_day": 60,
+            "broker_markup_multiplier": 1,
+        } for location, rate in (("Szczecin Goleniow Airport (SZZ)", 70), ("Szczecin Downtown", 120), ("Szczecin Train Station", 80))]}), encoding="utf-8")
+        config = {**example_config, "baseline_manifest_file": "", "pickup_date_expansion": {"enabled": False}}
+        output = folder / "szczecin-updated.xlsx"
+        import_output = folder / "szczecin-import.xlsx"
+        summary = apply_updates(source, recommendations, output, config, None, False, import_output_path=import_output)
+        updated = openpyxl.load_workbook(output)
+        imported = openpyxl.load_workbook(import_output)
+        prices = {(row[0], row[3]): row[9] for row in updated["Sheet1"].iter_rows(min_row=5, values_only=True)}
+        for zone, base_rate in (("SZLO", 69), ("SZO1", 89.7), ("SZ1", 79)):
+            for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
+                assert_equal(prices[(group, zone)], base_rate, "Szczecin recommendations match only the correct zone")
+            for group in ("EDAV", "EDMV"):
+                assert_equal(prices[(group, zone)], base_rate + 1, "Szczecin premium parity is preserved")
+            for group in ("PDAH", "CFAV", "SWAV"):
+                assert_equal(prices[(group, zone)], 150, "Szczecin excluded class keeps its copied rate")
+        assert_equal(prices[("CDMV", "SZO1")], prices[("CDMV", "SZLO")] * 1.3, "Szczecin downtown top1 rate is capped at 130 percent of its airport")
+        for group in ("CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAH", "CFAV", "SWAV"):
+            assert_equal(prices[(group, "LOLO")], 150, "new recommendations never alter the old source zone")
+        assert_equal(summary["zone_seeding"]["seeded_row_count"], 27, "all three new points appear in the audit")
+        assert_equal(imported.sheetnames, ["Sheet1"], "Szczecin import remains Sheet1-only")
+        assert_equal(list(imported["Sheet1"].values), list(updated["Sheet1"].values), "import and recommendations have identical rate rows")
+        assert_equal(imported["Sheet1"].freeze_panes, None, "Szczecin import has no frozen panes")
+        updated.close()
+        imported.close()
 
     seed_book = openpyxl.Workbook()
     seed_ws = seed_book.active

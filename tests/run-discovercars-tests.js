@@ -39,7 +39,7 @@ const {
   isScenarioCheckpointComplete,
   resolveGlobalConcurrency
 } = require("../src/executionPolicy");
-const { buildGeoLocationOverrides, buildLocationZones, buildPinnedLocationIds, getDailyLocations } = require("../src/locationRegistry");
+const { buildGeoLocationOverrides, buildLocationZones, buildPinnedLocationIds, getDailyLocations, selectLocationCandidates } = require("../src/locationRegistry");
 const {
   filterOffersByTransmission,
   findTransmissionInCandidate,
@@ -474,7 +474,7 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   const dailyLocations = getDailyLocations();
   const zones = buildLocationZones();
   const geoOverrides = buildGeoLocationOverrides();
-  assert.equal(dailyLocations.length, 22);
+  assert.equal(dailyLocations.length, 25);
   assert(dailyLocations.includes("Wroclaw Train Station"));
   assert.deepEqual(zones["Wroclaw Train Station"], ["WR2"]);
   assert.deepEqual(zones["Wroclaw Downtown"], ["WR1"]);
@@ -494,6 +494,29 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   const config = loadConfig(["--config", "discovercars.config.example.json"]);
   assert.equal(config.pinnedLocationIds["Wroclaw Train Station"], 8507);
   assert.equal(config.geoLocationOverrides["Galeria Krakowska Shopping Mall"].latitude, 50.0662682);
+});
+
+runTest("Szczecin searches select the exact airport, downtown and station with distinct Excel zones", () => {
+  const locations = getDailyLocations();
+  const config = loadConfig(["--config", "discovercars.config.example.json"]);
+  const zones = buildLocationZones();
+  const candidates = [
+    { placeID: 389, place: "Szczecin (all locations)", city: "Szczecin" },
+    { placeID: 3445, place: "Szczecin Downtown", city: "Szczecin" },
+    { placeID: 1943, place: "Szczecin Goleniow Airport (SZZ)", city: "Szczecin" },
+    { placeID: 355153, place: "Szczecin Train Station", city: "Szczecin" }
+  ];
+  for (const [label, zone, placeId] of [
+    ["Szczecin Goleniow Airport (SZZ)", "SZLO", 1943],
+    ["Szczecin Downtown", "SZO1", 3445],
+    ["Szczecin Train Station", "SZ1", 355153]
+  ]) {
+    assert(locations.includes(label));
+    assert.deepEqual(zones[label], [zone]);
+    assert.equal(config.pinnedLocationIds[label], placeId);
+    assert.deepEqual(selectLocationCandidates(label, candidates, config.pinnedLocationIds).map((point) => point.placeID), [placeId]);
+    assert.deepEqual(selectLocationCandidates(label, [], config.pinnedLocationIds).map((point) => point.placeID), [placeId]);
+  }
 });
 
 runTest("toCsv writes stable header and row data", () => {

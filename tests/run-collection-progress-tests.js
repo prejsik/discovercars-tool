@@ -101,7 +101,7 @@ if (fixtureMode) {
   }
 
   function assertPartialScenario(scenario) {
-    assert.equal(scenario.results.length, 21);
+    assert.equal(scenario.results.length, locations.length - 1);
     assert.equal(scenario.errors.length, 1);
     assert.equal(scenario.errors[0].location, "Gdansk Downtown");
     assert.ok(scenario.results.every((result) => result.location !== "Gdansk Downtown"));
@@ -139,8 +139,10 @@ if (fixtureMode) {
   }
 
   async function main() {
-    assert.equal(locations.length, 22, "fixture must cover the actual 22-location collection scope");
     assert.ok(locations.includes("Gdansk Downtown"));
+    assert.ok(locations.includes("Szczecin Goleniow Airport (SZZ)"));
+    assert.ok(locations.includes("Szczecin Downtown"));
+    assert.ok(locations.includes("Szczecin Train Station"));
     let failures = 0;
     async function test(name, run) {
       if (testFilter && !name.includes(testFilter)) return;
@@ -203,10 +205,10 @@ if (fixtureMode) {
         const payload = JSON.parse(child.stdout);
         const scenarios = scenariosOf(payload);
         assert.equal(scenarios.length, 2);
-        assert.equal(scenarios[0].results.length, 22);
+        assert.equal(scenarios[0].results.length, locations.length);
         assert.equal(scenarios[0].errors.length, 0);
         assert.equal(scenarios[1].results.length, 0);
-        assert.equal(scenarios[1].errors.length, 22);
+        assert.equal(scenarios[1].errors.length, locations.length);
         assert.equal(scenarios[1].execution.fallback_reason, "fatal_scenario_error");
         assert.equal(isChunkPayloadAttempted(payload, {
           startDates: ["2026-10-03"], durations: [2, 3], locations
@@ -240,9 +242,9 @@ if (fixtureMode) {
         const outcomes = fs.readFileSync(path.join(dir, "location-outcomes.jsonl"), "utf8")
           .trim().split("\n").map((line) => JSON.parse(line));
         const retriedOutcomes = outcomes.filter((outcome) => outcome.attempt === 2);
-        assert.equal(retriedOutcomes.filter((outcome) => outcome.rentalDays === 2).length, 22, "partial A must be attempted again, not resumed as complete");
-        assert.equal(retriedOutcomes.filter((outcome) => outcome.rentalDays === 3).length, 11, "retry must finish half of B's locations before hanging");
-        assert.equal(retriedOutcomes.length, 33);
+        assert.equal(retriedOutcomes.filter((outcome) => outcome.rentalDays === 2).length, locations.length, "partial A must be attempted again, not resumed as complete");
+        assert.equal(retriedOutcomes.filter((outcome) => outcome.rentalDays === 3).length, 11, "retry must finish the first eleven B locations before hanging");
+        assert.equal(retriedOutcomes.length, locations.length + 11);
         const starts = fs.readFileSync(path.join(dir, "location-starts.jsonl"), "utf8")
           .trim().split("\n").map((line) => JSON.parse(line));
         assert.ok(starts.some((start) => start.attempt === 2 && start.rentalDays === 3), "retry must enter B I/O");
@@ -280,7 +282,7 @@ if (fixtureMode) {
         assert.ok(!error || /failed with exit code 2$/.test(error.message), `active partial collection must not be classified as stalled: ${error?.message}`);
         assert.ok(elapsedMs > STALL_MS, "fixture must outlive one watchdog deadline");
         assert.match(log, /\[progress\]/, "quiet mode must expose completed-location progress");
-        assert.ok((log.match(/\[progress\]/g) || []).length >= 44, "both successful and failed locations must report progress");
+        assert.ok((log.match(/\[progress\]/g) || []).length >= locations.length * 2, "both successful and failed locations must report progress");
         assert.doesNotMatch(log, /terminating process tree/);
         const payload = readJsonIfPresent(path.join(dir, "results.json"));
         assert.ok(payload, "partial results must be saved");

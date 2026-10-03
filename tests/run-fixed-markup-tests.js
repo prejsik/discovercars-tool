@@ -16,10 +16,14 @@ const expected = {
   KRGA:[40,30,14,11,14,14], KRLO:[46,36,20,15,18,18], KRTI:[46,36,20,15,18,18],
   LO1:[41,31,16,19,15,15], LOLO:[37,27,10,8,11,11], LU1:[43,33,18,17,16,16],
   OL1:[36,26,11,9,9,9], OP1:[36,26,11,9,9,9], PO1:[37,27,11,8,10,10],
-  POLO:[36,26,10,5,8,8], TO1:[36,26,12,10,10,10], WA1:[39,29,14,10,12,12],
+  POLO:[36,26,10,5,8,8], SZLO:[70,60,44,41,44,44], SZO1:[70,60,44,41,44,44], SZ1:[70,60,44,41,44,44],
+  TO1:[36,26,12,10,10,10], WA1:[39,29,14,10,12,12],
   WA2:[39,29,14,10,12,12], WALO:[39,29,14,8,12,12], WR1:[36,26,10,6,9,9], WR2:[36,26,10,6,9,9], WRLO:[41,31,15,10,13,13]
 };
 const options = {...pricing, brokerMarkupCalibration:merge(pricing.brokerMarkupCalibration,{brokerMarkupCalibration:fixed})};
+for (const location of ['SZLO', 'SZO1', 'SZ1', 'Szczecin Goleniow Airport (SZZ)', 'Szczecin Downtown', 'Szczecin Train Station']) {
+  assert.equal(resolve({location, rental_days:2, group:'CDMV'}, fixed).amountPlnDay, 60);
+}
 for (const entry of registry.locations) {
   for (const zone of entry.zones) for (let day=1; day<=35; day++) {
     const band = day===1?0:day===2?1:day<=4?2:day<=7?3:day<=20?4:5;

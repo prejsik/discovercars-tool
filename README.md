@@ -67,7 +67,7 @@ Jak dziala:
 
 Domyslny zakres w chmurze:
 
-- `locations`: wszystkie 22 punkty z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
+- `locations`: wszystkie 25 punktow z `locations.config.json`, w tym wszystkie skonfigurowane oddzialy miejskie i lotniska,
 - `rolling_days`: `45` dla nocy, `20` dla runa dziennego
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
@@ -376,7 +376,7 @@ Duzy manualny zakres, np. caly miesiac, najlepiej uruchamiac chunkami tygodniowy
 npm run discovercars:chunked -- --month=2026-07 --durations=2,3,4,5,6,7,8,9,10,11,12,13,14 --output-dir=output\manual-july-2026-automatic --workbook="C:\path\to\rates.xlsx" --python="C:\path\to\python.exe"
 ```
 
-Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa wszystkich 22 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
+Domyslnie runner dzieli daty co `7` dni, uruchamia maksymalnie `2` chunki rownolegle, uzywa wszystkich 25 lokalizacji daily workflow, `legacy-batch`, `fast`, `retries=0`, `scenario-concurrency=2`, `location-concurrency=3` i globalnego limitu `max-active-pages=8`. Przy takim ukladzie efektywna rownoleglosc lokalizacji jest bezpiecznie obnizana do `2` (`2 x 2 x 2 = 8`). Po scaleniu runner zapisuje `report.html`, `pricing-recommendations.json`, `final-pricing-recommendations.json`, a jesli podano `--workbook`, takze `rates-updated.xlsx` oraz `rates-import-ready.xlsx`.
 
 Daily workflow uzywa tego samego runnera z `--rolling-days`, `--chunk-days=7` i `--skip-postprocess`, zeby scraper tylko zebral i scalil `output/results-latest.json`; dalsze kroki workflow generuja standardowy raport, rekomendacje, Excel i sanity check.
 
@@ -441,6 +441,12 @@ Jedynym zrodlem mapowania lokalizacji jest `locations.config.json`. Zawiera prof
 
 Jesli w bazie nie ma WR2, generator kopiuje wszystkie jego wiersze i stawki z WR1 (`zone_seeds`). Istniejace WR2 pozostaje bez zmian podczas tego kopiowania. Rekomendacje dworca zmieniaja tylko WR2 na podstawie jego wlasnego scrapera i standardowych zasad klas, dat i duration. Narzut brokera dla WR2 jest zatwierdzonym zamiennikiem z WR1, bez automatycznej kalibracji. Limit miejskiej stawki wzgledem lotniska odnosi WR2 do WRLO. Potwierdzona baza nie jest automatycznie podmieniana po wygenerowaniu Excela.
 
+Szczecin ma trzy odrebne punkty w codziennym scraperze: `Szczecin Goleniow Airport (SZZ)` (ID `1943`, Excel `SZLO`), `Szczecin Downtown` (ID `3445`, Excel `SZO1`, litera O) oraz `Szczecin Train Station` (ID `355153`, Excel `SZ1`). Nie korzystamy z wynikow dla `Szczecin (all locations)` ani innego punktu jako zamiennika. ID potwierdzono w autocomplete DiscoverCars 03.10.2026.
+
+Na wyrazne polecenie uzytkownika baza zostala rozszerzona o `SZLO`, `SZO1` i `SZ1`, po 900 wierszy skopiowanych z `LOLO`. Zrodlo wybrano po porownaniu sredniej szesciu przedzialow dobowych dla klas CDMV/CGAV/CWAV/CWMR/EDAV/EDMV w potwierdzonej bazie z 02.10.2026: LOLO ma najwyzsza srednia 134,48 PLN/dobe. Kopiowane sa wszystkie klasy i wiersze LOLO, takze ukryte/filtrowane; dotychczasowe wiersze, stawki i naglowki pozostaja bez zmian. Rozszerzona baza zawiera 24 831 wierszy wraz z naglowkami. Manifest rozroznia potwierdzony plik zrodlowy od zatwierdzonych stawek poczatkowych nowych stref, ktorych wgranie do brokera nie zostalo jeszcze potwierdzone. Generator uzupelnia brakujace strefy tylko raz; rekomendacje kazdego punktu korzystaja z jego wlasnego scrapera, nie ze stalego kopiowania cen LOLO. Limit miejski 130% odnosi `SZO1` i `SZ1` do `SZLO`.
+
+Na wyrazne zyczenie uzytkownika trzy punkty Szczecina korzystaja tymczasowo z najwiekszego obecnie zatwierdzonego narzutu, z Katowice Downtown: 1 dzien +70, 2 dni +60, 3-4 dni +44, 5-7 dni +41, 8-20 dni +44, 21-35 dni +44 PLN/dobe. To zalozenie, nie zmierzona prowizja w Szczecinie. Pozostale narzuty, doplaty klas i zasady cenowe sa bez zmian; wybor zrodla cen i narzutu nie jest automatycznie aktualizowany.
+
 Workbook zawiera tez arkusze kontrolne:
 
 - `Recommendations Review` - jeden wiersz na zgrupowana rekomendacje z kolumna `Akceptacja?`, polskim statusem, uwagami kontroli i opisem decyzji.
@@ -464,7 +470,7 @@ Rekomendacje stosuja staly kwotowy narzut PLN/doba z `input/broker-markup-frozen
 
 Automatyczne pomiary, obserwacje i uczenie narzutu sa wylaczone (`manualOnly`). Workflow kopiuje zatwierdzona tabele do `broker-markup-calibration.json`, nie odczytuje modelu z poprzedniego raportu. Kontrole jakosci scrapera i weryfikacja cen konkurencji pozostaja aktywne. Zmiana tabeli lub ponowny audyt narzutu wymaga wyraznego polecenia uzytkownika. Wartosci sa ostroznymi zalozeniami, nie gwarancja prowizji; plik opisuje lokalizacje zastepcze i przedzialy ekstrapolowane. Starsze rekomendacje z innym modelem sa blokowane przy scalaniu, nie przeliczane ze starych celow.
 
-`input/baseline-manifest.json` zapisuje SHA256, status i date potwierdzenia pliku bazowego. Tylko status `confirmed_imported` albo `verified_live` z hashem zgodnym z `input/mm-cars-rental-rates-inclusive-fp.xlsx` pozwala zmienic Sheet1. Nowy plik przygotowany, ale jeszcze niewgrany na DiscoverCars, nie moze zostac uzyty jako produkcyjny baseline. Narzut nie jest ponownie mierzony przy scraperze ani generowaniu Excela.
+`input/baseline-manifest.json` zapisuje SHA256, status i date potwierdzenia pliku bazowego. Status `confirmed_imported` albo `verified_live` z hashem zgodnym z `input/mm-cars-rental-rates-inclusive-fp.xlsx` pozwala zmienic Sheet1. Wyjatek `user_approved_extension` wymaga wyraznej zgody uzytkownika, zapisu potwierdzonego pliku zrodlowego i dopisanych stref: pozwala generowac rekomendacje, ale nie oznacza potwierdzenia importu nowych stawek i nie pozwala kalibrowac narzutu. Sam status `prepared` pozostaje zablokowany. Narzut nie jest ponownie mierzony przy scraperze ani generowaniu Excela.
 
 Kolory w Excelu:
 
