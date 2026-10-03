@@ -24,7 +24,7 @@ function formatDuration(totalSeconds) {
   return hours > 0 ? `${hours} h ${minutes} min` : `${totalMinutes} min`;
 }
 
-function summarizeNumberList(value) {
+function summarizeNumberList(value, rangeSeparator = "-") {
   const numbers = [...new Set(String(value || "")
     .split(",")
     .map((item) => Number.parseInt(item.trim(), 10))
@@ -35,7 +35,7 @@ function summarizeNumberList(value) {
   }
   const contiguous = numbers.every((number, index) => index === 0 || number === numbers[index - 1] + 1);
   return contiguous && numbers.length > 1
-    ? `${numbers[0]}-${numbers[numbers.length - 1]}`
+    ? `${numbers[0]}${rangeSeparator}${numbers[numbers.length - 1]}`
     : numbers.join(", ");
 }
 
@@ -97,19 +97,64 @@ function formatIsoDate(isoDate) {
   return `${day}.${month}.${year}`;
 }
 
-function formatAverageChange(value) {
+function startDatesLabel(options, env) {
+  const sources = [
+    options.expectedScope?.start_dates,
+    options.results?.collection_scope?.start_dates,
+    options.results?.start_dates,
+    String(env.START_DATES || "").split(","),
+    (Array.isArray(options.results?.scenarios) ? options.results.scenarios : options.results ? [options.results] : [])
+      .map((scenario) => scenario?.start_date || scenario?.pickup_date)
+  ];
+  let dates = [];
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    dates = [...new Set(source.map((date) => String(date || "").trim().slice(0, 10)).filter((date) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date))
+      && new Date(date).toISOString().slice(0, 10) === date))].sort();
+    if (dates.length) break;
+  }
+  if (!dates.length) return "brak danych";
+  if (dates.length === 1) return formatIsoDate(dates[0]);
+  const contiguous = dates.every((date, index) => !index || Date.parse(date) - Date.parse(dates[index - 1]) === 86400000);
+  if (!contiguous) {
+    return `${dates.slice(0, 10).map(formatIsoDate).join(", ")}${dates.length > 10 ? `; pozostałe daty: ${dates.length - 10}` : ""}`;
+  }
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const firstLabel = first.slice(0, 7) === last.slice(0, 7) ? first.slice(8)
+    : first.slice(0, 4) === last.slice(0, 4) ? `${first.slice(8)}.${first.slice(5, 7)}` : formatIsoDate(first);
+  return `${firstLabel}–${formatIsoDate(last)}`;
+}
+
+function nonNegativeCount(value) {
+  if ((typeof value !== "number" && typeof value !== "string") || value === "") return null;
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+function priceCoverageLabel(quality) {
+  const expected = nonNegativeCount(quality.expected_location_check_count);
+  const missing = nonNegativeCount(quality.missing_top3_count);
+  if (!expected || missing == null || missing > expected) return "Dane cenowe: brak danych.";
+  const found = expected - missing;
+  const percent = found === expected ? 100 : Math.min(99.99, found / expected * 100);
+  return `Dane cenowe uzyskano dla ${found}/${expected} sprawdzeń (${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(percent)}%).`;
+}
+
+function formatAverageMagnitude(value) {
   if (value == null || value === "") {
-    return "brak";
+    return "brak danych";
   }
   const number = Number(value);
   if (!Number.isFinite(number)) {
-    return "brak";
+    return "brak danych";
   }
   const formatted = new Intl.NumberFormat("pl-PL", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(number);
-  return `${number > 0 ? "+" : ""}${formatted} PLN/dzień`;
+  }).format(Math.abs(number));
+  return `${formatted} PLN/dobę`;
 }
 
 function truncateText(value, maxLength) {
@@ -153,11 +198,7 @@ function buildTelegramSummary(options = {}) {
   const qualityStatus = env.QUALITY_STATUS === "failure" || quality.status === "failure" || quality.publication_status === "blocked"
     ? "failure" : quality.status || env.QUALITY_STATUS || "failure";
   const domVerification = quality.dom_verification || summarizeDomVerification(options.recommendations);
-  const partial = quality.publication_status === "partial"
-    || Boolean(domVerification && (domVerification.blocked_count || domVerification.budget_exhausted));
   const completionMessages = buildCompletionMessages({ ...quality, dom_verification: domVerification });
-  const recommendations = recommendationStats(options.recommendations);
-  const excelChangeCount = Number(options.excelSummary?.change_count);
   const alerts = Array.isArray(options.qualityAlerts?.alerts) ? options.qualityAlerts.alerts : [];
   const blockingAlerts = Array.isArray(options.qualityAlerts?.blocking_alerts)
     ? options.qualityAlerts.blocking_alerts
@@ -182,11 +223,11 @@ function buildTelegramSummary(options = {}) {
     ? "BŁĄD"
     : publicationFailure
       ? "BŁĄD PUBLIKACJI"
-      : partial ? "CZĘŚCIOWO GOTOWE" : "GOTOWE";
+      : "GOTOWE";
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
   const missingMmStartDates = listStartDatesWithoutMm(options.results);
   const missingMmAlert = missingMmStartDates.length
-    ? `ALERT: MM Cars Rental niewidoczne nigdzie dla start date: ${missingMmStartDates.slice(0, 10).map(formatIsoDate).join(", ")}${missingMmStartDates.length > 10 ? ` · Pozostałe daty bez MM: ${missingMmStartDates.length - 10}.` : ""}`
+    ? `ALERT: nie potwierdzono oferty MM Cars Rental w żadnej lokalizacji dla dat startu: ${missingMmStartDates.slice(0, 10).map(formatIsoDate).join(", ")}${missingMmStartDates.length > 10 ? ` · Pozostałe daty bez MM: ${missingMmStartDates.length - 10}.` : ""}`
     : "";
   const recommendationSurgeAlert = options.recommendationWorkload?.recommendation_surge
     ? String(options.recommendationWorkload.alert || "ALERT: nietypowy wzrost liczby aktywnych rekomendacji.")
@@ -238,26 +279,30 @@ function buildTelegramSummary(options = {}) {
     ].join("\n");
   }
 
+  const statistics = options.excelSummary?.change_statistics || {};
+  const increases = nonNegativeCount(statistics.increase_count);
+  const decreases = nonNegativeCount(statistics.decrease_count);
+  const conflictCount = nonNegativeCount(options.excelSummary?.city_top1_airport_cap_conflict_count);
+  const durations = options.expectedScope?.durations || env.DURATIONS || options.results?.rental_day_options;
   const lines = [
-    `DiscoverCars | ${statusLabel}`,
+    "DiscoverCars",
     "",
-    `Zakres: ${rangeLabel(env)}`,
-    ...completionMessages,
-    ...(priceConflictAlert ? [priceConflictAlert] : []),
+    `Daty startu: ${startDatesLabel(options, env)}`,
+    `Czas trwania: ${summarizeNumberList(durations, "–")} dni`,
+    priceCoverageLabel(quality),
+    "Tam, gdzie nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek.",
     ...(missingMmAlert ? [missingMmAlert] : []),
-    ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
-    `Rekomendacje: ${recommendations.total} (podwyżki ${recommendations.increases}, obniżki ${recommendations.decreases})`,
-    `Excel: ${Number.isFinite(excelChangeCount) ? excelChangeCount : "brak danych"} zmian · ${excelReady ? "gotowy do importu" : "niedostępny"}`,
-    `Średnia zmiana: podwyżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_increase_pln_day)} · obniżka ${formatAverageChange(options.excelSummary?.change_statistics?.average_decrease_pln_day)}`,
-    `Czas: ${timeLabel}`
+    "",
+    increases == null || decreases == null ? "Zmiany w Excelu: brak danych."
+      : `Zmiany w Excelu: ${increases} podwyżek i ${decreases} obniżek stawek.`,
+    ...(increases > 0 ? [`Średnia podwyżka względem bazy: ${formatAverageMagnitude(statistics.average_increase_pln_day)}.`] : []),
+    ...(decreases > 0 ? [`Średnia obniżka względem bazy: ${formatAverageMagnitude(statistics.average_decrease_pln_day)}.`] : []),
+    ...(conflictCount > 0 ? [`Pominięto ${conflictCount} przedziałów stawek ze względu na zasady cenowe. Szczegóły w rekomendacjach.`] : []),
+    "",
+    `Import: ${excelUrl}`,
+    `Rekomendacje: ${excelReportUrl}`,
+    `Raport cen: ${reportUrl}`
   ];
-  if (qualityStatus === "degraded") {
-    lines.push(`Ostrzeżenia: ${alerts.length} · szczegóły w raporcie`);
-  }
-  lines.push("", `Raport: ${reportUrl}`);
-  if (excelReady) {
-    lines.push(`Excel importowy: ${excelUrl}`, `Excel z rekomendacjami: ${excelReportUrl}`);
-  }
   return lines.join("\n");
 }
 
@@ -270,6 +315,7 @@ function buildTelegramSummaryFromFiles(env = process.env) {
     qualityAlerts: safeReadJson(path.join(outputDir, "quality-alerts.json")),
     recommendationWorkload: safeReadJson(path.join(outputDir, "recommendation-workload.json")),
     results: safeReadJson(path.join(outputDir, "results-latest.json")),
+    expectedScope: safeReadJson(path.join(outputDir, "scrape-scope.json")),
     reportAvailable: fs.existsSync(path.join(outputDir, "report.html")),
     excelAvailable: fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx"))
       && fs.existsSync(path.join(outputDir, "rates-updated.xlsx"))

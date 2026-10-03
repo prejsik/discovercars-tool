@@ -1383,11 +1383,12 @@ runTest("Telegram summary keeps durations and elapsed time compact", () => {
   assert.equal(formatDuration(15120), "4 h 12 min");
 });
 
-runTest("Telegram success summary contains only decision-ready details", () => {
+runTest("Telegram success summary reports actual Excel changes instead of candidate counts", () => {
   const message = buildTelegramSummary({
     env: {
       QUALITY_STATUS: "success",
-      ROLLING_DAYS: "45",
+      ROLLING_DAYS: "2",
+      START_DATES: "2026-10-04,2026-10-05",
       DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14",
       RUN_STARTED_EPOCH: "1000",
       SCRAPER_DURATION_SECONDS: "13800",
@@ -1406,34 +1407,89 @@ runTest("Telegram success summary contains only decision-ready details", () => {
       ]
     },
     excelSummary: {
-      change_count: 14,
+      change_count: 6,
       change_statistics: {
-        increase_count: 8,
+        increase_count: 0,
         decrease_count: 6,
-        average_increase_pln_day: 12.345,
-        average_decrease_pln_day: -8.2
+        average_increase_pln_day: null,
+        average_decrease_pln_day: -33.16
       }
     },
-    qualityAlerts: { alerts: [] }
+    qualityAlerts: { status: "degraded", publication_status: "partial", alerts: ["Brak potwierdzenia cen."],
+      expected_location_check_count: 650, missing_top3_count: 13 }
   });
 
   assert.equal(message, [
-    "DiscoverCars | GOTOWE",
+    "DiscoverCars",
     "",
-    "Zakres: rolling 45 dni · najem 2-14 dni",
-    "Rekomendacje: 2 (podwyżki 1, obniżki 1)",
-    "Excel: 14 zmian · gotowy do importu",
-    "Średnia zmiana: podwyżka +12,35 PLN/dzień · obniżka -8,20 PLN/dzień",
-    "Czas: 4 h 12 min (scraper 3 h 50 min)",
+    "Daty startu: 04–05.10.2026",
+    "Czas trwania: 2–14 dni",
+    "Dane cenowe uzyskano dla 637/650 sprawdzeń (98%).",
+    "Tam, gdzie nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek.",
     "",
-    "Raport: https://example.test/report.html",
-    "Excel importowy: https://example.test/import.xlsx",
-    "Excel z rekomendacjami: https://example.test/recommendations.xlsx"
+    "Zmiany w Excelu: 0 podwyżek i 6 obniżek stawek.",
+    "Średnia obniżka względem bazy: 33,16 PLN/dobę.",
+    "",
+    "Import: https://example.test/import.xlsx",
+    "Rekomendacje: https://example.test/recommendations.xlsx",
+    "Raport cen: https://example.test/report.html"
   ].join("\n"));
-  assert.doesNotMatch(message, /Scenariusze|sprawdzenia|GitHub Actions/);
+  assert.doesNotMatch(message, /Sprawdzono|rolling|CZĘŚCIOWO GOTOWE|Ostrzeżenia:|Czas:/);
 });
 
-runTest("Telegram summary highlights a recommendation surge above 100 percent", () => {
+runTest("Telegram start dates retain the planned scope when a whole date has no results", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", DURATIONS: "2,3", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    expectedScope: { start_dates: ["2026-10-30", "2026-10-31", "2026-11-01"], durations: [2, 3] },
+    results: { start_dates: ["2026-10-30"], scenarios: [{ start_date: "2026-10-30" }] },
+    qualityAlerts: { status: "degraded", expected_location_check_count: 6, missing_top3_count: 4 },
+    excelSummary: { change_statistics: { increase_count: 0, decrease_count: 0 } }
+  });
+  assert.match(message, /Daty startu: 30\.10–01\.11\.2026/);
+  assert.match(message, /Dane cenowe uzyskano dla 2\/6 sprawdzeń \(33,33%\)/);
+  assert.doesNotMatch(message, /Średnia (podwyżka|obniżka)/);
+});
+
+runTest("Telegram sparse dates do not imply checking the days in between", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", START_DATES: "2026-10-06,2026-10-04", DURATIONS: "2,5", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" }, excelSummary: { change_statistics: { increase_count: 0, decrease_count: 0 } }
+  });
+  assert.match(message, /Daty startu: 04\.10\.2026, 06\.10\.2026/);
+  assert.match(message, /Czas trwania: 2, 5 dni/);
+});
+
+runTest("Telegram displays both average magnitudes from the actual changed Excel cells", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" },
+    excelSummary: { change_statistics: { increase_count: 8, decrease_count: 6,
+      average_increase_pln_day: 12.345, average_decrease_pln_day: -8.2 } }
+  });
+  assert.match(message, /Średnia podwyżka względem bazy: 12,35 PLN\/dobę\./);
+  assert.match(message, /Średnia obniżka względem bazy: 8,20 PLN\/dobę\./);
+});
+
+runTest("Telegram cannot invent zero Excel changes or full coverage from absent statistics", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" }, recommendations: { recommendations: [{ action: "increase" }] }, excelSummary: {}
+  });
+  assert.match(message, /Dane cenowe: brak danych/);
+  assert.match(message, /Zmiany w Excelu: brak danych/);
+  assert.doesNotMatch(message, /100%|0 podwyżek|0 obniżek|Średnia/);
+});
+
+runTest("Telegram coverage cannot round one missing price up to 100 percent", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "degraded", expected_location_check_count: 100000, missing_top3_count: 1 }
+  });
+  assert.match(message, /99999\/100000 sprawdzeń \(99,99%\)/);
+  assert.doesNotMatch(message, /\(100%\)/);
+});
+
+runTest("Telegram successful publication leaves candidate surge diagnostics in the report", () => {
   const message = buildTelegramSummary({
     env: {
       QUALITY_STATUS: "success",
@@ -1453,10 +1509,10 @@ runTest("Telegram summary highlights a recommendation surge above 100 percent", 
     }
   });
 
-  assert.match(message, /ALERT: liczba aktywnych rekomendacji wzrosla o 150% \(2 -> 5\)\./);
+  assert.doesNotMatch(message, /liczba aktywnych rekomendacji|150%/);
 });
 
-runTest("Telegram success summary reports at most three skipped floor-cap bands with exact reasons", () => {
+runTest("Telegram successful publication summarizes policy skips without technical details", () => {
   const conflicts = Array.from({ length: 5 }, (_, index) => ({
     zone: `Warsaw City ${index + 1}`,
     pickup_date: `2026-10-${String(index + 1).padStart(2, "0")}`,
@@ -1484,12 +1540,9 @@ runTest("Telegram success summary reports at most three skipped floor-cap bands 
   };
   const message = buildTelegramSummary(options);
 
-  assert.match(message, /^DiscoverCars \| GOTOWE/);
-  assert.match(message, /ALERT CENOWY: pominięto 5 pasm cenowych z powodu konfliktu floor\/cap\./);
-  assert.match(message, /Warsaw City 1 · 01\.10\.2026 · 1-3 dni · grupy CDMV, EDAV: Floor 150 PLN przekracza cap 130 PLN\./);
-  assert.match(message, /Warsaw City 3 · 03\.10\.2026 · 1-3 dni · grupy CDMV, EDAV: Floor 152 PLN przekracza cap 132 PLN\./);
-  assert.match(message, /Pozostałe konflikty: 2\./);
-  assert.doesNotMatch(message, /Warsaw City 4|Warsaw City 5/);
+  assert.match(message, /^DiscoverCars\n/);
+  assert.match(message, /Pominięto 5 przedziałów stawek ze względu na zasady cenowe\. Szczegóły w rekomendacjach\./);
+  assert.doesNotMatch(message, /floor\/cap|Warsaw City/);
   assert(message.length < 4096);
 
   const oversizedMessage = buildTelegramSummary({
@@ -1506,7 +1559,7 @@ runTest("Telegram success summary reports at most three skipped floor-cap bands 
       }))
     }
   });
-  assert.match(oversizedMessage, /Floor 150 PLN przekracza cap 130 PLN\./);
+  assert.match(oversizedMessage, /Pominięto 5 przedziałów stawek/);
   assert(oversizedMessage.length < 4096);
 });
 
@@ -1536,8 +1589,9 @@ runTest("Telegram alerts only when MM is absent everywhere for a start date", ()
     }
   });
 
-  assert.match(message, /ALERT: MM Cars Rental niewidoczne nigdzie dla start date: 20\.08\.2026/);
-  assert.doesNotMatch(message, /21\.08\.2026|22\.08\.2026/);
+  const alertLine = message.split("\n").find((line) => line.startsWith("ALERT:"));
+  assert.match(alertLine, /MM Cars Rental.*20\.08\.2026/);
+  assert.doesNotMatch(alertLine, /21\.08\.2026|22\.08\.2026/);
 });
 
 runTest("Telegram failure summary leads with the blocking reason", () => {
@@ -1565,10 +1619,10 @@ runTest("Telegram failure summary leads with the blocking reason", () => {
   assert.match(message, /Powód: Brak obowiązkowego sanity checku\./);
   assert.match(message, /Zakres: 2 konkretnych dat · najem 2, 5, 10 dni/);
   assert.match(message, /GitHub Actions: https:\/\/example\.test\/actions\/1/);
-  assert.doesNotMatch(message, /Drugi powód|Excel importowy|Rekomendacje:/);
+  assert.doesNotMatch(message, /Drugi powód|^Import:|^Rekomendacje:/m);
 });
 
-runTest("Telegram degraded summary keeps the Excel link and warning count", () => {
+runTest("Telegram degraded summary keeps safe Excel links without generic warning counts", () => {
   const message = buildTelegramSummary({
     env: {
       QUALITY_STATUS: "degraded",
@@ -1584,10 +1638,10 @@ runTest("Telegram degraded summary keeps the Excel link and warning count", () =
     qualityAlerts: { alerts: ["Pierwsze.", "Drugie."] }
   });
 
-  assert.match(message, /^DiscoverCars \| GOTOWE\n/);
+  assert.match(message, /^DiscoverCars\n/);
   assert.doesNotMatch(message, /GOTOWE Z OSTRZEŻENIAMI/);
-  assert.match(message, /Ostrzeżenia: 2 · szczegóły w raporcie/);
-  assert.match(message, /Excel importowy: https:\/\/example\.test\/import\.xlsx/);
+  assert.doesNotMatch(message, /Ostrzeżenia:/);
+  assert.match(message, /Import: https:\/\/example\.test\/import\.xlsx/);
 });
 
 runTest("Telegram falls back to artifacts when GitHub Pages deployment fails", () => {
@@ -1606,10 +1660,10 @@ runTest("Telegram falls back to artifacts when GitHub Pages deployment fails", (
     qualityAlerts: { alerts: [] }
   });
 
-  assert.match(message, /^DiscoverCars \| GOTOWE/);
-  assert.match(message, /Raport: https:\/\/example\.test\/results-artifact/);
-  assert.match(message, /Excel importowy: https:\/\/example\.test\/excel-artifact/);
-  assert.match(message, /Excel z rekomendacjami: https:\/\/example\.test\/excel-artifact/);
+  assert.match(message, /^DiscoverCars\n/);
+  assert.match(message, /Raport cen: https:\/\/example\.test\/results-artifact/);
+  assert.match(message, /Import: https:\/\/example\.test\/excel-artifact/);
+  assert.match(message, /Rekomendacje: https:\/\/example\.test\/excel-artifact/);
 });
 
 runTest("Telegram reports publication failure instead of false success", () => {

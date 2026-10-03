@@ -238,9 +238,10 @@ test("4424 of 8012 verified changes expose partial status and budgeted counts", 
 test("partial Telegram keeps Excel links and concise nontechnical completion", () => {
   const qualityAlerts = buildQualityReport(domInput);
   const message = buildTelegramSummary({ env, ...publicationInput, qualityAlerts, excelAvailable: true, reportAvailable: true });
-  assert.match(message, /^DiscoverCars \| CZĘŚCIOWO GOTOWE/);
-  assert.match(message, /Sprawdzono 4424\/8012; pominięto 3588 zmian przez limit czasu/);
-  assert.match(message, /Excel importowy: https:\/\/example.test\/import.xlsx/);
+  assert.match(message, /^DiscoverCars\n/);
+  assert.match(message, /Dane cenowe uzyskano dla 1\/1 sprawdzeń \(100%\)/);
+  assert.match(message, /nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek/);
+  assert.match(message, /Import: https:\/\/example.test\/import.xlsx/);
   assert.doesNotMatch(message, /\bAPI\b|\bDOM\b|8012.*4424.*8012/);
   assert(message.length < 4096);
 });
@@ -255,15 +256,15 @@ test("partial HTML exposes the same completion without technical tags", () => {
 test("a partial scrape completion is bounded and does not hide safe Excel", () => {
   const qualityAlerts = buildQualityReport({ ...publicationInput, expectedScope: fullScope, results: { scenarios: [fullResults.scenarios[0]] } });
   const message = buildTelegramSummary({ env, ...publicationInput, qualityAlerts, excelAvailable: true });
-  assert.match(message, /Zakres sprawdzony: 1\/780/);
-  assert.match(message, /Excel importowy:/);
+  assert.match(message, /Dane cenowe uzyskano dla 2\/1560 sprawdzeń \(0,13%\)/);
+  assert.match(message, /Import:/);
   assert(message.length < 4096);
 });
 
 test("a workflow failure cannot be overwritten by a stale successful quality file", () => {
   const message = buildTelegramSummary({ env: { ...env, QUALITY_STATUS: "failure" }, qualityAlerts: { status: "success", publication_status: "complete" }, ...publicationInput, excelAvailable: true });
   assert.match(message, /^DiscoverCars \| BŁĄD\n/);
-  assert.doesNotMatch(message, /Excel importowy:/);
+  assert.doesNotMatch(message, /^Import:|^Rekomendacje:/m);
 });
 
 test("partial data never bypass failed Excel validation or required sanity verification", () => {
@@ -282,7 +283,7 @@ test("invalid currency in a displayed offer view cannot escape the scope quality
 
 test("raw verification counts in a quality file still produce numeric completion", () => {
   const message = buildTelegramSummary({ env, ...publicationInput, qualityAlerts: { status: "degraded", publication_status: "partial", dom_verification: domInput.recommendations.dom_verification }, excelAvailable: true });
-  assert.match(message, /Sprawdzono 4424\/8012/);
+  assert.match(message, /Dane cenowe: brak danych/);
   assert.doesNotMatch(message, /undefined|NaN/);
 });
 

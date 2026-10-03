@@ -169,7 +169,8 @@ const pagesRetryCases = [
     assert.equal(result.deployedSnapshot, 'attempt-2');
     assert.equal(result.artifacts.length, 2);
     assert.equal(result.failed, false);
-    assert.match(result.message, /^DiscoverCars \| GOTOWE\n/);
+    assert.match(result.message, /^DiscoverCars\n/);
+    assert.match(result.message, /Import: https:\/\/example\.test\/excel/);
   }],
   ['failed upload produces a publication alert even when downloadable artifacts exist', () => {
     const result = pagesRetry({ attempt: '2', artifacts: firstPagesAttempt.artifacts, uploadFails: true });
