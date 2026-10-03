@@ -116,6 +116,36 @@ function normalizeSpeedMode(value) {
   return "safe";
 }
 
+function createDomEvidence() {
+  return {
+    automatic_filter_confirmed: false,
+    price_sort_confirmed: false,
+    ranking_complete: false,
+    listing_complete: false,
+    expected_offer_count: null,
+    observed_offer_count: 0,
+    read_pass_count: 0
+  };
+}
+
+async function withinDomDeadline(operation, deadline) {
+  let timer;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error("Rendered DOM read deadline exhausted.");
+          error.code = "DOM_READ_TIMEOUT";
+          reject(error);
+        }, Math.max(0, deadline - Date.now()));
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 class DiscoverCarsScraper {
   constructor(config) {
     this.config = { ...config, pinnedLocationIds: config.pinnedLocationIds || DEFAULT_PINNED_LOCATION_IDS };
@@ -159,6 +189,7 @@ class DiscoverCarsScraper {
     const failures = [];
     const offerViewsByLocation = {};
     const sourceValidationByLocation = {};
+    const domEvidenceByLocation = {};
     const locations = Array.isArray(this.config.locations) ? [...this.config.locations] : [];
     const workerCount = clampPositiveInteger(this.config.locationConcurrency, 1, 1, 6);
     const boundedWorkers = Math.max(1, Math.min(workerCount, locations.length || 1));
@@ -185,6 +216,7 @@ class DiscoverCarsScraper {
       for (let index = 0; index < locations.length; index += 1) {
         const location = locations[index];
         const outcome = outcomes[index];
+        domEvidenceByLocation[location] = outcome?.domEvidence || createDomEvidence();
         if (!outcome) {
           failures.push({ location, error: "Unknown scraper failure." });
           console.log(`ERR ${location} -> Unknown scraper failure.`);
@@ -210,7 +242,7 @@ class DiscoverCarsScraper {
       }
     }
 
-    return { results, failures, offerViewsByLocation, sourceValidationByLocation, telemetry: this.buildApiDomTelemetrySummary() };
+    return { results, failures, offerViewsByLocation, sourceValidationByLocation, domEvidenceByLocation, telemetry: this.buildApiDomTelemetrySummary() };
   }
 
   resolveLaunchOptions() {
@@ -241,7 +273,7 @@ class DiscoverCarsScraper {
         apiOutcome = await this.runSingleLocationViaApi(location);
         this.apiDomTelemetry.api_success_count += 1;
         if (!this.shouldValidateApiOutcome(location, apiOutcome.results)) {
-          return { ...apiOutcome, sourceValidation: { status: "api_unverified", reasons: [] } };
+          return { ...apiOutcome, domEvidence: createDomEvidence(), sourceValidation: { status: "api_unverified", reasons: [] } };
         }
       } catch (apiError) {
         this.apiDomTelemetry.api_failure_count += 1;
@@ -279,22 +311,31 @@ class DiscoverCarsScraper {
           this.filterOffersByConfiguredTransmission(apiOutcome.offerViews?.all || apiOutcome.results),
           this.filterOffersByConfiguredTransmission(browserOutcome.offerViews?.all || browserOutcome.results)
         );
+        if (!browserOutcome.domEvidence?.ranking_complete) {
+          comparison.confirmed = false;
+          comparison.complete = false;
+          comparison.reasons.push("dom_ranking_incomplete");
+        }
         this.recordApiDomComparison(location, comparison);
         if (comparison.preferBrowser) {
           this.apiDomTelemetry.browser_preferred_count += 1;
-          return { ...browserOutcome, sourceValidation: {
+          return { ...browserOutcome, offerViews: {
+            ...browserOutcome.offerViews,
+            all: apiOutcome.offerViews?.all || browserOutcome.offerViews?.all
+          }, sourceValidation: {
             status: comparison.complete ? "api_dom_conflict_dom_used" : "api_dom_incomplete_dom_used", reasons: comparison.reasons
           } };
         }
         return {
           ...apiOutcome,
+          domEvidence: browserOutcome.domEvidence,
           sourceValidation: {
             status: comparison.confirmed ? "dom_confirmed" : "api_dom_conflict_api_used",
             reasons: comparison.reasons
           }
         };
       }
-      return { ...apiOutcome, sourceValidation: { status: "dom_validation_failed_api_used", reasons: ["dom_failure"] } };
+      return { ...apiOutcome, domEvidence: browserOutcome.domEvidence, sourceValidation: { status: "dom_validation_failed_api_used", reasons: ["dom_failure"] } };
     }
 
     const browser = await getBrowser();
@@ -305,6 +346,8 @@ class DiscoverCarsScraper {
   async runSingleLocationWithBrowser(browser, location, options = {}) {
     const domOnly = this.config.domOnly === true || options.domOnly === true;
     const requiredProviders = options.requiredProviders || this.config.requiredDomProvidersByLocation?.[location] || [];
+    const domEvidence = createDomEvidence();
+    const readOptions = { domOnly, requiredProviders, domEvidence, domReadBudget: {} };
     let context = null;
     let page = null;
 
@@ -333,7 +376,7 @@ class DiscoverCarsScraper {
         homepagePrepared = true;
       }
 
-      let allOffers = await this.tryDirectSearchFlow(page, location, responseCollector, { domOnly, requiredProviders });
+      let allOffers = await this.tryDirectSearchFlow(page, location, responseCollector, readOptions);
       let offers = this.filterOffersByConfiguredTransmission(allOffers);
 
       if (!offers.length) {
@@ -351,7 +394,7 @@ class DiscoverCarsScraper {
         if (!domOnly) await this.waitForCollectorOffers(responseCollector, fallbackCollectorWaitMs);
 
         if (domOnly || normalizeTransmissionFilter(this.config.transmissionFilter)) {
-          allOffers = await this.extractOffersFromDomWithScroll(page, location, { domOnly, requiredProviders });
+          allOffers = await this.extractOffersFromDomWithScroll(page, location, readOptions);
           offers = this.filterOffersByConfiguredTransmission(allOffers);
           if (!offers.length && !domOnly) {
             allOffers = await this.extractOffersFromPageScripts(page, location);
@@ -369,7 +412,7 @@ class DiscoverCarsScraper {
             offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
           if (!offers.length) {
-            allOffers = await this.extractOffersFromDomWithScroll(page, location);
+            allOffers = await this.extractOffersFromDomWithScroll(page, location, readOptions);
             offers = this.filterOffersByConfiguredTransmission(allOffers);
           }
         }
@@ -394,33 +437,43 @@ class DiscoverCarsScraper {
 
       const cheapest = locationOffers[0];
       const domProviders = new Set(filterOffersByTransmission(allOffers, "automatic").map((offer) => normalizeProviderForComparison(offer.provider)));
-      const incompleteReasons = domProviders.size < 3 ? ["dom_top3_incomplete"] : [];
+      const provenSmallListing = domEvidence.listing_complete && domEvidence.ranking_complete;
+      const incompleteReasons = domProviders.size < 3 && !provenSmallListing ? ["dom_top3_incomplete"] : [];
+      if (!domEvidence.automatic_filter_confirmed) incompleteReasons.push("dom_automatic_filter_unconfirmed");
+      if (!domEvidence.price_sort_confirmed) incompleteReasons.push("dom_price_sort_unconfirmed");
+      if (!domEvidence.ranking_complete) incompleteReasons.push("dom_ranking_incomplete");
       if (offers.some((offer) => !Number.isFinite(offer.totalPrice) || offer.totalPrice <= 0 || !offer.currency)) {
         incompleteReasons.push("invalid_offer_evidence");
       }
       if (new Set(offers.map((offer) => normalizeCurrency(offer.currency))).size > 1) {
         incompleteReasons.push("mixed_currency_evidence");
       }
-      if (requiredProviders.some((provider) => !domProviders.has(normalizeProviderForComparison(provider)))) {
+      if (!domEvidence.listing_complete && requiredProviders.some((provider) => !domProviders.has(normalizeProviderForComparison(provider)))) {
         incompleteReasons.push("dom_required_provider_missing");
       }
       return {
         ok: true,
         cheapest,
         results: locationOffers,
+        domEvidence,
         offerViews: this.buildOfferViews(allOffers, location),
         sourceValidation: allOffers.every((offer) => offer.source === "dom")
           ? { status: incompleteReasons.length ? "dom_incomplete" : "dom_only", reasons: incompleteReasons }
           : { status: "browser_unverified", reasons: ["non_dom_evidence"] }
       };
     } catch (error) {
-      if (page) {
+      if (page && !readOptions.domReadBudget.abandoned) {
         await this.captureFailureArtifacts(page, location);
       }
-      return { ok: false, error };
+      return { ok: false, error, domEvidence };
     } finally {
       if (context) {
-        await context.close().catch(() => {});
+        const closing = context.close().catch(() => {});
+        if (readOptions.domReadBudget.abandoned) {
+          await withinDomDeadline(closing, Date.now() + 1000).catch(() => {});
+        } else {
+          await closing;
+        }
       }
     }
   }
@@ -749,7 +802,8 @@ class DiscoverCarsScraper {
 
     await context.route("**/*", async (route) => {
       const resourceType = route.request().resourceType();
-      if (resourceType === "image" || resourceType === "font" || resourceType === "media") {
+      const supplierLogo = /(?:supplier|partner|logo)/i.test(route.request().url());
+      if ((resourceType === "image" && !supplierLogo) || resourceType === "font" || resourceType === "media") {
         await route.abort().catch(() => {});
         return;
       }
@@ -972,7 +1026,7 @@ class DiscoverCarsScraper {
     }
   }
 
-  async acceptCookies(page) {
+  async acceptCookies(page, options = {}) {
     const selectors = [
       "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
       "#onetrust-accept-btn-handler",
@@ -980,19 +1034,20 @@ class DiscoverCarsScraper {
       "[data-testid='cookie-accept-all']"
     ];
 
-    const deadline = Date.now() + 15000;
+    const deadline = Math.min(Date.now() + 15000, options.deadline ?? Infinity);
+    const clickTimeout = () => Math.max(1, Math.min(3000, deadline - Date.now()));
     while (Date.now() < deadline) {
       for (const selector of selectors) {
         const locator = page.locator(selector).first();
         if (await locator.isVisible().catch(() => false)) {
-          await locator.click({ timeout: 3000, force: true }).catch(() => {});
+          await locator.click({ timeout: clickTimeout(), force: true }).catch(() => {});
           await page.evaluate((cssSelector) => {
             const element = document.querySelector(cssSelector);
             if (element instanceof HTMLElement) {
               element.click();
             }
           }, selector).catch(() => {});
-          await page.waitForTimeout(800);
+          await page.waitForTimeout(Math.min(800, Math.max(0, deadline - Date.now())));
           if (!(await this.cookieBannerLooksVisible(page))) {
             return;
           }
@@ -1005,7 +1060,7 @@ class DiscoverCarsScraper {
       ]) {
         const button = page.getByRole("button", { name: pattern }).first();
         if (await button.isVisible().catch(() => false)) {
-          await button.click({ timeout: 3000, force: true }).catch(() => {});
+          await button.click({ timeout: clickTimeout(), force: true }).catch(() => {});
           await page.evaluate(() => {
             const buttonElement = Array.from(document.querySelectorAll("button"))
               .find((element) => /accept all cookies|accept all|accept/i.test((element.textContent || "").trim()));
@@ -1013,7 +1068,7 @@ class DiscoverCarsScraper {
               buttonElement.click();
             }
           }).catch(() => {});
-          await page.waitForTimeout(800);
+          await page.waitForTimeout(Math.min(800, Math.max(0, deadline - Date.now())));
           if (!(await this.cookieBannerLooksVisible(page))) {
             return;
           }
@@ -1024,7 +1079,7 @@ class DiscoverCarsScraper {
         return;
       }
 
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(Math.min(500, Math.max(0, deadline - Date.now())));
     }
   }
 
@@ -1822,11 +1877,27 @@ class DiscoverCarsScraper {
   }
 
   async extractOffersFromDom(page, fallbackLocation, options = {}) {
-    const rawCandidates = await page.evaluate((options) => {
+    const snapshot = await page.evaluate((options) => {
       const defaultLocation = options.defaultLocation;
       const includeSupplierRows = !options.domOnly && String(options.transmissionFilter || "").toLowerCase() !== "automatic";
       const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const results = [];
+      const isRendered = (node) => {
+        if (!node?.getClientRects().length) return false;
+        for (let element = node; element; element = element.parentElement) {
+          const style = window.getComputedStyle(element);
+          if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") return false;
+        }
+        return true;
+      };
+      const indexedSlots = Array.from(document.querySelectorAll(".SearchList-Card"));
+      const slots = (indexedSlots.length ? indexedSlots : Array.from(document.querySelectorAll(".SearchCar"))).filter(isRendered);
+      const slotIndex = (node) => {
+        const slot = node.closest(".SearchList-Card") || (node.matches(".SearchCar") ? node : null);
+        if (!slots.includes(slot)) return -1;
+        const value = slot?.getAttribute("data-search-list-card-index");
+        return value != null && /^\d+$/.test(value) ? Number(value) : slots.indexOf(slot);
+      };
       const parseRating = (value) => {
         const text = normalize(value).replace(",", ".");
         const matches = text.match(/\d+(?:\.\d+)?/g) || [];
@@ -1877,7 +1948,7 @@ class DiscoverCarsScraper {
         return "";
       };
 
-      const addCandidate = (providerText, priceText, ratingText = "", carName = "", transmissionText = "", offerId = null, source = "dom") => {
+      const addCandidate = (providerText, priceText, ratingText = "", carName = "", transmissionText = "", offerId = null, source = "dom", domIndex = -1) => {
         const provider = normalize(providerText);
         const price = normalize(priceText);
         const providerRating = parseRating(ratingText);
@@ -1893,6 +1964,7 @@ class DiscoverCarsScraper {
           carName: normalize(carName || "") || null,
           transmission: detectTransmission(transmissionText || carName) || null,
           offerId,
+          domIndex,
           source
         });
       };
@@ -1966,7 +2038,7 @@ class DiscoverCarsScraper {
             return true;
           }) || "";
         if (searchCarPriceLine && searchCarProvider) {
-          addCandidate(searchCarProvider, searchCarPriceLine, findRatingText(node), searchCarName, text, offerId);
+          addCandidate(searchCarProvider, searchCarPriceLine, findRatingText(node), searchCarName, text, offerId, "dom", slotIndex(node));
           continue;
         }
         if (options.domOnly) continue;
@@ -1990,20 +2062,80 @@ class DiscoverCarsScraper {
         }
       }
 
-      return results;
+      if (!options.readState) return results;
+      const automaticCheckbox = Array.from(document.querySelectorAll("input[type='checkbox'], [role='checkbox']")).find((node) => {
+        const label = node.getAttribute("aria-label") || node.closest("label")?.innerText
+          || (node.id ? document.querySelector(`label[for='${CSS.escape(node.id)}']`)?.innerText : "");
+        return isRendered(node) && /^automatic(?: transmission)?$/i.test(normalize(label));
+      });
+      const automaticRow = Array.from(document.querySelectorAll(".SearchFiltersGroup-FilterWrapper_transmission-a"))
+        .find(isRendered);
+      const automaticConfirmed = Boolean(automaticCheckbox?.checked || automaticCheckbox?.getAttribute("aria-checked") === "true"
+        || automaticRow?.querySelector(".SearchFiltersGroup-Filter_isActive"));
+      const sort = Array.from(document.querySelectorAll("select[aria-label='Sort by'], .SearchSorting-NativeSelectOverlay"))
+        .find((node) => node.getClientRects().length > 0 && window.getComputedStyle(node).visibility !== "hidden");
+      const priceConfirmed = /^price$/i.test(normalize(sort?.selectedOptions?.[0]?.textContent));
+      const primaryCounts = Array.from(document.querySelectorAll(".SearchSorting-ShownCars")).filter(isRendered);
+      const countNodes = primaryCounts.length ? primaryCounts : Array.from(document.querySelectorAll(".showing-cars")).filter(isRendered);
+      const counts = countNodes.map((node) => {
+        const text = normalize(node.textContent);
+        const composite = text.match(/^showing\s+(\d[\d ,]*)\s+(?:out\s+)?of\s+(\d[\d ,]*)\s+offers?$/i);
+        const match = composite || text.match(/^(\d[\d ,]*)\s*(?:offers?(?: found)?|cars?)?$/i);
+        if (!match) return null;
+        const count = Number(match[1].replace(/[ ,]/g, ""));
+        if (!Number.isSafeInteger(count) || (composite && count > Number(composite[2].replace(/[ ,]/g, "")))) return null;
+        return count;
+      });
+      const expectedCount = automaticConfirmed && counts.length && counts[0] != null
+        && counts.every((count) => count === counts[0]) ? counts[0] : null;
+      const pending = Array.from(document.querySelectorAll(
+        "[role='progressbar'], [aria-busy='true'], .SearchList-Loader, .SearchList-Loading, .SearchCarList-Loader, .SearchList [class*='Skeleton']"
+      )).some(isRendered);
+      const last = slots[slots.length - 1];
+      const pagination = Array.from(document.querySelectorAll(".Pagination")).find(isRendered);
+      const activePage = pagination?.querySelector("[aria-current='page']");
+      const pageNumber = activePage && /^\d+$/.test(normalize(activePage.textContent)) ? Number(normalize(activePage.textContent)) : null;
+      const nextPage = pagination?.querySelector(".Pagination-NavigationButton_next");
+      const nextAvailable = Boolean(nextPage && !nextPage.disabled && nextPage.getAttribute("aria-disabled") !== "true");
+      const paginationVisible = Boolean(pagination && pagination.getBoundingClientRect().top < window.innerHeight
+        && pagination.getBoundingClientRect().bottom > 0);
+      const quoteKeyOf = (slot) => {
+        const id = slot.getAttribute("data-offer-id") || slot.querySelector(".SearchCar[data-offer-id]")?.getAttribute("data-offer-id");
+        if (id) return `id:${id}`;
+        const href = slot.querySelector("a[href*='/offer/upsell/']")?.getAttribute("href");
+        try {
+          const pathname = new URL(href, window.location.href).pathname;
+          return pathname.startsWith("/offer/upsell/") ? `link:${pathname}` : null;
+        } catch { return null; }
+      };
+      return {
+        candidates: results,
+        state: {
+          automaticConfirmed, priceConfirmed, expectedCount, pending,
+          atListEnd: Boolean(last && last.getBoundingClientRect().bottom <= window.innerHeight + 2
+            && (pagination ? paginationVisible : window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2)),
+          atTop: window.scrollY <= 2,
+          indexed: slots.length > 0 && slots.every((slot) => /^\d+$/.test(slot.getAttribute("data-search-list-card-index") || "")),
+          pagination: pagination ? { page: pageNumber, nextAvailable } : null,
+          slots: slots.map((slot) => ({ index: slotIndex(slot), quoteKey: quoteKeyOf(slot) }))
+        }
+      };
     }, {
       defaultLocation: fallbackLocation,
       transmissionFilter: normalizeTransmissionFilter(this.config.transmissionFilter),
-      domOnly: this.config.domOnly === true || options.domOnly === true
+      domOnly: this.config.domOnly === true || options.domOnly === true,
+      readState: Boolean(options.readState)
     });
 
+    const rawCandidates = options.readState ? snapshot.candidates : snapshot;
     const offers = [];
+    const parsedByIndex = new Map();
     for (const candidate of rawCandidates) {
       const money = parseMoney(candidate.priceText);
       if (!money) {
         continue;
       }
-      offers.push({
+      const offer = {
         provider: normalizeWhitespace(candidate.provider),
         providerRating: Number.isFinite(candidate.providerRating) ? Number(candidate.providerRating) : null,
         totalPrice: money.value,
@@ -2013,6 +2145,17 @@ class DiscoverCarsScraper {
         transmission: normalizeTransmission(candidate.transmission) || null,
         source: candidate.source,
         offerId: candidate.offerId
+      };
+      offers.push(offer);
+      if (candidate.source === "dom" && candidate.domIndex >= 0 && !parsedByIndex.has(candidate.domIndex)) {
+        parsedByIndex.set(candidate.domIndex, offer);
+      }
+    }
+
+    if (options.readState) {
+      Object.assign(options.readState, snapshot.state, {
+        cards: snapshot.state.slots.map((slot) => ({ index: slot.index, quoteKey: slot.quoteKey,
+          offer: parsedByIndex.get(slot.index) || null }))
       });
     }
 
@@ -2022,38 +2165,237 @@ class DiscoverCarsScraper {
   async extractOffersFromDomWithScroll(page, fallbackLocation, options = {}) {
     const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
     const needsAutomaticEvidence = transmissionFilter === "automatic" || this.config.domOnly === true || options.domOnly === true;
-    const maxPasses = needsAutomaticEvidence ? 8 : 1;
-    const collected = [];
+    const evidence = options.domEvidence || createDomEvidence();
+    const previousReadCount = evidence.read_pass_count;
+    Object.assign(evidence, createDomEvidence(), { read_pass_count: previousReadCount });
+    const maxPasses = needsAutomaticEvidence ? clampPositiveInteger(this.config.domReadMaxPasses, 24, 1, 60) : 1;
+    const budget = options.domReadBudget || {};
+    const deadline = budget.deadline
+      || Date.now() + clampPositiveInteger(this.config.domReadTimeoutMs, 30_000, 500, 60_000);
+    budget.deadline = deadline;
+    if (budget.abandoned) throw new Error("Rendered DOM read was abandoned after its deadline.");
+    const bounded = async (operation) => {
+      try {
+        return await withinDomDeadline(operation, deadline);
+      } catch (error) {
+        evidence.ranking_complete = false;
+        evidence.listing_complete = false;
+        if (error.code === "DOM_READ_TIMEOUT") budget.abandoned = true;
+        throw error;
+      }
+    };
+    const retryLimit = clampPositiveInteger(this.config.domReadRetryLimit, 2, 1, 4);
     const requiredProviders = options.requiredProviders || this.config.requiredDomProvidersByLocation?.[fallbackLocation] || [];
+    const byIndex = new Map();
+    const quoteKeysByIndex = new Map();
+    let collected = [];
+    let readErrors = 0;
+    let controlAttempts = 0;
+    let stableEndPasses = 0;
+    let stableRankingPasses = 0;
+    let previousRankingSignature = null;
+    let previousExpected = null;
+    let pageNumber = 1;
+    let pageOffset = 0;
+    let pendingPage = null;
+    let priorPageQuoteKeys = new Set();
 
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-      collected.push(...await this.extractOffersFromDom(page, fallbackLocation, options));
+    if (needsAutomaticEvidence && evidence.read_pass_count < maxPasses && Date.now() < deadline) {
+      await bounded(this.prepareAutomaticDomSearch(page, deadline));
+      controlAttempts += 1;
+      await bounded(page.evaluate(() => window.scrollTo(0, 0)).catch(() => {}));
+    }
+
+    for (let pass = 0; evidence.read_pass_count < maxPasses && Date.now() < deadline; pass += 1) {
+      evidence.read_pass_count += 1;
+      const state = {};
+      let offers;
+      try {
+        offers = await bounded(this.extractOffersFromDom(page, fallbackLocation, { ...options, readState: state }));
+        readErrors = 0;
+      } catch (error) {
+        if (error.code === "DOM_READ_TIMEOUT") throw error;
+        stableEndPasses = 0;
+        stableRankingPasses = 0;
+        previousRankingSignature = null;
+        if (++readErrors > retryLimit) break;
+        await bounded(page.waitForTimeout(Math.min(300 * readErrors, Math.max(0, deadline - Date.now()))));
+        continue;
+      }
       if (!needsAutomaticEvidence) {
-        break;
+        evidence.observed_offer_count = state.cards.filter(({ offer }) => offer?.source === "dom"
+          && normalizeTransmission(offer.transmission) === "automatic").length;
+        return offers;
       }
 
-      const automaticProviders = new Set(
-        collected
-          .filter((offer) => normalizeTransmission(offer.transmission) === "automatic")
-          .map((offer) => normalizeProviderForComparison(offer.provider))
-          .filter(Boolean)
-      );
-      const hasMmCarsRental = collected.some((offer) => {
-        const provider = normalizeWhitespace(offer.provider).toLowerCase();
-        return normalizeTransmission(offer.transmission) === "automatic" && provider === "mm cars rental";
-      });
-      const requiredPresent = requiredProviders.every((provider) => automaticProviders.has(normalizeProviderForComparison(provider)));
-      if (automaticProviders.size >= (requiredProviders.length ? 3 : 4) && hasMmCarsRental && requiredPresent) {
+      evidence.automatic_filter_confirmed = state.automaticConfirmed;
+      evidence.price_sort_confirmed = state.priceConfirmed;
+      evidence.expected_offer_count = state.expectedCount;
+      const observedPage = state.pagination ? state.pagination.page : 1;
+      const identity = (offer) => JSON.stringify([offer?.provider, offer?.totalPrice, offer?.currency, offer?.transmission, offer?.carName, offer?.offerId]);
+      const validAutomatic = (offer) => offer?.source === "dom" && normalizeWhitespace(offer.provider)
+        && normalizeTransmission(offer.transmission) === "automatic" && Number.isFinite(offer.totalPrice)
+        && offer.totalPrice > 0 && offer.currency;
+      if (pendingPage) {
+        const replacementSeen = state.cards.length > 0 && state.cards.every(({ quoteKey }) =>
+          quoteKey && !pendingPage.previousQuoteKeys.has(quoteKey))
+          && new Set(state.cards.map(({ quoteKey }) => quoteKey)).size === state.cards.length;
+        if (observedPage === pendingPage.page && !state.pending && state.cards.some(({ index }) => index === 0)
+          && replacementSeen) {
+          pageOffset = pendingPage.offset;
+          pageNumber = pendingPage.page;
+          priorPageQuoteKeys = pendingPage.previousQuoteKeys;
+          pendingPage = null;
+        } else if (state.pending || observedPage == null || observedPage === pageNumber || observedPage === pendingPage.page) {
+          stableEndPasses = 0;
+          stableRankingPasses = 0;
+          previousRankingSignature = null;
+          await bounded(page.waitForTimeout(Math.min(400, Math.max(0, deadline - Date.now()))));
+          continue;
+        } else {
+          break;
+        }
+      } else if (observedPage !== pageNumber) {
         break;
       }
+      if (pageOffset > 0 && (state.cards.some(({ quoteKey }) => !quoteKey || priorPageQuoteKeys.has(quoteKey))
+        || new Set(state.cards.map(({ quoteKey }) => quoteKey)).size !== state.cards.length)) {
+        evidence.ranking_complete = false;
+        evidence.listing_complete = false;
+        break;
+      }
+      const cards = state.cards.map(({ index, offer }) => ({ index: pageOffset + index, offer }));
+      const changed = previousExpected !== state.expectedCount || cards.some(({ index, offer }) =>
+        byIndex.get(index) && offer && identity(byIndex.get(index)) !== identity(offer));
+      if (changed || !state.automaticConfirmed || !state.priceConfirmed) {
+        byIndex.clear();
+        quoteKeysByIndex.clear();
+        collected = [];
+        stableEndPasses = 0;
+        stableRankingPasses = 0;
+        previousRankingSignature = null;
+      }
+      previousExpected = state.expectedCount;
+      // Indexed cards allow a lazy/virtual list to be read across passes without filling gaps from API data.
+      const trustworthyRead = state.indexed || state.atTop;
+      if (trustworthyRead) {
+        for (const { index, offer } of cards) byIndex.set(index, offer);
+        for (const { index, quoteKey } of state.cards) quoteKeysByIndex.set(pageOffset + index, quoteKey);
+      }
+      const orderedObserved = [...byIndex.entries()].sort(([left], [right]) => left - right)
+        .map(([, offer]) => offer).filter(validAutomatic);
+      evidence.observed_offer_count = orderedObserved.length;
+      // A virtualized quote must not count as a second offer after moving to another cached slot.
+      const identifiedQuoteKeys = [...quoteKeysByIndex.values()].filter(Boolean);
+      const cachedQuotesUnique = new Set(identifiedQuoteKeys).size === identifiedQuoteKeys.length;
+      const orderValid = cachedQuotesUnique && cards.every(({ index }, position) => Number.isSafeInteger(index) && index >= pageOffset
+        && (!position || index > cards[position - 1].index)) && orderedObserved.every((offer, index) => !index
+        || (offer.currency === orderedObserved[index - 1].currency && offer.totalPrice >= orderedObserved[index - 1].totalPrice));
+      const prefix = [];
+      for (let index = 0; byIndex.has(index); index += 1) {
+        const offer = byIndex.get(index);
+        if (!validAutomatic(offer)) break;
+        const previous = prefix[prefix.length - 1];
+        if (previous && (offer.totalPrice < previous.totalPrice || offer.currency !== previous.currency)) break;
+        prefix.push(offer);
+      }
+      // Only independently parsed, gap-free card slots may enter the returned automatic ranking.
+      collected = prefix;
+      const providers = new Set(prefix.map((offer) => normalizeProviderForComparison(offer.provider)));
+      const requiredPresent = requiredProviders.every((provider) => providers.has(normalizeProviderForComparison(provider)));
+      const controlsConfirmed = state.automaticConfirmed && state.priceConfirmed;
+      const fullCount = state.expectedCount != null && state.expectedCount > 0
+        && prefix.length === state.expectedCount && evidence.observed_offer_count === state.expectedCount
+        && cards.some(({ index }) => index === state.expectedCount - 1);
+      stableEndPasses = controlsConfirmed && trustworthyRead && orderValid && fullCount && state.atListEnd
+        && !state.pagination?.nextAvailable && !state.pending ? stableEndPasses + 1 : 0;
+      evidence.listing_complete = stableEndPasses >= 2;
+      const rankingEligible = controlsConfirmed && trustworthyRead && orderValid && !state.pending && requiredPresent && providers.size >= 3;
+      const rankingSignature = JSON.stringify(prefix.map(identity));
+      stableRankingPasses = rankingEligible ? (previousRankingSignature === rankingSignature ? stableRankingPasses + 1 : 1) : 0;
+      previousRankingSignature = rankingEligible ? rankingSignature : null;
+      evidence.ranking_complete = stableRankingPasses >= 2 || (providers.size > 0 && evidence.listing_complete);
+      if (evidence.ranking_complete || evidence.listing_complete) break;
 
-      await page.evaluate(() => {
-        window.scrollBy(0, Math.max(window.innerHeight * 0.8, 700));
-      }).catch(() => {});
-      await page.waitForTimeout(700);
+      if ((!controlsConfirmed || !prefix.length) && controlAttempts < retryLimit + 1) {
+        await bounded(this.prepareAutomaticDomSearch(page, deadline));
+        controlAttempts += 1;
+        await bounded(page.evaluate(() => window.scrollTo(0, 0)).catch(() => {}));
+      } else if (!rankingEligible) {
+        const localEnd = Math.max(-1, ...state.cards.map(({ index }) => index));
+        const pageFullyRead = localEnd >= 0 && prefix.length === pageOffset + localEnd + 1;
+        const knownQuoteKeys = [...quoteKeysByIndex.values()];
+        const priorPagesIdentified = knownQuoteKeys.length === prefix.length && knownQuoteKeys.every(Boolean)
+          && new Set(knownQuoteKeys).size === knownQuoteKeys.length;
+        const unresolvedIndex = prefix.length - pageOffset;
+        if (controlsConfirmed && unresolvedIndex >= 0 && unresolvedIndex <= localEnd
+          && !byIndex.get(prefix.length) && !state.pending) {
+          await bounded(page.evaluate((index) => {
+            const indexed = Array.from(document.querySelectorAll(".SearchList-Card"));
+            const slots = (indexed.length ? indexed : Array.from(document.querySelectorAll(".SearchCar")))
+              .filter((node) => node.getClientRects().length > 0 && window.getComputedStyle(node).visibility !== "hidden");
+            const slot = slots.find((node) => node.getAttribute("data-search-list-card-index") === String(index))
+              || (!indexed.length && slots.every((node) => !node.hasAttribute("data-search-list-card-index")) ? slots[index] : null);
+            // Unknown cards must be independently reread in view, not filled from cached quotes or skipped.
+            if (slot) slot.scrollIntoView({ block: "center" });
+            else window.scrollTo(0, 0);
+          }, unresolvedIndex).catch(() => {}));
+        } else if (controlsConfirmed && trustworthyRead && orderValid && !state.pending && pageFullyRead && priorPagesIdentified
+          && state.atListEnd && state.pagination?.nextAvailable) {
+          try {
+            await bounded(page.locator(".Pagination-NavigationButton_next:visible").first().click({
+              timeout: Math.max(1, Math.min(1500, deadline - Date.now()))
+            }));
+            // A changed page label alone must not count cached cards as independent offers on the next page.
+            pendingPage = { page: pageNumber + 1, offset: pageOffset + localEnd + 1,
+              previousQuoteKeys: new Set(quoteKeysByIndex.values()) };
+          } catch (error) {
+            if (error.code === "DOM_READ_TIMEOUT") throw error;
+          }
+        } else if (!fullCount || !state.atListEnd) {
+          await bounded(page.evaluate(() => {
+            const slots = Array.from(document.querySelectorAll(".SearchList-Card, .SearchCar"))
+              .filter((node) => node.getClientRects().length > 0 && window.getComputedStyle(node).visibility !== "hidden");
+            const last = slots[slots.length - 1];
+            window.scrollBy(0, Math.max(window.innerHeight * 0.8, (last?.getBoundingClientRect().bottom || 0) - window.innerHeight * 0.3));
+          }).catch(() => {}));
+        }
+      }
+      if (evidence.read_pass_count < maxPasses) {
+        await bounded(page.waitForTimeout(Math.min(400 + Math.min(pass, 4) * 150, Math.max(0, deadline - Date.now()))));
+      }
+    }
+    if (Date.now() >= deadline && !evidence.ranking_complete) {
+      evidence.ranking_complete = false;
+      evidence.listing_complete = false;
+      budget.abandoned = true;
+      const error = new Error("Rendered DOM read deadline exhausted.");
+      error.code = "DOM_READ_TIMEOUT";
+      throw error;
     }
 
     return dedupeOffers(collected);
+  }
+
+  async prepareAutomaticDomSearch(page, deadline) {
+    if (Date.now() >= deadline) return;
+    await this.acceptCookies(page, { deadline });
+    if (Date.now() >= deadline) return;
+    const timeout = () => Math.max(1, Math.min(1500, deadline - Date.now()));
+    const checkbox = page.getByRole("checkbox", { name: /^automatic(?: transmission)?$/i }).first();
+    if (await checkbox.isVisible().catch(() => false)) {
+      await checkbox.setChecked(true, { timeout: timeout() }).catch(() => {});
+    } else {
+      const row = page.locator(".SearchFiltersGroup-FilterWrapper_transmission-a:visible").last();
+      if (await row.isVisible().catch(() => false)) {
+        const active = await row.locator(".SearchFiltersGroup-Filter_isActive").count().catch(() => 0);
+        if (!active) await row.locator(".SearchFiltersGroup-Filter").first().click({ timeout: timeout() }).catch(() => {});
+      }
+    }
+    const sort = page.locator("select[aria-label='Sort by']:visible, .SearchSorting-NativeSelectOverlay:visible").first();
+    if (await sort.isVisible().catch(() => false)) {
+      await sort.selectOption({ label: "Price" }, { timeout: timeout() }).catch(() => {});
+    }
   }
 
   filterOffersByConfiguredTransmission(offers) {

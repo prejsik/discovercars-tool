@@ -9,6 +9,8 @@ const { DiscoverCarsScraper } = require("../src/discovercars/scraper");
 const { verifyActiveRecommendations } = require("../src/verifyActiveRecommendationsDom");
 const { buildRecommendationWorkload } = require("../src/recommendationWorkload");
 const { splitActiveRecommendations, mergeVerifiedRecommendationShards } = require("../src/recommendationDomShards");
+const { buildPricingRecommendations } = require("../src/pricingRecommendations");
+const { mergeBrokerMarkupCalibration } = require("../src/brokerMarkupCalibration");
 
 const tests = [];
 const test = (name, run) => tests.push({ name, run });
@@ -62,6 +64,212 @@ async function withClock(now, run) {
   };
   try { return await run(); } finally { global.Date = RealDate; }
 }
+
+function pricedPayload(rates = [["MM Cars Rental", 50], ["Budget", 100], ["Avis", 120]]) {
+  const location = "Warsaw Chopin Airport (WAW)";
+  const { pricing } = require("../pricing-rules.config.example.json");
+  const pricingOptions = { ...pricing, brokerMarkupCalibration: mergeBrokerMarkupCalibration(
+    pricing.brokerMarkupCalibration, require("../input/broker-markup-frozen.json")) };
+  const list = rates.map(([provider, rate]) => ({ provider_name: provider, total_price: rate * 2,
+    rental_days: 2, currency: "PLN", transmission: "automatic" }));
+  const view = { top_3: list.slice(0, 3), mm_cars_rental: list.find((offer) => offer.provider_name === "MM Cars Rental") };
+  return buildPricingRecommendations({ generated_at: new Date().toISOString(), run_id: "test",
+    locations: [location], scenarios: [{ scenario_id: "date-20261004-2d", start_date: "2026-10-04",
+      pickup_date: "2026-10-04T11:00:00+02:00", dropoff_date: "2026-10-06T11:00:00+02:00",
+      rental_days: 2, top_3_plus_mm_by_location: { [location]: view },
+      offer_views_by_location: { [location]: { automatic: view } } }] }, pricingOptions);
+}
+
+function renderedOutput(config, rates, evidence = {}) {
+  return { results: config.locations.flatMap((location) => rates.map(([provider, rate]) => ({
+    location, provider, totalPrice: rate * 2, currency: "PLN", transmission: "automatic", source: "dom"
+  }))), domEvidenceByLocation: Object.fromEntries(config.locations.map((location) => [location, {
+    automatic_filter_confirmed: true, price_sort_confirmed: true, ranking_complete: true,
+    listing_complete: true, expected_offer_count: rates.length, observed_offer_count: rates.length,
+    read_pass_count: 2, ...evidence
+  }])) };
+}
+
+test("confirmed two-supplier market can retain Top1 without inventing a third supplier", async () => {
+  const base = pricedPayload([["MM Cars Rental", 50], ["Budget", 100]]);
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 100]]); }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 1);
+    assert.equal(output.decisions[0].target_rank, 1);
+    assert.equal(output.decisions[0].suggested_rate_pln_day, 70);
+    assert.equal(output.decisions[0].top3_provider, "");
+  });
+});
+
+test("two observed suppliers without proof of complete listing still fail closed", async () => {
+  const base = pricedPayload([["MM Cars Rental", 50], ["Budget", 100]]);
+  await withScrape(async function () {
+    return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 100]], { listing_complete: false });
+  }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 0);
+    assert.equal(output.decisions[0].suggested_rate_pln_day, null);
+  });
+});
+
+test("fresh independently read prices rebuild the target using unchanged frozen markup", async () => {
+  const base = pricedPayload();
+  assert.equal(base.decisions[0].suggested_rate_pln_day, 70);
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 1);
+    assert.equal(output.decisions[0].suggested_rate_pln_day, 60);
+    assert.equal(output.decisions[0].predicted_site_rate_pln_day, 89);
+    assert.equal(output.decisions[0].broker_markup_amount_pln_day, 29);
+    assert.equal(output.decisions[0].dom_verification_status, "confirmed");
+  });
+});
+
+test("fresh repricing respects priority floor and falls back to an attainable Top2", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () { return renderedOutput(this.config, [["Budget", 45], ["MM Cars Rental", 50], ["Avis", 100]]); }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 1);
+    assert.equal(output.decisions[0].target_rank, 2);
+    assert.equal(output.decisions[0].suggested_rate_pln_day, 70);
+    assert.equal(output.decisions[0].recommendation_type, "priority_top3");
+  });
+});
+
+test("fresh price change within comparator tolerance still updates the import target", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 99], ["Avis", 120]]); }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.decisions[0].suggested_rate_pln_day, 69);
+    assert.equal(output.decisions[0].predicted_site_rate_pln_day, 98);
+  });
+});
+
+test("fresh floor-blocked policy hold survives resume and merge without reviving the old increase", async () => {
+  const base = pricedPayload();
+  const shard = splitActiveRecommendations(base, 1)[0];
+  const opts = options();
+  await withScrape(async function () { return renderedOutput(this.config, [["Budget", 20], ["Avis", 25], ["MM Cars Rental", 50]]); }, async () => {
+    const output = await verifyActiveRecommendations(shard, opts);
+    assert.equal(output.recommendation_count, 0);
+    assert.equal(output.decisions[0].data_quality_status, "floor_blocks_top3");
+    const resumed = await verifyActiveRecommendations(shard, { ...opts, maxDurationMs: 0 });
+    assert.equal(resumed.decisions[0].action, "hold");
+    assert.equal(resumed.dom_verification.policy_hold_count, 1);
+    const merged = mergeVerifiedRecommendationShards(base, [resumed], { shardCount: 1 });
+    assert.equal(merged.dom_verification.unverified_output_count, 0);
+    assert.equal(merged.decisions[0].action, "hold");
+    assert.equal(merged.decisions[0].suggested_rate_pln_day, null);
+  });
+});
+
+test("matching quotes do not override an explicitly incomplete rendered ranking", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () {
+    return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 100], ["Avis", 120]], { ranking_complete: false });
+  }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 0);
+  });
+});
+
+test("changed prices without complete independent ranking cannot be repriced", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () {
+    return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]], { ranking_complete: false });
+  }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 0);
+  });
+});
+
+test("repriced recommendation survives checkpoint resume and shard merge without restoring stale rate", async () => {
+  const base = pricedPayload();
+  const shard = splitActiveRecommendations(base, 1)[0];
+  const opts = options();
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const checked = await verifyActiveRecommendations(shard, opts);
+    assert.equal(checked.decisions[0].suggested_rate_pln_day, 60);
+    const resumed = await verifyActiveRecommendations(shard, { ...opts, maxDurationMs: 0 });
+    assert.equal(resumed.decisions[0].suggested_rate_pln_day, 60);
+    assert.equal(resumed.dom_verification.reused_checkpoint_count, 1);
+    const merged = mergeVerifiedRecommendationShards(base, [resumed], { shardCount: 1 });
+    assert.equal(merged.recommendation_count, 1);
+    assert.equal(merged.decisions[0].suggested_rate_pln_day, 60);
+    const tampered = JSON.parse(JSON.stringify(resumed));
+    tampered.decisions[0].suggested_rate_pln_day = 999;
+    assert.equal(mergeVerifiedRecommendationShards(base, [tampered], { shardCount: 1 }).recommendation_count, 0);
+  });
+});
+
+test("verified repricing cannot be mutated or stripped when reused as an existing source", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const checked = await verifyActiveRecommendations(base, options());
+    for (const corruption of ["rate", "record"]) {
+      const bad = JSON.parse(JSON.stringify(checked));
+      if (corruption === "rate") bad.decisions[0].suggested_rate_pln_day = bad.decisions[0].maximum_import_rate_pln_day = 999;
+      else delete bad.decisions[0].dom_repricing;
+      const resumed = await verifyActiveRecommendations(bad, options({ maxDurationMs: 0 }));
+      assert.equal(resumed.recommendation_count, 0);
+    }
+  });
+});
+
+test("shard cannot omit fresh evidence to restore an old confirmed target", async () => {
+  const base = pricedPayload();
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const checked = await verifyActiveRecommendations(splitActiveRecommendations(base, 1)[0], options());
+    checked.decisions[0] = { ...base.decisions[0], source_validation_status: "dom_recommendation_verified",
+      dom_verification_status: "confirmed", dom_verification_reasons: [], dom_verified_at: checked.decisions[0].dom_verified_at };
+    assert.equal(mergeVerifiedRecommendationShards(base, [checked], { shardCount: 1 }).recommendation_count, 0);
+  });
+});
+
+test("production pricing cannot confirm stale targets without rendered completeness metadata", async () => {
+  await withScrape(async function () {
+    const output = renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 99], ["Avis", 120]]);
+    delete output.domEvidenceByLocation;
+    return output;
+  }, async () => {
+    const output = await verifyActiveRecommendations(pricedPayload(), options());
+    assert.equal(output.recommendation_count, 0);
+  });
+});
+
+test("supplied pricing policy cannot downgrade to legacy trust by removing manual calibration", async () => {
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const checked = await verifyActiveRecommendations(pricedPayload(), options());
+    for (const manualOnly of [false, undefined]) {
+      const bad = JSON.parse(JSON.stringify(checked));
+      bad.options.brokerMarkupCalibration.manualOnly = manualOnly;
+      delete bad.decisions[0].dom_repricing;
+      bad.decisions[0].suggested_rate_pln_day = bad.decisions[0].maximum_import_rate_pln_day = 999;
+      assert.equal((await verifyActiveRecommendations(bad, options({ maxDurationMs: 0 }))).recommendation_count, 0);
+      assert.equal(mergeVerifiedRecommendationShards(bad, [], { shardCount: 1 }).recommendation_count, 0);
+    }
+  });
+});
+
+test("malformed stored DOM offer blocks reuse instead of crashing verification", async () => {
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90], ["Avis", 120]]); }, async () => {
+    const bad = await verifyActiveRecommendations(pricedPayload(), options());
+    bad.decisions[0].dom_repricing.offers[0] = null;
+    const output = await verifyActiveRecommendations(bad, options({ maxDurationMs: 0 }));
+    assert.equal(output.recommendation_count, 0);
+  });
+});
+
+test("complete new two-supplier market can replace an old Top2 goal with attainable Top1", async () => {
+  const base = pricedPayload([["Budget", 45], ["MM Cars Rental", 50], ["Avis", 100]]);
+  assert.equal(base.decisions[0].target_rank, 2);
+  await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 90]]); }, async () => {
+    const output = await verifyActiveRecommendations(base, options());
+    assert.equal(output.recommendation_count, 1);
+    assert.equal(output.decisions[0].target_rank, 1);
+    assert.equal(output.decisions[0].suggested_rate_pln_day, 60);
+  });
+});
 
 test("timestamp-free source tags cannot bypass a zero verification budget", async () => {
   const base = { decisions: [item({ source_validation_status: "dom_confirmed" })] };
@@ -192,10 +400,12 @@ test("one shared browser closes after isolated location contexts, with DOM-only 
     };
   };
   DiscoverCarsScraper.prototype.configureContext = async () => {};
-  DiscoverCarsScraper.prototype.tryDirectSearchFlow = async function (_page, location) {
+  DiscoverCarsScraper.prototype.tryDirectSearchFlow = async function (_page, location, _collector, readOptions) {
     assert.equal(this.config.domOnly, true);
     assert.equal(this.config.apiFirst, false);
     assert.deepEqual(this.config.requiredDomProvidersByLocation[location], ["Budget", "Avis", "Hertz", "MM Cars Rental"]);
+    Object.assign(readOptions.domEvidence, { automatic_filter_confirmed: true, price_sort_confirmed: true,
+      ranking_complete: true, listing_complete: true, expected_offer_count: 4, observed_offer_count: 4, read_pass_count: 1 });
     return offers(this.config).results.filter((offer) => offer.location === location);
   };
   try {

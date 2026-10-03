@@ -2562,7 +2562,7 @@ function readSearchLocationIds(url) {
 
 function createEmptyDomPage(candidates) {
   const signal = { first: () => signal, isVisible: async () => true };
-  const hidden = { first: () => hidden, isVisible: async () => false };
+  const hidden = { first: () => hidden, last: () => hidden, isVisible: async () => false };
   let currentUrl = "";
   return {
     request: { get: async () => ({ ok: () => true, json: async () => ({ result: candidates }) }) },
@@ -2571,7 +2571,8 @@ function createEmptyDomPage(candidates) {
     waitForLoadState: async () => {},
     waitForTimeout: async () => {},
     getByText: (pattern) => pattern.test("Searching 1,000+ car rental brands") ? hidden : signal,
-    locator: () => signal,
+    getByRole: () => hidden,
+    locator: (selector) => /cookie|onetrust|SearchFilters|SearchSorting|Sort by/i.test(selector) ? hidden : signal,
     evaluate: async () => []
   };
 }

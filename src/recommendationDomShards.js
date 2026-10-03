@@ -9,7 +9,8 @@ const {
   isFreshVerification,
   isSourceVerified,
   keyOf,
-  readGroupTimings
+  readGroupTimings,
+  rebuildDomRecommendation
 } = require("./verifyActiveRecommendationsDom");
 
 function listDecisions(payload) {
@@ -30,7 +31,7 @@ function dateDurationKey(item) {
 function pendingRecommendationGroups(payload, now = Date.now()) {
   const groups = new Map();
   for (const item of listDecisions(payload)) {
-    if (!isActive(item) || isSourceVerified(item, payload?.source_generated_at, now)) continue;
+    if (!isActive(item) || isSourceVerified(item, payload?.source_generated_at, now, payload?.options)) continue;
     const groupKey = dateDurationKey(item);
     if (!groups.has(groupKey)) groups.set(groupKey, []);
     groups.get(groupKey).push(item);
@@ -148,7 +149,7 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
   const baseDecisions = listDecisions(basePayload);
   const pendingByKey = new Map(
     baseDecisions
-      .filter((item) => isActive(item) && !isSourceVerified(item, basePayload?.source_generated_at))
+      .filter((item) => isActive(item) && !isSourceVerified(item, basePayload?.source_generated_at, Date.now(), basePayload?.options))
       .map((item) => [keyOf(item), item])
   );
   const outputByKey = new Map();
@@ -243,7 +244,7 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
   let unverifiedOutputCount = 0;
   const finalDecisions = baseDecisions.map((item) => {
     if (!isActive(item)) return item;
-    if (isSourceVerified(item, basePayload?.source_generated_at)) {
+    if (isSourceVerified(item, basePayload?.source_generated_at, Date.now(), basePayload?.options)) {
       return { ...item, dom_verification_status: "confirmed_existing_dom", dom_verification_reasons: [],
         dom_verified_at: item.dom_verified_at ?? item.source_generated_at ?? basePayload?.source_generated_at };
     }
@@ -259,13 +260,21 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       return blockRecommendation(item, "dom_verification_shard_missing", ["missing_shard_output"]);
     }
     const blocked = verified.action === "hold";
+    if (verified.dom_repricing) {
+      const rebuilt = rebuildDomRecommendation(item, verified.dom_repricing, basePayload.options);
+      if (rebuilt && isSourceVerified(rebuilt, undefined, Date.now(), basePayload.options)
+        && Date.parse(rebuilt.dom_verified_at) <= Date.parse(completedAt)
+        && inputFingerprint(verified) === inputFingerprint(rebuilt)) return rebuilt;
+      unverifiedOutputCount += 1;
+      return blockRecommendation(item, "dom_verification_shard_unverified", ["invalid_dom_repricing_evidence"]);
+    }
     const mutableFields = new Set(["source_validation_status", "dom_verification_status", "dom_verification_reasons", "dom_verified_at"]);
     if (blocked) {
       for (const field of ["action", "suggested_rate_pln_day", "maximum_import_rate_pln_day", "change_pln_day", "data_quality_status", "reason"]) mutableFields.add(field);
     }
     const inputUnchanged = Object.keys(item).filter((field) => !mutableFields.has(field))
       .every((field) => inputFingerprint(verified[field] === undefined ? null : verified[field]) === inputFingerprint(item[field] === undefined ? null : item[field]));
-    const confirmed = !blocked && isSourceVerified(verified)
+    const confirmed = !blocked && isSourceVerified(verified, undefined, Date.now(), basePayload.options)
       && ["confirmed", "confirmed_existing_dom"].includes(verified.dom_verification_status)
       && Array.isArray(verified.dom_verification_reasons) && verified.dom_verification_reasons.length === 0
       && isFreshVerification(verified.dom_verified_at, Date.now(), MAX_CURRENT_RUN_AGE_MS)
@@ -284,7 +293,8 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
   });
 
   const activeInputCount = baseDecisions.filter(isActive).length;
-  const reusedExistingDomCount = baseDecisions.filter((item) => isActive(item) && isSourceVerified(item, basePayload?.source_generated_at)).length;
+  const reusedExistingDomCount = baseDecisions.filter((item) => isActive(item)
+    && isSourceVerified(item, basePayload?.source_generated_at, Date.now(), basePayload?.options)).length;
   const pendingGroups = new Set([...pendingByKey.values()].map(dateDurationKey));
   const reusedCheckpointGroups = Math.min(pendingGroups.size, summaries.reduce((total, summary) => total + Number(summary.reused_checkpoint_group_count || 0), 0));
   const liveGroupCount = pendingGroups.size - reusedCheckpointGroups;
@@ -321,6 +331,8 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       skipped_live_dom_group_count: Math.max(0, liveGroupCount - processedGroupCount),
       confirmed_count: confirmedCount,
       blocked_count: blockedCount,
+      recalculated_count: finalDecisions.filter((item) => item.dom_repricing).length,
+      policy_hold_count: finalDecisions.filter((item) => item.dom_repricing && !isActive(item)).length,
       budget_exhausted: summaries.some((summary) => Boolean(summary.budget_exhausted)),
       budget_exhausted_count: budgetExhaustedCount,
       missing_output_count: missingOutputCount,

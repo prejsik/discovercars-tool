@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discovercars/scraper");
+const { buildPricingRecommendations, isMmCarsProvider } = require("./pricingRecommendations");
 
 const MAX_VERIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_CURRENT_RUN_AGE_MS = 12 * 60 * 60 * 1000;
@@ -49,7 +50,8 @@ function inputFingerprint(input) {
 
 function extractorCodeHash() {
   const hash = crypto.createHash("sha256");
-  for (const file of ["verifyActiveRecommendationsDom.js", "discovercars/scraper.js", "discovercars/utils.js", "extractors.js", "locationRegistry.js"]) {
+  for (const file of ["verifyActiveRecommendationsDom.js", "discovercars/scraper.js", "discovercars/utils.js", "extractors.js", "locationRegistry.js",
+    "pricingRecommendations.js", "pricingRules.js", "brokerMarkupCalibration.js", "top1RateSignals.js", "currentBrokerMarkup.js"]) {
     hash.update(file).update(fs.readFileSync(path.join(__dirname, file)));
   }
   return hash.digest("hex");
@@ -64,7 +66,12 @@ function groupKeyOf(item) {
   return `${String(item.start_date || item.pickup_date).slice(0, 10)}|${Number(item.rental_days) || 1}`;
 }
 
-function isSourceVerified(item, sourceGeneratedAt, now = Date.now()) {
+function isSourceVerified(item, sourceGeneratedAt, now = Date.now(), pricingOptions) {
+  if (pricingOptions !== undefined || item?.dom_repricing) {
+    const record = item?.dom_repricing;
+    const rebuilt = record?.input && rebuildDomRecommendation(record.input, record, pricingOptions);
+    if (!rebuilt || inputFingerprint({ ...item, dom_verification_status: "confirmed" }) !== inputFingerprint(rebuilt)) return false;
+  }
   const status = String(item?.dom_verification_status || "");
   const verifiedAt = item?.dom_verified_at ?? item?.source_generated_at ?? sourceGeneratedAt;
   const explicitVerdict = Boolean(status) || item?.source_validation_status === "dom_recommendation_verified";
@@ -75,6 +82,11 @@ function isSourceVerified(item, sourceGeneratedAt, now = Date.now()) {
     && (!explicitVerdict || (Array.isArray(item?.dom_verification_reasons)
       && isFreshVerification(item?.dom_verified_at, now, MAX_CURRENT_RUN_AGE_MS)))
     && isFreshVerification(verifiedAt, now, MAX_CURRENT_RUN_AGE_MS);
+}
+
+function repricingInput(item) {
+  const { dom_repricing, ...input } = item;
+  return input;
 }
 
 function checkpointDigest(checkpoint) {
@@ -109,11 +121,65 @@ function writeCheckpoint(checkpointPath, checkpoint) {
   }
 }
 
-function applyVerdict(item, verdict) {
+function applyVerdict(item, verdict, pricingOptions) {
+  if (verdict.repricing) {
+    const rebuilt = rebuildDomRecommendation(item, verdict.repricing, pricingOptions);
+    if (!rebuilt) return blockRecommendation(item, "dom_recommendation_failed", ["invalid_dom_repricing_evidence"]);
+    return rebuilt;
+  }
   const output = verdict.status === "confirmed"
     ? { ...item, source_validation_status: "dom_recommendation_verified", dom_verification_status: "confirmed", dom_verification_reasons: [] }
     : blockRecommendation(item, verdict.status, verdict.reasons);
   return { ...output, dom_verified_at: verdict.verified_at };
+}
+
+// Rebuild with the same policy, never by editing a stale target or learning a new markup.
+function rebuildDomRecommendation(item, record, pricingOptions) {
+  if (!pricingOptions || pricingOptions.brokerMarkupCalibration?.manualOnly !== true
+    || record?.version !== 1 || record.input_fingerprint !== inputFingerprint(repricingInput(item))
+    || !record.input || record.input_fingerprint !== inputFingerprint(record.input)
+    || record.policy_fingerprint !== inputFingerprint(pricingOptions)
+    || !isFreshVerification(record.verified_at, Date.now(), MAX_CURRENT_RUN_AGE_MS)
+    || !Array.isArray(record.offers) || !record.offers.length) return null;
+  const evidence = record.evidence;
+  if (evidence?.automatic_filter_confirmed !== true || evidence.price_sort_confirmed !== true
+    || evidence.ranking_complete !== true) return null;
+  const offers = record.offers;
+  if (offers.some((offer) => !offer || typeof offer !== "object" || offer.source !== "dom" || offer.transmission !== "automatic"
+    || typeof offer.provider !== "string" || !offer.provider.trim()
+    || offer.location !== item.location || offer.currency !== "PLN"
+    || !Number.isFinite(offer.totalPrice) || offer.totalPrice <= 0)) return null;
+  const byProvider = new Map();
+  for (const offer of offers) {
+    const key = offer.provider.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!byProvider.has(key) || offer.totalPrice < byProvider.get(key).totalPrice) byProvider.set(key, offer);
+  }
+  const sorted = [...byProvider.values()].sort((left, right) => left.totalPrice - right.totalPrice);
+  const completeSmallMarket = evidence.listing_complete === true
+    && Number.isSafeInteger(evidence.expected_offer_count) && evidence.expected_offer_count > 0
+    && evidence.observed_offer_count === evidence.expected_offer_count;
+  if (sorted.length < 3 && (!completeSmallMarket || sorted.length < 2)) return null;
+  const days = Number(item.rental_days);
+  if (!Number.isSafeInteger(days) || days < 1 || days > 14) return null;
+  const formatted = sorted.map((offer) => ({ provider_name: offer.provider, total_price: offer.totalPrice,
+    rental_days: days, currency: "PLN", transmission: "automatic", source: "dom" }));
+  const view = { top_3: formatted.slice(0, 3), mm_cars_rental: formatted.find((offer) => isMmCarsProvider(offer.provider_name)) || null };
+  const scenario = { scenario_id: item.scenario_id, start_date: item.start_date,
+    pickup_date: item.pickup_date, dropoff_date: item.dropoff_date, rental_days: days,
+    generated_at: record.verified_at, source_run_id: item.source_run_id,
+    top_3_plus_mm_by_location: { [item.location]: view },
+    offer_views_by_location: { [item.location]: { automatic: view } },
+    source_validation_by_location: { [item.location]: { status: "dom_recommendation_verified", reasons: [] } } };
+  let decision;
+  try {
+    decision = buildPricingRecommendations({ generated_at: record.verified_at, run_id: item.source_run_id,
+      locations: [item.location], scenarios: [scenario] }, pricingOptions).decisions[0];
+  } catch { return null; }
+  if (!decision || (sorted.length < 3 && decision.action !== "hold" && decision.target_rank !== 1)) return null;
+  return { ...item, benchmark_provider: null, benchmark_rate_pln_day: null, target_rank: null,
+    recommendation_type: null, site_target_rate_pln_day: null, predicted_site_rate_pln_day: null,
+    ...decision, dom_verification_status: "confirmed", dom_verification_reasons: [],
+    dom_verified_at: record.verified_at, dom_repricing: record };
 }
 
 function keyOf(item) {
@@ -204,6 +270,20 @@ async function verifyGroup(group, options) {
       return blockRecommendation(item, "dom_recommendation_failed", ["invalid_independent_dom_evidence"]);
     }
     const comparison = scraper.compareApiAndBrowserOutcomes(toLegacyOffers(item), domOffers);
+    const evidence = output.domEvidenceByLocation?.[item.location];
+    const input = repricingInput(item);
+    const record = { version: 1, input, input_fingerprint: inputFingerprint(input),
+      policy_fingerprint: inputFingerprint(options.pricingOptions || null), verified_at: new Date().toISOString(),
+      offers: domOffers, evidence, previous_comparison_reasons: comparison.reasons };
+    const rebuilt = rebuildDomRecommendation(item, record, options.pricingOptions);
+    if (rebuilt) return rebuilt;
+    if (options.pricingOptions !== undefined) {
+      return blockRecommendation(item, "dom_recommendation_failed", ["incomplete_independent_dom_ranking"]);
+    }
+    if (evidence && (evidence.automatic_filter_confirmed !== true || evidence.price_sort_confirmed !== true
+      || evidence.ranking_complete !== true)) {
+      return blockRecommendation(item, "dom_recommendation_failed", ["incomplete_independent_dom_ranking"]);
+    }
     if (comparison.confirmed !== true || comparison.reasons.length) {
       return blockRecommendation(item, "api_dom_conflict", comparison.reasons.length ? comparison.reasons : ["dom_comparison_unconfirmed"]);
     }
@@ -231,7 +311,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
   const pending = [];
   for (const [index, item] of decisions.entries()) {
     if (item?.action === "hold") continue;
-    if (isSourceVerified(item, payload?.source_generated_at)) {
+    if (isSourceVerified(item, payload?.source_generated_at, Date.now(), payload.options)) {
       const output = { ...item, dom_verification_status: "confirmed_existing_dom", dom_verification_reasons: [],
         dom_verified_at: item.dom_verified_at ?? item.source_generated_at ?? payload?.source_generated_at };
       alreadyVerified.set(index, output);
@@ -240,7 +320,13 @@ async function verifyActiveRecommendations(payload, options = {}) {
       const entry = checkpoint.entries[index];
       if (entry?.input_fingerprint === inputFingerprint(item) && isFreshVerification(entry.verified_at)
         && entry.status === "confirmed" && Array.isArray(entry.reasons) && entry.reasons.length === 0) {
-        verified.set(index, applyVerdict(item, entry));
+        const restored = applyVerdict(item, entry, payload.options);
+        if (restored.dom_verification_status !== "confirmed") {
+          delete checkpoint.entries[index];
+          pending.push({ item, index });
+          continue;
+        }
+        verified.set(index, restored);
         checkpointReused.add(index);
       } else {
         delete checkpoint.entries[index];
@@ -276,7 +362,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
         const groupStartedAt = Date.now();
         let output;
         try {
-          output = await verifyGroup(group.map(({ item }) => item), { ...options, workDir, browserProvider });
+          output = await verifyGroup(group.map(({ item }) => item), { ...options, workDir, browserProvider, pricingOptions: payload.options });
         } catch (error) {
           output = group.map(({ item }) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
         }
@@ -296,10 +382,11 @@ async function verifyActiveRecommendations(payload, options = {}) {
             const verdict = {
               input_fingerprint: inputFingerprint(input), status,
               reasons: item.dom_verification_reasons || [],
-              verified_at: item.dom_verified_at || new Date().toISOString()
+              verified_at: item.dom_verified_at || new Date().toISOString(),
+              ...(item.dom_repricing ? { repricing: item.dom_repricing } : {})
             };
             checkpoint.entries[index] = verdict;
-            verified.set(index, applyVerdict(input, verdict));
+            verified.set(index, applyVerdict(input, verdict, payload.options));
             checkpointChanged = true;
           }
         });
@@ -325,7 +412,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
 
   let checkpointExpiredCount = 0;
   for (const [index, item] of verified) {
-    if (item.action !== "hold" && !isSourceVerified(item, payload?.source_generated_at)) {
+    if (item.action !== "hold" && !isSourceVerified(item, payload?.source_generated_at, Date.now(), payload.options)) {
       verified.set(index, blockRecommendation(decisions[index], "dom_recommendation_failed", ["dom_verification_expired"]));
       alreadyVerified.delete(index);
       checkpointReused.delete(index);
@@ -356,8 +443,10 @@ async function verifyActiveRecommendations(payload, options = {}) {
       live_dom_group_count: groupItems.length,
       processed_live_dom_group_count: processedLiveGroupCount,
       skipped_live_dom_group_count: groupItems.length - processedLiveGroupCount,
-      confirmed_count: [...verified.values()].filter((item) => String(item.dom_verification_status).startsWith("confirmed")).length,
+      confirmed_count: [...verified.values()].filter((item) => item.action !== "hold" && String(item.dom_verification_status).startsWith("confirmed")).length,
       blocked_count: [...verified.values()].filter((item) => item.action === "hold").length,
+      recalculated_count: [...verified.values()].filter((item) => item.dom_repricing).length,
+      policy_hold_count: [...verified.values()].filter((item) => item.dom_repricing && item.action === "hold").length,
       budget_exhausted: budgetExhausted,
       budget_exhausted_count: budgetExhaustedCount,
       max_duration_ms: Number.isFinite(maxDurationMs) ? maxDurationMs : null,
@@ -399,6 +488,7 @@ module.exports = {
   MAX_CURRENT_RUN_AGE_MS,
   MAX_GROUP_TIMINGS,
   blockRecommendation,
+  rebuildDomRecommendation,
   extractorCodeHash,
   inputFingerprint,
   groupTimingMetadata,

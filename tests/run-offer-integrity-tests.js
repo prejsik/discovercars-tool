@@ -45,7 +45,7 @@ const apiPayload = (entries) => ({ data: { offers: entries.map((entry) => ({
     isAutomaticTransmission: entry.transmission === "automatic" ? 1 : entry.transmission === "manual" ? 0 : undefined
   } }
 })) } });
-const card = (entry, hidden = false, leadingImageAlt = "") => `<article class="SearchCar"${hidden ? ' style="display:none"' : ""}${entry.offerId ? ` data-offer-id="${entry.offerId}"` : ""}>
+const card = (entry, hidden = false, leadingImageAlt = "") => `<article class="SearchCar"${hidden ? ' style="display:none"' : ""}${entry.offerId ? ` data-offer-id="${entry.offerId}"` : ""}${entry.domIndex == null ? "" : ` data-search-list-card-index="${entry.domIndex}"`}>
   ${leadingImageAlt ? `<img alt="${leadingImageAlt}">` : ""}
   <h3 class="CarTitle-Name">${entry.carName}</h3>
   <div class="SupplierInfo"><img alt="${entry.provider}"></div>
@@ -58,29 +58,126 @@ async function fixture(browser, options = {}) {
   const context = await browser.newContext();
   await context.route("**/*", (route) => route.abort());
   const realPage = await context.newPage();
-  const dom = options.dom || options.domPasses?.[0] || [];
+  const pages = options.domPages?.map((entries, page) => entries.map((entry, index) => ({
+    ...entry, domIndex: index, offerId: entry.offerId ?? `page-${page + 1}-quote-${index}`
+  })));
+  const dom = options.dom || options.domPasses?.[0] || pages?.[0] || [];
   const api = options.api || [];
-  const htmlFor = (entries) => `<main>${entries.map((entry) => card(entry)).join("")}${(options.hidden || []).map((entry) => card(entry, true)).join("")}${options.extraHtml || ""}</main>
-    <script type="application/json">${JSON.stringify(apiPayload(api))}</script>`;
+  const cardsFor = (entries) => `${entries.map((entry, index) => {
+    const html = card(entry);
+    return options.lazySupplierIndexes?.includes(index)
+      ? html.replace(`<img alt="${entry.provider}">`, `<img data-lazy-provider="${entry.provider}" alt="">`) : html;
+  }).join("")}${(options.hidden || []).map((entry) => card(entry, true)).join("")}${options.extraHtml || ""}`;
+  const automaticControl = options.customAutomatic
+    ? Array.from({ length: options.duplicateControls ? 4 : 1 }, (_, index) => `<li class="SearchFiltersGroup-FilterWrapper_transmission-a"${options.duplicateControls && index < 2 ? ' style="display:none"' : ""}><div class="SearchFiltersGroup-Filter"><div class="SearchFiltersGroup-FilterRow"><span class="SearchFiltersGroup-FilterLabel">Automatic Transmission</span><span class="SearchFiltersGroup-FilterMinPrice">PLN 100</span></div></div></li>`).join("")
+    : '<label><input type="checkbox" id="automatic">Automatic Transmission</label>';
+  const htmlFor = (entries) => `${options.automaticControl === false ? "" : automaticControl}
+    ${options.lazySupplierIndexes || options.cardMinHeight ? `<style>.SearchCar { min-height: ${options.cardMinHeight || 900}px; }</style>` : ""}
+    ${options.sortControl === false ? "" : '<label>Sort by <select aria-label="Sort by"><option value="recommended">Recommended</option><option value="price">Price</option></select></label>'}
+    ${options.countText ? `<div class="SearchSorting-ShownCars">${options.countText}</div>` : options.expectedCount == null ? "" : `<div class="SearchSorting-ShownCars">${options.expectedCount} offers found</div>`}
+    ${options.secondaryCount == null ? "" : `<span class="showing-cars">${options.secondaryCount}</span>`}
+    <main>${cardsFor(entries)}</main>
+    ${pages ? '<div class="Pagination"><button class="Pagination-Button" aria-current="page">1</button><button class="Pagination-NavigationButton_next" aria-label="Next page">Next page</button></div>' : ""}
+    ${options.lazyPending ? '<div class="SearchCarList-Loader" role="progressbar">Loading offers</div>' : ""}
+    ${options.cookieOverlay ? '<div id="onetrust-banner-sdk" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.4)"><button id="onetrust-accept-btn-handler">Accept all cookies</button></div>' : ""}
+    <script type="application/json">${JSON.stringify(apiPayload(api))}</script>
+    <script>
+      (() => {
+      window.revealLazySuppliers = () => {
+        for (const image of document.querySelectorAll('[data-lazy-provider]')) {
+          const rect = image.closest('.SearchCar').getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > 0) image.alt = image.dataset.lazyProvider;
+        }
+      };
+      window.addEventListener('scroll', window.revealLazySuppliers);
+      window.applyControls = () => {
+        if ((document.querySelector('#automatic')?.checked || document.querySelector('.SearchFiltersGroup-Filter_isActive')) && ${options.filterWorks !== false}) {
+          for (const entry of document.querySelectorAll('main > .SearchCar')) {
+            if (/manual transmission/i.test(entry.innerText)) entry.style.display = 'none';
+          }
+        }
+        if (document.querySelector('select')?.value === 'price' && ${options.sortWorks !== false}) {
+          const entries = [...document.querySelectorAll('main > .SearchCar')];
+          entries.sort((a, b) => Number(a.innerText.match(/Total for 1 day \\w+ ([\\d.]+)/)?.[1]) - Number(b.innerText.match(/Total for 1 day \\w+ ([\\d.]+)/)?.[1]));
+          for (const entry of entries) document.querySelector('main').append(entry);
+        }
+      };
+      document.querySelector('#automatic')?.addEventListener('change', window.applyControls);
+      for (const row of document.querySelectorAll('.SearchFiltersGroup-FilterWrapper_transmission-a')) {
+        row.addEventListener('click', () => {
+          const active = !row.querySelector('.SearchFiltersGroup-Filter_isActive');
+          for (const filter of document.querySelectorAll('.SearchFiltersGroup-Filter')) filter.classList.toggle('SearchFiltersGroup-Filter_isActive', active);
+          window.applyControls();
+        });
+      }
+      document.querySelector('#onetrust-accept-btn-handler')?.addEventListener('click', () => document.querySelector('#onetrust-banner-sdk').remove());
+      const pages = ${JSON.stringify(pages?.map(cardsFor) || [])};
+      let currentPage = 0;
+      document.querySelector('.Pagination-NavigationButton_next')?.addEventListener('click', () => {
+        if (${options.paginationWorks !== false} && currentPage + 1 < pages.length) {
+          currentPage += 1;
+          document.querySelector('.Pagination [aria-current="page"]').textContent = String(currentPage + 1);
+          document.querySelector('.Pagination-NavigationButton_next').disabled = currentPage + 1 === pages.length;
+          const replaceCards = () => {
+            document.querySelector('main').innerHTML = pages[currentPage];
+            window.applyControls();
+            window.scrollTo(0, 0);
+          };
+          if (${Boolean(options.paginationDelayPasses || options.paginationNeverReplaces)}) {
+            window.replacePendingPage = replaceCards;
+            window.paginationWaits = 0;
+          } else {
+            replaceCards();
+          }
+        }
+      });
+      document.querySelector('select')?.addEventListener('change', window.applyControls);
+      })();
+    </script>`;
   let pass = 0;
+  let readErrors = options.readErrors || 0;
+  let readAttempts = 0;
   const page = {
     goto: async () => realPage.setContent(htmlFor(dom)),
-    evaluate: (...args) => realPage.evaluate(...args),
+    evaluate: (...args) => {
+      if (args[1]?.readState) readAttempts += 1;
+      if (args[1]?.readState && options.hangRead) return new Promise(() => {});
+      if (args[1]?.readState && readErrors > 0) {
+        readErrors -= 1;
+        return Promise.reject(new Error("Fixture navigation interrupted DOM read"));
+      }
+      return realPage.evaluate(...args);
+    },
     content: () => realPage.content(),
+    locator: (...args) => realPage.locator(...args),
+    getByRole: (...args) => realPage.getByRole(...args),
+    getByText: (...args) => realPage.getByText(...args),
     waitForTimeout: async () => {
+      if (options.lazySupplierIndexes) await realPage.evaluate(() => window.revealLazySuppliers());
+      if (options.paginationDelayPasses && !options.paginationNeverReplaces) {
+        await realPage.evaluate((passes) => {
+          if (window.replacePendingPage && ++window.paginationWaits >= passes) {
+            const replace = window.replacePendingPage;
+            window.replacePendingPage = null;
+            replace();
+          }
+        }, options.paginationDelayPasses);
+      }
       if (options.domPasses && pass < options.domPasses.length - 1) {
         pass += 1;
-        await realPage.setContent(htmlFor(options.domPasses[pass]));
+        await realPage.locator('main').evaluate((element, html) => { element.innerHTML = html; window.applyControls(); }, cardsFor(options.domPasses[pass]));
+        if (options.clearPendingAfterPass) await realPage.locator('.SearchCarList-Loader').evaluateAll((nodes) => nodes.forEach((node) => node.remove()));
       }
     },
     setDefaultTimeout: () => {},
     setDefaultNavigationTimeout: () => {},
     on: () => {}
   };
-  const fakeBrowser = { newContext: async () => ({ newPage: async () => page, close: async () => {} }) };
+  let contextCloseCount = 0;
+  const fakeBrowser = { newContext: async () => ({ newPage: async () => page, close: async () => { contextCloseCount += 1; } }) };
   const scraper = new DiscoverCarsScraper({ ...config, ...options.config, apiDomDriftState: { by_location: {} } });
   scraper.configureContext = async () => {};
-  scraper.acceptCookies = async () => {};
+  if (!options.cookieOverlay) scraper.acceptCookies = async () => {};
   scraper.fillSearchForm = async () => {};
   scraper.submitSearch = async () => page.goto("fixture");
   scraper.ensureConfiguredSearchPeriod = async () => {};
@@ -92,8 +189,500 @@ async function fixture(browser, options = {}) {
   scraper.createGeoSearch = async () => ({ pageUrl: "https://www.discovercars.com/fixture-geo" });
   scraper.runSingleLocationViaApi = async (location) => scraper.buildApiOutcome(apiPayload(api), location, "fixture-api");
   if (options.form) scraper.resolveLocationCandidates = async () => [];
-  return { scraper, fakeBrowser, close: () => context.close() };
+  return { scraper, fakeBrowser, page: realPage, readAttempts: () => readAttempts,
+    contextCloseCount: () => contextCloseCount, close: () => context.close() };
 }
+
+test("pending lazy loading cannot certify an already visible three-supplier prefix", async (browser) => {
+  const f = await fixture(browser, { dom: leaderboard(), lazyPending: true,
+    config: { domOnly: true, domReadMaxPasses: 3 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+    assert.equal(result.domEvidence.read_pass_count, 3);
+  } finally { await f.close(); }
+});
+
+test("ranking waits for pending cards to settle at the new cheapest price", async (browser) => {
+  const f = await fixture(browser, { domPasses: [leaderboard(), leaderboard({ totalPrice: 20 })],
+    lazyPending: true, clearPendingAfterPass: true, config: { domOnly: true, domReadMaxPasses: 4 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.cheapest.totalPrice, 20);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.ok(result.domEvidence.read_pass_count >= 3, "the changed prefix must settle on a second independent read");
+    assert.equal(result.sourceValidation.status, "dom_only");
+  } finally { await f.close(); }
+});
+
+test("an offer-shaped article outside actual card slots cannot join the trusted ranking", async (browser) => {
+  const unrelated = card(offer({ provider: "Extraneous", totalPrice: 1 })).replace('class="SearchCar"', 'class="offer"');
+  const f = await fixture(browser, { dom: leaderboard(), extraHtml: unrelated, config: { domOnly: true } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.cheapest.totalPrice, 100);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.offerViews.automatic.some((entry) => entry.provider === "Extraneous"), false);
+  } finally { await f.close(); }
+});
+
+test("a cheaper observed suffix invalidates the entire apparent price-sorted prefix", async (browser) => {
+  const f = await fixture(browser, { dom: [...leaderboard(), offer({ provider: "Cheaper", totalPrice: 20 })],
+    sortWorks: false, config: { domOnly: true, domReadMaxPasses: 3 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+test("a hung rendered evaluation exhausts the read deadline and closes only the owned context", async (browser) => {
+  const f = await fixture(browser, { dom: leaderboard(), hangRead: true,
+    config: { domOnly: true, domReadTimeoutMs: 500 } });
+  const started = Date.now();
+  let artifactAttempts = 0;
+  let fallbackAttempts = 0;
+  f.scraper.captureFailureArtifacts = async () => { artifactAttempts += 1; await new Promise(() => {}); };
+  f.scraper.fillSearchForm = async () => { fallbackAttempts += 1; throw new Error("Unexpected timeout fallback"); };
+  let guard;
+  try {
+    const result = await Promise.race([
+      f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser),
+      new Promise((resolve) => { guard = setTimeout(() => resolve({ hung: true }), 2000); })
+    ]);
+    assert.equal(result.hung, undefined, "a hung evaluate must not outlive the bounded read budget");
+    assert.equal(result.ok, false);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(f.readAttempts(), 1);
+    assert.equal(f.contextCloseCount(), 1);
+    assert.equal(artifactAttempts, 0, "deadline failures must not attempt potentially hung screenshots or content reads");
+    assert.equal(fallbackAttempts, 0, "the abandoned page must not be navigated again");
+    assert.ok(Date.now() - started < 2000);
+  } finally { clearTimeout(guard); await f.close(); }
+});
+
+test("run exposes independently rendered ranking evidence without claiming a full listing", async (browser) => {
+  const dom = [...leaderboard(), offer({ provider: "MM Cars Rental", totalPrice: 200, offerId: "mm" })];
+  const f = await fixture(browser, { dom, expectedCount: 12, config: { domOnly: true, locations: [LOCATION],
+    artifactsDir: "artifacts", browserProvider: { getBrowser: async () => f.fakeBrowser },
+    requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.run();
+    assert.deepEqual(result.domEvidenceByLocation[LOCATION], {
+      automatic_filter_confirmed: true, price_sort_confirmed: true, ranking_complete: true,
+      listing_complete: false, expected_offer_count: 12, observed_offer_count: 4, read_pass_count: 2
+    });
+    assert.ok(result.offerViewsByLocation[LOCATION].automatic.every((entry) => entry.source === "dom"));
+  } finally { await f.close(); }
+});
+
+test("adaptive DOM reading reaches delayed required suppliers beyond eight passes", async (browser) => {
+  const partial = leaderboard().slice(0, 2);
+  const complete = [...leaderboard(), offer({ provider: "MM Cars Rental", totalPrice: 200, offerId: "mm" })];
+  const f = await fixture(browser, { domPasses: [...Array.from({ length: 9 }, () => partial), complete], expectedCount: 4,
+    config: { domOnly: true, requiredDomProvidersByLocation: { [LOCATION]: ["Third", "MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.domEvidence.observed_offer_count, 4);
+    assert.ok(result.domEvidence.read_pass_count > 8 && result.domEvidence.read_pass_count <= 24);
+  } finally { await f.close(); }
+});
+
+test("a proven two-supplier automatic listing can be trusted without weakening the comparator", async (browser) => {
+  const dom = [offer({ offerId: "a" }), offer({ provider: "MM Cars Rental", totalPrice: 140, offerId: "mm" }),
+    offer({ provider: "MM Cars Rental", totalPrice: 160, offerId: "mm2", carName: "Toyota Corolla" })];
+  const f = await fixture(browser, { dom, expectedCount: 3, config: { domOnly: true,
+    requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.domEvidence.listing_complete, true);
+    assert.equal(result.domEvidence.observed_offer_count, 3);
+    assert.equal(f.scraper.compareApiAndBrowserOutcomes(dom, result.offerViews.automatic).confirmed, false);
+  } finally { await f.close(); }
+});
+
+test("distinct rendered duplicate-price cards count toward listing completeness before quote dedupe", async (browser) => {
+  const dom = [offer({ domIndex: 0 }), offer({ domIndex: 1 }),
+    offer({ provider: "MM Cars Rental", totalPrice: 140, domIndex: 2 })];
+  const f = await fixture(browser, { dom, expectedCount: 3, config: { domOnly: true } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.observed_offer_count, 3);
+    assert.equal(result.domEvidence.listing_complete, true);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.offerViews.automatic.length, 2);
+    assert.equal(result.sourceValidation.status, "dom_only");
+  } finally { await f.close(); }
+});
+
+for (const options of [{}, { expectedCount: 8 }, { expectedCount: 2, lazyPending: true }]) {
+  test(`two visible suppliers alone cannot prove completion (${JSON.stringify(options)})`, async (browser) => {
+    const f = await fixture(browser, { ...options, dom: leaderboard().slice(0, 2), config: { domOnly: true, domReadMaxPasses: 3 } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.sourceValidation.status, "dom_incomplete");
+      assert.equal(result.domEvidence.ranking_complete, false);
+      assert.equal(result.domEvidence.listing_complete, false);
+      assert.equal(result.domEvidence.read_pass_count, 3);
+    } finally { await f.close(); }
+  });
+}
+
+for (const options of [
+  { automaticControl: false }, { sortControl: false },
+  { sortWorks: false, dom: leaderboard().reverse() },
+  { filterWorks: false, dom: [offer({ transmission: "manual", totalPrice: 50 }), ...leaderboard()] },
+  { dom: [offer(), offer({ provider: "", totalPrice: 120 }), ...leaderboard().slice(1)] }
+]) {
+  test(`unconfirmed controls or a card gap cannot produce complete ranking (${JSON.stringify(options)})`, async (browser) => {
+    const f = await fixture(browser, { dom: leaderboard(), ...options, config: { domOnly: true, domReadMaxPasses: 3 } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      if (options.filterWorks === false) {
+        assert.equal(result.ok, false, "a manual cheapest slot leaves no valid automatic prefix");
+        assert.match(result.error.message, /No automatic offers/);
+      } else {
+        assert.equal(result.sourceValidation.status, "dom_incomplete");
+      }
+      assert.equal(result.domEvidence.ranking_complete, false);
+      assert.equal(result.domEvidence.listing_complete, false);
+    } finally { await f.close(); }
+  });
+}
+
+test("complete inventory proves the new ranking even when an API-required supplier disappeared", async (browser) => {
+  const f = await fixture(browser, { dom: leaderboard(), expectedCount: 3, config: { domOnly: true, domReadMaxPasses: 3,
+    requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.listing_complete, true);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.ok(result.offerViews.automatic.every((entry) => entry.provider !== "MM Cars Rental"));
+  } finally { await f.close(); }
+});
+
+test("sampled automatic DOM filtering preserves the unfiltered API report views", async (browser) => {
+  const api = [offer({ transmission: "manual", totalPrice: 90, offerId: "manual" }), ...leaderboard()];
+  const f = await fixture(browser, { dom: api, api, config: { apiDomSanityRate: 1 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.sourceValidation.status, "dom_confirmed");
+    assert.equal(result.offerViews.all.length, 4);
+    assert.equal(result.offerViews.automatic.length, 3);
+    assert.ok(result.offerViews.all.every((entry) => entry.source === "api"));
+    assert.equal(result.domEvidence.automatic_filter_confirmed, true);
+    assert.equal(await f.page.locator('#automatic').isChecked(), true);
+    assert.equal(await f.page.locator('main > .SearchCar:visible').count(), 3);
+  } finally { await f.close(); }
+});
+
+test("browser-preferred automatic repricing preserves the separate unfiltered API all view", async (browser) => {
+  const api = [offer({ transmission: "manual", totalPrice: 90, offerId: "manual" }), ...leaderboard()];
+  const f = await fixture(browser, { dom: leaderboard({ totalPrice: 120 }), api, config: { apiDomSanityRate: 1 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.sourceValidation.status, "api_dom_conflict_dom_used");
+    assert.equal(result.cheapest.totalPrice, 120);
+    assert.equal(result.cheapest.source, "dom");
+    assert.equal(result.offerViews.automatic.length, 3);
+    assert.ok(result.offerViews.automatic.every((entry) => entry.source === "dom"));
+    assert.equal(result.offerViews.all.length, 4);
+    assert.ok(result.offerViews.all.every((entry) => entry.source === "api"));
+    assert.equal(result.offerViews.all.find((entry) => entry.transmission === "manual").totalPrice, 90);
+    assert.equal(result.offerViews.all.find((entry) => entry.provider === "Supplier" && entry.transmission === "automatic").totalPrice, 100);
+  } finally { await f.close(); }
+});
+
+test("unfiltered browser report collection leaves transmission UI untouched", async (browser) => {
+  const f = await fixture(browser, { dom: [offer({ transmission: "manual", totalPrice: 90 }), ...leaderboard()],
+    config: { apiFirst: false, transmissionFilter: "all" } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.offerViews.all.length, 4);
+    assert.equal(await f.page.locator('#automatic').isChecked(), false);
+    assert.equal(result.domEvidence.automatic_filter_confirmed, false);
+    assert.equal(result.domEvidence.ranking_complete, false);
+  } finally { await f.close(); }
+});
+
+test("DiscoverCars custom automatic checkbox is clicked and its active state confirmed", async (browser) => {
+  const f = await fixture(browser, { customAutomatic: true, dom: [offer({ transmission: "manual", totalPrice: 50 }), ...leaderboard()],
+    config: { domOnly: true } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.automatic_filter_confirmed, true);
+    assert.equal(result.domEvidence.price_sort_confirmed, true);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.offerViews.all.length, 3);
+  } finally { await f.close(); }
+});
+
+test("fast direct DOM search clears OneTrust before selecting a duplicated rendered automatic filter", async (browser) => {
+  const f = await fixture(browser, { customAutomatic: true, duplicateControls: true, cookieOverlay: true,
+    dom: [offer({ transmission: "manual", totalPrice: 50 }), ...leaderboard()], config: { domOnly: true, domReadMaxPasses: 3 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.automatic_filter_confirmed, true);
+    assert.equal(result.domEvidence.price_sort_confirmed, true);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(await f.page.locator('#onetrust-banner-sdk').count(), 0);
+    assert.equal(await f.page.locator('main > .SearchCar:visible').count(), 3);
+  } finally { await f.close(); }
+});
+
+for (const countText of ["Showing 2 of 714 offers", "Showing 2 out of 714 offers", "2 offers found"]) {
+  test(`filtered rendered count can prove a two-supplier market (${countText})`, async (browser) => {
+    const f = await fixture(browser, { dom: leaderboard().slice(0, 2), countText, config: { domOnly: true } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.domEvidence.expected_offer_count, 2);
+      assert.equal(result.domEvidence.listing_complete, true);
+      assert.equal(result.domEvidence.ranking_complete, true);
+      assert.equal(result.sourceValidation.status, "dom_only");
+    } finally { await f.close(); }
+  });
+}
+
+test("the authoritative filtered composite count is not overwritten by an unfiltered descendant total", async (browser) => {
+  const f = await fixture(browser, { dom: leaderboard().slice(0, 2), countText: "Showing 2 out of 714 offers",
+    secondaryCount: 714, config: { domOnly: true } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.expected_offer_count, 2);
+    assert.equal(result.domEvidence.listing_complete, true);
+    assert.equal(result.sourceValidation.status, "dom_only");
+  } finally { await f.close(); }
+});
+
+test("a complete small market is independently read across pagination with page-local slot indexes", async (browser) => {
+  const f = await fixture(browser, { domPages: [
+    [offer({ provider: "MM Cars Rental" }), offer({ provider: "MM Cars Rental" })],
+    [offer({ provider: "CarNet", totalPrice: 140 }), offer({ provider: "CarNet", totalPrice: 160 })]
+  ], countText: "Showing 4 out of 9 offers", config: { domOnly: true, domReadMaxPasses: 8,
+    requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental", "CarNet", "Disappeared supplier"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.expected_offer_count, 4);
+    assert.equal(result.domEvidence.observed_offer_count, 4);
+    assert.equal(result.domEvidence.listing_complete, true);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(await f.page.locator('.Pagination [aria-current="page"]').innerText(), "2");
+    assert.deepEqual([...new Set(result.offerViews.automatic.map((entry) => entry.provider))], ["MM Cars Rental", "CarNet"]);
+    assert.ok(result.domEvidence.read_pass_count <= 8);
+  } finally { await f.close(); }
+});
+
+test("pagination cannot skip an unparsed card gap on the preceding page", async (browser) => {
+  const f = await fixture(browser, { domPages: [[offer(), offer({ provider: "" })], leaderboard()],
+    expectedCount: 5, config: { domOnly: true, domReadMaxPasses: 3 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(await f.page.locator('.Pagination [aria-current="page"]').innerText(), "1");
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+for (const neverReplaces of [false, true]) {
+  test(`a changed active-page label cannot reuse stale preceding-page cards (${neverReplaces ? "never replaced" : "delayed replacement"})`, async (browser) => {
+    const f = await fixture(browser, { domPages: [
+      [offer({ provider: "MM Cars Rental" }), offer({ provider: "MM Cars Rental" })],
+      [offer({ provider: "CarNet", totalPrice: 140 }), offer({ provider: "CarNet", totalPrice: 160 })]
+    ], expectedCount: 4, paginationDelayPasses: 3, paginationNeverReplaces: neverReplaces,
+    config: { domOnly: true, domReadMaxPasses: 8,
+      requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental", "CarNet", "Disappeared supplier"] } } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      if (neverReplaces) {
+        assert.equal(result.domEvidence.observed_offer_count, 2, "old cards cannot be counted again at a new page offset");
+        assert.equal(result.domEvidence.listing_complete, false);
+        assert.equal(result.domEvidence.ranking_complete, false);
+        assert.equal(result.sourceValidation.status, "dom_incomplete");
+      } else {
+        assert.equal(result.domEvidence.listing_complete, true);
+        assert.equal(result.domEvidence.observed_offer_count, 4);
+        assert.equal(result.sourceValidation.status, "dom_only");
+        assert.equal(result.offerViews.automatic.find((entry) => entry.provider === "CarNet").totalPrice, 140);
+        assert.ok(result.domEvidence.read_pass_count >= 5);
+      }
+    } finally { await f.close(); }
+  });
+}
+
+test("remounting a different subset of the old virtual page is not replacement-card evidence", async (browser) => {
+  const previous = [offer({ provider: "MM Cars Rental", domIndex: 0, offerId: "old-0" }),
+    offer({ provider: "MM Cars Rental", domIndex: 1, offerId: "old-1" })];
+  const f = await fixture(browser, { domPages: [previous, [offer({ provider: "CarNet", totalPrice: 140 }),
+    offer({ provider: "CarNet", totalPrice: 160 })]], domPasses: [previous, previous.slice(1), previous],
+  cardMinHeight: 500, paginationNeverReplaces: true, expectedCount: 4,
+  config: { domOnly: true, domReadMaxPasses: 8, requiredDomProvidersByLocation: { [LOCATION]: ["CarNet"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(await f.page.locator('.Pagination [aria-current="page"]').innerText(), "2");
+    assert.equal(result.domEvidence.observed_offer_count, 2);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+for (const partialReplacement of [false, true]) {
+  test(`all next-page quotes need fresh identifiers (${partialReplacement ? "partial replacement" : "name-only change"})`, async (browser) => {
+    const previous = [offer({ offerId: "old-0" }), offer({ offerId: "old-1" })];
+    const next = partialReplacement
+      ? [previous[0], offer({ provider: "CarNet", totalPrice: 140, offerId: "new-1" })]
+      : [offer({ offerId: "old-0", carName: "Toyota Yaris or similar" }), previous[1]];
+    const f = await fixture(browser, { domPages: [previous, next], expectedCount: 4,
+      config: { domOnly: true, domReadMaxPasses: 6, requiredDomProvidersByLocation: { [LOCATION]: ["Unread supplier"] } } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.domEvidence.listing_complete, false);
+      assert.equal(result.domEvidence.ranking_complete, false);
+      assert.equal(result.domEvidence.observed_offer_count, 2);
+      assert.equal(result.sourceValidation.status, "dom_incomplete");
+    } finally { await f.close(); }
+  });
+}
+
+test("a cheaper second page cannot masquerade as a sorted complete automatic listing", async (browser) => {
+  const f = await fixture(browser, { domPages: [[offer({ totalPrice: 140 })], [offer({ provider: "Second", totalPrice: 100 })]],
+    expectedCount: 2, config: { domOnly: true, domReadMaxPasses: 5 } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.observed_offer_count, 2);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+test("all next-page quotes stay fresh when a retained old card appears on a later read", async (browser) => {
+  const f = await fixture(browser, { domPages: [
+    [offer({ provider: "MM Cars Rental", offerId: "old-0" }), offer({ provider: "MM Cars Rental", offerId: "old-1" })],
+    [offer({ provider: "MM Cars Rental", offerId: "new-0" }), offer({ provider: "CarNet", offerId: "new-1" }),
+      offer({ provider: "MM Cars Rental", offerId: "old-1" })]
+  ], expectedCount: 5, config: { domOnly: true, domReadMaxPasses: 8,
+    requiredDomProvidersByLocation: { [LOCATION]: ["Unread supplier"] } } });
+  const extract = f.scraper.extractOffersFromDom.bind(f.scraper);
+  let secondPageReads = 0;
+  f.scraper.extractOffersFromDom = async (...args) => {
+    if (await f.page.locator('.Pagination [aria-current="page"]').innerText() === "2") {
+      await f.page.locator('[data-offer-id="old-1"]').evaluate((node, hidden) => {
+        node.style.display = hidden ? "none" : "";
+      }, ++secondPageReads === 1);
+    }
+    return extract(...args);
+  };
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+test("all next-page quotes bind one identifier to one cached slot across virtual reads", async (browser) => {
+  const f = await fixture(browser, { domPages: [
+    [offer({ provider: "MM Cars Rental", offerId: "old-0" }), offer({ provider: "MM Cars Rental", offerId: "old-1" })],
+    [offer({ provider: "CarNet", offerId: "new-0" }), offer({ provider: "CarNet", offerId: "new-1" })]
+  ], expectedCount: 4, config: { domOnly: true, domReadMaxPasses: 8,
+    requiredDomProvidersByLocation: { [LOCATION]: ["Unread supplier"] } } });
+  const extract = f.scraper.extractOffersFromDom.bind(f.scraper);
+  let secondPageReads = 0;
+  f.scraper.extractOffersFromDom = async (...args) => {
+    if (await f.page.locator('.Pagination [aria-current="page"]').innerText() === "2") {
+      const html = card(offer({ provider: "CarNet", offerId: "new-0", domIndex: ++secondPageReads === 1 ? 0 : 1 }));
+      await f.page.locator('main').evaluate((node, content) => { node.innerHTML = content; }, html);
+    }
+    return extract(...args);
+  };
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.listing_complete, false);
+    assert.equal(result.domEvidence.ranking_complete, false);
+    assert.equal(result.sourceValidation.status, "dom_incomplete");
+  } finally { await f.close(); }
+});
+
+test("indexed virtual cards can complete a contiguous price prefix across passes", async (browser) => {
+  const entries = [...leaderboard(), offer({ provider: "MM Cars Rental", totalPrice: 200, offerId: "mm" })]
+    .map((entry, index) => ({ ...entry, domIndex: index }));
+  const f = await fixture(browser, { domPasses: [entries.slice(0, 2), entries.slice(2)], expectedCount: 10,
+    config: { domOnly: true, requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.domEvidence.observed_offer_count, 4);
+    assert.equal(result.domEvidence.listing_complete, false);
+  } finally { await f.close(); }
+});
+
+test("the earliest unparsed rendered card is brought into view before skipping to the list tail", async (browser) => {
+  const dom = [...leaderboard(), offer({ provider: "MM Cars Rental", totalPrice: 200 })]
+    .map((entry, domIndex) => ({ ...entry, domIndex }));
+  const f = await fixture(browser, { dom, expectedCount: 4, lazySupplierIndexes: [2],
+    config: { domOnly: true, domReadMaxPasses: 6, requiredDomProvidersByLocation: { [LOCATION]: ["MM Cars Rental"] } } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.domEvidence.observed_offer_count, 4);
+    assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(result.offerViews.automatic.find((entry) => entry.provider === "Third").totalPrice, 160);
+    assert.ok(result.domEvidence.read_pass_count <= 6);
+  } finally { await f.close(); }
+});
+
+test("an indexed missing cheapest or middle card cannot be filled by API evidence", async (browser) => {
+  for (const indices of [[1, 2, 3], [0, 2, 3]]) {
+    const dom = leaderboard().map((entry, index) => ({ ...entry, domIndex: indices[index] }));
+    const f = await fixture(browser, { dom, api: leaderboard(), config: { domOnly: true, domReadMaxPasses: 3 } });
+    try {
+      const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+      assert.equal(result.domEvidence.ranking_complete, false);
+      if (indices[0] !== 0) {
+        assert.equal(result.ok, false, "quotes after a missing cheapest card cannot form a returned prefix");
+        assert.match(result.error.message, /No automatic offers/);
+      } else {
+        assert.equal(result.sourceValidation.status, "dom_incomplete");
+        assert.equal(result.offerViews.automatic.length, 1, "quotes beyond the middle gap are excluded");
+      }
+    } finally { await f.close(); }
+  }
+});
+
+test("a transient rendered read failure is retried and counted", async (browser) => {
+  const f = await fixture(browser, { dom: leaderboard(), readErrors: 1, config: { domOnly: true } });
+  try {
+    const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
+    assert.equal(result.domEvidence.ranking_complete, true);
+    assert.equal(result.domEvidence.read_pass_count, 3);
+    assert.equal(result.sourceValidation.status, "dom_only");
+  } finally { await f.close(); }
+});
+
+test("failed run output keeps bounded incomplete DOM evidence", async (browser) => {
+  const f = await fixture(browser, { readErrors: 100, config: { domOnly: true, domReadMaxPasses: 3,
+    locations: [LOCATION], artifactsDir: "artifacts", browserProvider: { getBrowser: async () => f.fakeBrowser } } });
+  try {
+    const result = await f.scraper.run();
+    assert.equal(result.failures.length, 1);
+    assert.equal(result.domEvidenceByLocation[LOCATION].ranking_complete, false);
+    assert.equal(result.domEvidenceByLocation[LOCATION].observed_offer_count, 0);
+    assert.equal(result.domEvidenceByLocation[LOCATION].read_pass_count, 3);
+    assert.equal(f.readAttempts(), 3, "the per-location budget also bounds fallback reads");
+  } finally { await f.close(); }
+});
 
 const supplierLogoNames = ["CarFree Rent a Car", "AddCar", "GO Rental Cars", "Dolcar Rent a Car"];
 
@@ -382,7 +971,7 @@ test("repeated observations of the same ID retain one current offer", () => {
 
 for (const location of [LOCATION, GEO_LOCATION]) {
   for (const filter of ["automatic", "all"]) {
-    test(`registered ${location === LOCATION ? "direct" : "geo"} domOnly flow preserves all/automatic DOM views (${filter})`, async (browser) => {
+    test(`registered ${location === LOCATION ? "direct" : "geo"} domOnly flow retains only actually filtered DOM views (${filter})`, async (browser) => {
       const dom = [offer({ totalPrice: 120, transmission: "manual", offerId: "manual" }), ...leaderboard({ totalPrice: 120, offerId: "auto" })];
       const f = await fixture(browser, { location, dom, api: [offer()], config: { domOnly: true, transmissionFilter: filter } });
       try {
@@ -390,10 +979,10 @@ for (const location of [LOCATION, GEO_LOCATION]) {
         assert.equal(result.ok, true);
         assert.equal(result.cheapest.totalPrice, 120);
         assert.equal(result.sourceValidation.status, "dom_only");
-        assert.equal(result.offerViews.all.length, 4);
+        assert.equal(result.offerViews.all.length, 3);
         assert.equal(result.offerViews.automatic.length, 3);
         assert.ok([...result.results, ...result.offerViews.all].every((entry) => entry.source === "dom"));
-        assert.deepEqual(result.offerViews.all.map((entry) => entry.offerId).sort(), ["auto", "manual", "second", "third"]);
+        assert.deepEqual(result.offerViews.all.map((entry) => entry.offerId).sort(), ["auto", "second", "third"]);
       } finally { await f.close(); }
     });
   }
@@ -496,8 +1085,15 @@ test("invalid prices and mixed currencies cannot receive trusted dom_only proven
     const f = await fixture(browser, { dom: leaderboard(overrides), config: { domOnly: true } });
     try {
       const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
-      assert.equal(result.sourceValidation.status, "dom_incomplete");
-      assert.ok(result.sourceValidation.reasons.length > 0);
+      if (overrides.totalPrice === 0) {
+        assert.equal(result.ok, false, "an invalid cheapest slot leaves no valid returned prefix");
+        assert.match(result.error.message, /No automatic offers/);
+      } else {
+        assert.equal(result.sourceValidation.status, "dom_incomplete");
+        assert.ok(result.sourceValidation.reasons.length > 0);
+      }
+      assert.equal(result.domEvidence.ranking_complete, false);
+      assert.equal(result.domEvidence.listing_complete, false);
     } finally { await f.close(); }
   }
 });
@@ -563,14 +1159,16 @@ test("hidden cards and supplier filter minima are not rendered DOM offers", asyn
   } finally { await f.close(); }
 });
 
-test("DOM-only form success retains manual and automatic views", async (browser) => {
+test("DOM-only form success retains actual automatic-filtered views", async (browser) => {
   const f = await fixture(browser, { form: true, dom: [offer({ transmission: "manual" }), ...leaderboard()], config: { domOnly: true } });
   try {
     const result = await f.scraper.runSingleLocation(LOCATION, async () => f.fakeBrowser);
     assert.equal(result.ok, true);
-    assert.equal(result.offerViews.all.length, 4);
+    assert.equal(result.offerViews.all.length, 3);
     assert.equal(result.offerViews.automatic.length, 3);
     assert.equal(result.sourceValidation.status, "dom_only");
+    assert.equal(await f.page.locator('#automatic').isChecked(), true);
+    assert.equal(await f.page.locator('main > .SearchCar:visible').count(), 3);
   } finally { await f.close(); }
 });
 
