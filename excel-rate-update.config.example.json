@@ -94,6 +94,7 @@
     "decrease": ["F4CCCC", "F8B4B4", "EA9999", "E06666", "C00000"]
   },
   "recommendation_colors": {
+    "mandatory_zone_floor": "FCE4D6",
     "top1_gap": "9DC3E6",
     "top3_small_decrease": "FFC7CE",
     "top1_undercut": "F4B183"

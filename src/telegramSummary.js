@@ -283,6 +283,9 @@ function buildTelegramSummary(options = {}) {
   const increases = nonNegativeCount(statistics.increase_count);
   const decreases = nonNegativeCount(statistics.decrease_count);
   const conflictCount = nonNegativeCount(options.excelSummary?.city_top1_airport_cap_conflict_count);
+  const minimumRaises = nonNegativeCount(options.excelSummary?.mandatory_zone_floor_change_count) || 0;
+  const minimumZones = (options.excelSummary?.mandatory_zone_floor_zones || []).join(", ");
+  const minimumScope = options.excelSummary?.mandatory_zone_floor_date_scope;
   const durations = options.expectedScope?.durations || env.DURATIONS || options.results?.rental_day_options;
   const lines = [
     "DiscoverCars",
@@ -290,13 +293,20 @@ function buildTelegramSummary(options = {}) {
     `Daty startu: ${startDatesLabel(options, env)}`,
     `Czas trwania: ${summarizeNumberList(durations, "–")} dni`,
     priceCoverageLabel(quality),
-    "Tam, gdzie nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek.",
+    minimumRaises > 0
+      ? "Bez potwierdzonej ceny nie zmieniano stawek na podstawie rynku; wyjątkiem są obowiązkowe minima lokalizacji."
+      : "Tam, gdzie nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek.",
     ...(missingMmAlert ? [missingMmAlert] : []),
     "",
     increases == null || decreases == null ? "Zmiany w Excelu: brak danych."
       : `Zmiany w Excelu: ${increases} podwyżek i ${decreases} obniżek stawek.`,
     ...(increases > 0 ? [`Średnia podwyżka względem bazy: ${formatAverageMagnitude(statistics.average_increase_pln_day)}.`] : []),
     ...(decreases > 0 ? [`Średnia obniżka względem bazy: ${formatAverageMagnitude(statistics.average_decrease_pln_day)}.`] : []),
+    ...(minimumRaises > 0 ? [
+      `Minima ${minimumZones}: ${minimumRaises} podwyżek niezależnie od scrapera, także poza jego zakresem dat.`,
+      ...(minimumScope?.start_date && minimumScope?.end_date
+        ? [`Zakres korekt minimum: ${formatIsoDate(minimumScope.start_date)}–${formatIsoDate(minimumScope.end_date)}.`] : [])
+    ] : []),
     ...(conflictCount > 0 ? [`Pominięto ${conflictCount} przedziałów stawek ze względu na zasady cenowe. Szczegóły w rekomendacjach.`] : []),
     "",
     `Import: ${excelUrl}`,

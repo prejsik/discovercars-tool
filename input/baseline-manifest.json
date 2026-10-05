@@ -1,21 +1,27 @@
 {
   "schema_version": 1,
-  "status": "user_approved_extension",
-  "workbook_sha256": "4e16e0a93f72eef1272cf4e38cbe83d890812752ce0dd0b462e3b3a4d41cbac5",
-  "approved_at": "2026-10-03",
+  "status": "user_approved_floor_correction",
+  "workbook_sha256": "0814d85b6857f42ff4a4136d5a6f2ff74f271859d1afa6f0cf61825d24a4d93c",
+  "approved_at": "2026-10-05",
   "approved_by": "user",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 02-Oct-26.xlsx",
+  "source_filename": "rates-import-ready (6).xlsx",
   "source_baseline": {
     "status": "confirmed_imported",
-    "workbook_sha256": "2e74601300b325b176c99f53d3280e84033fea164e89a9fbd8b040a56a8f3997",
-    "confirmed_at": "2026-10-02",
+    "workbook_sha256": "cf6b7caaef28d484e96db7879eb6909e5f75effcce664c4c75bbc93319723f23",
+    "confirmed_at": "2026-10-05",
     "confirmed_by": "user",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 02-Oct-26.xlsx"
+    "source_filename": "rates-import-ready (6).xlsx"
   },
-  "zone_additions": {
-    "SZLO": "LOLO",
-    "SZO1": "LOLO",
-    "SZ1": "LOLO"
+  "floor_corrections": {
+    "SZLO": [
+      { "minDays": 1, "maxDays": 1, "minimumRatePlnDay": 300 },
+      { "minDays": 2, "maxDays": 2, "minimumRatePlnDay": 150 },
+      { "minDays": 3, "maxDays": 4, "minimumRatePlnDay": 130 },
+      { "minDays": 5, "maxDays": 7, "minimumRatePlnDay": 110 },
+      { "minDays": 8, "maxDays": 20, "minimumRatePlnDay": 90 },
+      { "minDays": 21, "maxDays": 35, "minimumRatePlnDay": 90 }
+    ]
   },
-  "note": "User explicitly approved adding all three Szczecin zones to the baseline before publication on 2026-10-03. Each zone contains 900 rows copied from LOLO, with all original rows and rates preserved regardless of filters. New zone rates are approved starting values, not confirmed as imported into DiscoverCars. This baseline supports recommendations but must not calibrate broker markup. Broker markup remains frozen; calibration changes require explicit user confirmation."
+  "floor_correction_cell_count": 1761,
+  "note": "User confirmed rates-import-ready (6).xlsx as the currently imported baseline on 2026-10-05 and explicitly requested applying the permanent SZLO minima before pushing it to main. The corrected workbook raises only 1761 below-floor SZLO cells to the listed minima for all classes and dates. All rows, dates, other rates and native formatting are preserved. The source is confirmed imported; these new SZLO corrections are approved, not yet confirmed imported. This baseline supports recommendations but must not calibrate broker markup. Broker markup remains frozen; calibration changes require explicit user confirmation."
 }

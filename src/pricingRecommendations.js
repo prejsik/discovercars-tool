@@ -5,7 +5,10 @@ const {
   resolveBrokerMarkupCalibration,
   siteToImportRate, importToSiteRate, fixedMarkupFields
 } = require("./brokerMarkupCalibration");
-const { DEFAULT_PRICING_RULES } = require("./pricingRules");
+const {
+  DEFAULT_PRICING_RULES, resolveMandatoryZoneFloorPlnDay, validateMandatoryZoneFloorsPlnDay
+} = require("./pricingRules");
+const { buildLocationZones } = require("./locationRegistry");
 const { buildCurrentMarkupEvidence, hasMarkupConflict, keyOf: markupKey } = require("./currentBrokerMarkup");
 const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
 
@@ -89,14 +92,22 @@ function buildNoopRecommendation(base, reason, options, siteCapRate = null, data
   const maximumImportRate = resolvedSiteCap == null
     ? null
     : roundRate(siteToImportRate(resolvedSiteCap, calibration), options);
+  const mandatoryFloorBlocked = base.mandatory_minimum_rate_pln_day > 0 && (
+    dataQualityStatus === "floor_blocks_top3" || dataQualityStatus === "mandatory_floor_blocks_target"
+    || (maximumImportRate != null && maximumImportRate < base.mandatory_minimum_rate_pln_day)
+  );
+  if (mandatoryFloorBlocked && dataQualityStatus === "ok") {
+    dataQualityStatus = "mandatory_floor_blocks_target";
+    reason = "Cel rankingowy jest ponizej obowiazkowego minimum strefy po przeliczeniu narzutu brokera; brak osiagalnego celu.";
+  }
 
   return {
     ...base,
     action: "hold",
     reason,
     suggested_rate_pln_day: null,
-    site_cap_rate_pln_day: dataQualityStatus === 'markup_needs_review' || resolvedSiteCap == null ? null : Number(resolvedSiteCap.toFixed(2)),
-    maximum_import_rate_pln_day: dataQualityStatus === 'markup_needs_review' ? null : maximumImportRate,
+    site_cap_rate_pln_day: mandatoryFloorBlocked || dataQualityStatus === 'markup_needs_review' || resolvedSiteCap == null ? null : Number(resolvedSiteCap.toFixed(2)),
+    maximum_import_rate_pln_day: mandatoryFloorBlocked || dataQualityStatus === 'markup_needs_review' ? null : maximumImportRate,
     broker_markup_multiplier: calibration.multiplier,
     broker_markup_percent: calibration.percent,
     broker_markup_source: calibration.source,
@@ -111,6 +122,11 @@ function buildActiveRecommendation({ base, options, action, recommendationType, 
   const benchmarkRate = toDailyRate(benchmarkOffer);
   const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
   const suggestedImportRate = roundRate(siteToImportRate(siteTarget, calibration), options);
+  if (base.mandatory_minimum_rate_pln_day > 0 && suggestedImportRate < base.mandatory_minimum_rate_pln_day) {
+    return buildNoopRecommendation(base,
+      "Cel rankingowy jest ponizej obowiazkowego minimum strefy po przeliczeniu narzutu brokera; brak osiagalnego celu.",
+      options, null, "mandatory_floor_blocks_target");
+  }
   const predictedSiteRate = Number(importToSiteRate(suggestedImportRate, calibration).toFixed(2));
   const mmRate = base.mm_rate_pln_day == null ? null : Number(base.mm_rate_pln_day);
   const siteChange = Number.isFinite(mmRate) ? siteTarget - mmRate : null;
@@ -147,7 +163,7 @@ function listOfferCurrencies(offers) {
   )];
 }
 
-function buildRecommendationForLocation({ rootPayload, scenario, location, options, top1SignalIndex, markupEvidence }) {
+function buildRecommendationForLocation({ rootPayload, scenario, location, options, locationZones, top1SignalIndex, markupEvidence }) {
   const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
     (rule.locations.includes("*") || rule.locations.includes(location))
     && scenario.start_date >= rule.startDate && scenario.start_date <= rule.endDate
@@ -169,8 +185,12 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const top3Rate = toDailyRate(top3);
   const top1Signal = top1SignalIndex?.get(buildObservationKey(scenario, location)) || null;
   const sourceValidation = scenario?.source_validation_by_location?.[location] || { status: "api_unverified", reasons: [] };
+  const mandatoryMinimum = Math.max(0, ...(locationZones?.[location] || [location]).map((zone) =>
+    resolveMandatoryZoneFloorPlnDay(zone, scenario.rental_days, options)
+  ));
 
   const base = {
+    ...(mandatoryMinimum > 0 ? { mandatory_minimum_rate_pln_day: mandatoryMinimum } : {}),
     ...(markupEvidence ? { markup_evidence: markupEvidence } : {}),
     ...(priorityRule ? { priority_rule_id: priorityRule.id, transmission: priorityRule.transmission } : {}),
     scenario_id: scenario.scenario_id || null,
@@ -244,7 +264,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
   if (priorityRule) {
     const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
-    const minimumImport = priorityRule.minimumRatePlnDay + (priorityRule.premiumReservePlnDay || 0);
+    const minimumImport = Math.max(priorityRule.minimumRatePlnDay, mandatoryMinimum) + (priorityRule.premiumReservePlnDay || 0);
     const competitors = topOffers.filter((offer) => !isMmCarsProvider(offer.provider_name));
     for (const [index, competitor] of competitors.entries()) {
       const rate = toDailyRate(competitor);
@@ -409,6 +429,9 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  validateMandatoryZoneFloorsPlnDay(options.mandatoryZoneFloorsPlnDay);
+  const locationZones = Object.keys(options.mandatoryZoneFloorsPlnDay || {}).length
+    ? buildLocationZones(options.locationRegistry) : null;
   const evidence = options.brokerMarkupCalibration?.manualOnly === true
     ? new Map() : buildCurrentMarkupEvidence(payload, options.currentBaseline, options.calibrationNow);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, options);
@@ -424,6 +447,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         scenario,
         location,
         options,
+        locationZones,
         top1SignalIndex,
         markupEvidence: evidence.get(markupKey(location, scenario.start_date, scenario.rental_days))
       });

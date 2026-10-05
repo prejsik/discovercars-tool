@@ -758,14 +758,17 @@ def main():
         updated = openpyxl.load_workbook(output)
         imported = openpyxl.load_workbook(import_output)
         prices = {(row[0], row[3]): row[9] for row in updated["Sheet1"].iter_rows(min_row=5, values_only=True)}
-        for zone, base_rate in (("SZLO", 69), ("SZO1", 89.7), ("SZ1", 79)):
+        for zone, base_rate in (("SZLO", 150), ("SZO1", 119), ("SZ1", 79)):
             for group in ("CDMV", "CGAV", "CWAV", "CWMR"):
                 assert_equal(prices[(group, zone)], base_rate, "Szczecin recommendations match only the correct zone")
             for group in ("EDAV", "EDMV"):
                 assert_equal(prices[(group, zone)], base_rate + 1, "Szczecin premium parity is preserved")
             for group in ("PDAH", "CFAV", "SWAV"):
                 assert_equal(prices[(group, zone)], 150, "Szczecin excluded class keeps its copied rate")
-        assert_equal(prices[("CDMV", "SZO1")], prices[("CDMV", "SZLO")] * 1.3, "Szczecin downtown top1 rate is capped at 130 percent of its airport")
+        assert prices[("CDMV", "SZO1")] <= prices[("CDMV", "SZLO")] * 1.3, "Szczecin downtown top1 rate stays within 130 percent of the floor-aware airport rate"
+        for row in updated["Sheet1"].iter_rows(min_row=5, values_only=True):
+            assert_equal(row[8], 300 if row[3] == "SZLO" else 150,
+                         "the permanent airport floor covers one-day rates without changing other points")
         for group in ("CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV", "PDAH", "CFAV", "SWAV"):
             assert_equal(prices[(group, "LOLO")], 150, "new recommendations never alter the old source zone")
         assert_equal(summary["zone_seeding"]["seeded_row_count"], 27, "all three new points appear in the audit")
@@ -2036,7 +2039,10 @@ def main():
             dry_run=False,
             import_output_path=baseline_real_import_path,
         )
-        assert_equal(baseline_real_summary["change_count"], 0, "empty recommendations preserve baseline prices")
+        assert_equal(baseline_real_summary["change_count"], baseline_real_summary["mandatory_zone_floor_change_count"],
+                     "empty recommendations only raise below-floor SZLO prices without market changes")
+        assert_equal(baseline_real_summary["change_statistics"]["decrease_count"], 0,
+                     "mandatory floor correction never lowers baseline prices")
         for output_file in (baseline_real_output_path, baseline_real_import_path):
             baseline_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
             baseline_real_ws = baseline_real_workbook["Sheet1"]
@@ -2054,6 +2060,9 @@ def main():
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             for key, expected_rates in frozen_source_rates.items():
+                if key[1] == "SZLO":
+                    expected_rates = tuple(max(rate, minimum) for rate, minimum in
+                                           zip(expected_rates, (300, 150, 130, 110, 90, 90)))
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
             baseline_real_workbook.close()
 

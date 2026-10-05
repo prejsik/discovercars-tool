@@ -1,5 +1,15 @@
 {
   "pricing": {
+    "mandatoryZoneFloorsPlnDay": {
+      "SZLO": [
+        {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 300},
+        {"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 150},
+        {"minDays": 3, "maxDays": 4, "minimumRatePlnDay": 130},
+        {"minDays": 5, "maxDays": 7, "minimumRatePlnDay": 110},
+        {"minDays": 8, "maxDays": 20, "minimumRatePlnDay": 90},
+        {"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 90}
+      ]
+    },
     "pricingPolicy": {
       "precedence": [
         "protected_dates",

@@ -1470,6 +1470,23 @@ runTest("Telegram displays both average magnitudes from the actual changed Excel
   assert.match(message, /Średnia obniżka względem bazy: 8,20 PLN\/dobę\./);
 });
 
+runTest("Telegram separates mandatory floor raises outside the scraped date scope from market recommendations", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" },
+    expectedScope: { start_dates: ["2026-10-05"], durations: [2, 3] },
+    excelSummary: {
+      change_statistics: { increase_count: 60, decrease_count: 0, average_increase_pln_day: 40 },
+      mandatory_zone_floor_change_count: 54, mandatory_zone_floor_zones: ["SZLO"],
+      mandatory_zone_floor_date_scope: { start_date: "2026-10-05", end_date: "2027-01-12", date_count: 100 }
+    }
+  });
+  assert.match(message, /Minima SZLO: 54 podwyżek niezależnie od scrapera/);
+  assert.match(message, /Zakres korekt minimum: 05\.10\.2026–12\.01\.2027/);
+  assert.match(message, /60 podwyżek i 0 obniżek/);
+  assert.doesNotMatch(message, /nie potwierdzono ceny, nie zmieniano stawek\./);
+});
+
 runTest("Telegram cannot invent zero Excel changes or full coverage from absent statistics", () => {
   const message = buildTelegramSummary({
     env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
