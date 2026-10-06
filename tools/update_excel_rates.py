@@ -304,17 +304,21 @@ def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: st
             )
         approved_extension = status == "user_approved_extension"
         approved_floor_correction = status == "user_approved_floor_correction"
-        approved_adjustment = approved_extension or approved_floor_correction
+        approved_rate_correction = status == "user_approved_rate_correction"
+        approved_adjustment = approved_extension or approved_floor_correction or approved_rate_correction
         if approved_adjustment:
             source = manifest.get("source_baseline") or {}
             if (
                 manifest.get("approved_by") != "user"
                 or not manifest.get("approved_at")
                 or not isinstance(source, dict)
-                or source.get("status") not in CONFIRMED_BASELINE_STATUSES
+                or source.get("status") not in (
+                    {*CONFIRMED_BASELINE_STATUSES, "user_supplied"} if approved_rate_correction
+                    else CONFIRMED_BASELINE_STATUSES
+                )
                 or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("workbook_sha256") or ""))
             ):
-                raise ValueError("Baseline adjustment requires explicit user approval and imported source provenance.")
+                raise ValueError("Baseline adjustment requires explicit user approval and valid source provenance.")
             if approved_extension and (not isinstance(manifest.get("zone_additions"), dict)
                                        or not manifest["zone_additions"]):
                 raise ValueError("Baseline extension requires explicit user approval and zone additions.")
@@ -324,6 +328,24 @@ def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: st
                     or any(zone not in (config.get("zone_location_labels") or {}) for zone in corrections)):
                     raise ValueError("Approved baseline floor correction requires registered zones and duration bands.")
                 validate_mandatory_zone_floors(corrections)
+            if approved_rate_correction:
+                corrections = manifest.get("rate_corrections")
+                if not isinstance(corrections, list) or not corrections:
+                    raise ValueError("Approved rate correction requires explicit rate_corrections.")
+                for correction in corrections:
+                    if not isinstance(correction, dict):
+                        raise ValueError("Rate correction must be an object.")
+                    try:
+                        start = date.fromisoformat(correction["start_date"])
+                        end = date.fromisoformat(correction["end_date"])
+                        rate = correction["rate_pln_day"]
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise ValueError("Rate correction requires valid pickup dates and rate.") from exc
+                    if (not re.fullmatch(r"[A-Z0-9]{4}", str(correction.get("group") or ""))
+                        or end < start or isinstance(rate, bool) or not isinstance(rate, (int, float))
+                        or not math.isfinite(rate) or rate <= 0
+                        or correction.get("all_duration_bands") is not True):
+                        raise ValueError("Invalid group, dates, rate or duration scope in rate correction.")
         elif status not in CONFIRMED_BASELINE_STATUSES:
             raise ValueError(
                 "Baseline workbook is not confirmed as imported. "
@@ -343,6 +365,7 @@ def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: st
                 "approved_by": manifest["approved_by"],
                 "source_baseline": manifest["source_baseline"],
                 **({"zone_additions": manifest["zone_additions"]} if approved_extension
+                   else {"rate_corrections": manifest["rate_corrections"]} if approved_rate_correction
                    else {"floor_corrections": manifest["floor_corrections"]}),
             } if approved_adjustment else {}),
         }

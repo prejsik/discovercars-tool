@@ -78,6 +78,37 @@ class PricingPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_baseline_confirmation(config, "c" * 64)
 
+    def test_explicit_rate_corrected_baseline_keeps_user_supplied_provenance(self):
+        correction = {"group": "FVMD", "start_date": "2026-10-06", "end_date": "2026-10-12",
+                      "rate_pln_day": 400, "all_duration_bands": True}
+        manifest = {
+            "status": "user_approved_rate_correction", "workbook_sha256": "b" * 64,
+            "approved_by": "user", "approved_at": "2026-10-06",
+            "source_baseline": {"status": "user_supplied", "workbook_sha256": "a" * 64},
+            "rate_corrections": [correction],
+        }
+        path = self.root / "baseline.json"
+        config = {**self.config, "baseline_manifest_file": "baseline.json", "_config_dir": str(self.root)}
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = load_baseline_confirmation(config, "b" * 64)
+        self.assertTrue(result["recommendation_eligible"])
+        self.assertFalse(result["confirmed"])
+        self.assertFalse(result["calibration_eligible"])
+        self.assertEqual(result["rate_corrections"], [correction])
+        for field in ("approved_by", "approved_at", "source_baseline", "rate_corrections"):
+            path.write_text(json.dumps({k: v for k, v in manifest.items() if k != field}), encoding="utf-8")
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                load_baseline_confirmation(config, "b" * 64)
+        for invalid in ({"start_date": "bad"}, {"end_date": "2026-10-05"},
+                        {"group": ""}, {"rate_pln_day": 0}, {"rate_pln_day": float("inf")},
+                        {"all_duration_bands": False}):
+            path.write_text(json.dumps({**manifest, "rate_corrections": [{**correction, **invalid}]}), encoding="utf-8")
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                load_baseline_confirmation(config, "b" * 64)
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_baseline_confirmation(config, "c" * 64)
+
     def workbook(self, pickups=("2026-10-01",), airport_rate=40, city_rate=60):
         path = self.root / "baseline.xlsx"
         book = openpyxl.Workbook()

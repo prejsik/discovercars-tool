@@ -1,27 +1,26 @@
 {
   "schema_version": 1,
-  "status": "user_approved_floor_correction",
-  "workbook_sha256": "0814d85b6857f42ff4a4136d5a6f2ff74f271859d1afa6f0cf61825d24a4d93c",
-  "approved_at": "2026-10-05",
+  "status": "user_approved_rate_correction",
+  "workbook_sha256": "c07bd0b9941d842e0d5272c0f385235a10e264957329cf44198394a744cc9f9d",
+  "approved_at": "2026-10-06",
   "approved_by": "user",
-  "source_filename": "rates-import-ready (6).xlsx",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 06-Oct-26.xlsx",
   "source_baseline": {
-    "status": "confirmed_imported",
-    "workbook_sha256": "cf6b7caaef28d484e96db7879eb6909e5f75effcce664c4c75bbc93319723f23",
-    "confirmed_at": "2026-10-05",
-    "confirmed_by": "user",
-    "source_filename": "rates-import-ready (6).xlsx"
+    "status": "user_supplied",
+    "workbook_sha256": "240692794a80201b06fbed6458a335f1624c73fc513b556ebe4aab0efcf73e2f",
+    "supplied_at": "2026-10-06",
+    "supplied_by": "user",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 06-Oct-26.xlsx"
   },
-  "floor_corrections": {
-    "SZLO": [
-      { "minDays": 1, "maxDays": 1, "minimumRatePlnDay": 300 },
-      { "minDays": 2, "maxDays": 2, "minimumRatePlnDay": 150 },
-      { "minDays": 3, "maxDays": 4, "minimumRatePlnDay": 130 },
-      { "minDays": 5, "maxDays": 7, "minimumRatePlnDay": 110 },
-      { "minDays": 8, "maxDays": 20, "minimumRatePlnDay": 90 },
-      { "minDays": 21, "maxDays": 35, "minimumRatePlnDay": 90 }
-    ]
-  },
-  "floor_correction_cell_count": 1761,
-  "note": "User confirmed rates-import-ready (6).xlsx as the currently imported baseline on 2026-10-05 and explicitly requested applying the permanent SZLO minima before pushing it to main. The corrected workbook raises only 1761 below-floor SZLO cells to the listed minima for all classes and dates. All rows, dates, other rates and native formatting are preserved. The source is confirmed imported; these new SZLO corrections are approved, not yet confirmed imported. This baseline supports recommendations but must not calibrate broker markup. Broker markup remains frozen; calibration changes require explicit user confirmation."
+  "rate_corrections": [
+    {
+      "group": "FVMD",
+      "start_date": "2026-10-06",
+      "end_date": "2026-10-12",
+      "rate_pln_day": 400,
+      "all_duration_bands": true
+    }
+  ],
+  "rate_correction_cell_count": 42,
+  "note": "User supplied this workbook as the new baseline on 2026-10-06 and requested FVMD at 400 PLN/day in every duration band from today until 13 October, with source prices retained from 13 October. The applied interval is 6-12 October inclusive. All 252 rate cells across 42 matching rows now equal 400; only 42 cells needed changes, all in the 1-day band. All other workbook values, rows, dates, styles and native features are preserved. This approved correction is not a confirmation that the corrected prices have already been imported. The baseline is eligible for recommendations but not broker markup calibration; markup remains frozen. SZLO mandatory minima remain a separate unchanged pricing policy. No market recommendation or scraping was performed for this replacement."
 }
