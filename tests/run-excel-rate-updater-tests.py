@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import zipfile
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree
@@ -223,8 +224,8 @@ def main():
         ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
         "excluded and unchanged groups",
     )
-    assert_equal(example_config["max_import_rows"], 28000, "broker import row limit")
-    assert_equal(get_import_row_limit({"max_import_rows": 30000}), 28000, "broker row limit cannot be raised")
+    assert_equal(example_config["max_import_rows"], None, "broker import row limit disabled")
+    assert_equal(get_import_row_limit({"max_import_rows": 30000}), 30000, "explicit import row limit")
     assert_equal(
         example_config["excluded_group_highlights"],
         {"SWAV": 150},
@@ -248,7 +249,7 @@ def main():
     assert_equal(
         example_config["protected_rate_periods"],
         [
-            {"start_date": "2026-10-31", "end_date": "2026-11-02"},
+            {"start_date": "2026-10-31", "end_date": "2026-11-01"},
             {"start_date": "2026-12-15", "end_date": "2027-01-10"},
         ],
         "holiday rate protection periods",
@@ -481,8 +482,8 @@ def main():
         holiday_dates = [
             "30-10-26",
             "31-10-26",
+            "01-11-26",
             "02-11-26",
-            "03-11-26",
             "14-12-26",
             "15-12-26",
             "10-01-27",
@@ -550,7 +551,7 @@ def main():
         }
         protected_dates = {
             date(2026, 10, 31),
-            date(2026, 11, 2),
+            date(2026, 11, 1),
             date(2026, 12, 15),
             date(2027, 1, 10),
         }
@@ -564,7 +565,7 @@ def main():
                 )
         unprotected_dates = {
             date(2026, 10, 30),
-            date(2026, 11, 3),
+            date(2026, 11, 2),
             date(2026, 12, 14),
             date(2027, 1, 11),
         }
@@ -862,7 +863,9 @@ def main():
 
     covered_zones = set().union(*location_zones.values())
     real_zones = workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
-    assert_equal(sorted(real_zones - covered_zones), [], "all real workbook zones are covered by location_zones")
+    assert_equal(sorted(set(example_config["zone_location_labels"]) - covered_zones), [],
+                 "all registered zones are covered by location_zones")
+    unmapped_source_zones = real_zones - covered_zones
 
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
@@ -979,7 +982,7 @@ def main():
         assert_equal(summary["group_price_parity_change_count"], 0, "group_price_parity_change_count")
         assert_equal(summary["group_price_parity_scope_count"], 4, "group_price_parity_scope_count")
         assert_equal(summary["import_output"], str(import_output_path), "import output path")
-        assert_equal(summary["max_import_rows"], 28000, "summary import row limit")
+        assert_equal(summary["max_import_rows"], None, "summary import row limit disabled")
         assert_equal(summary["import_row_count"], 14, "summary import row count")
         assert_equal(
             summary["recommendation_date_scope"],
@@ -1972,12 +1975,18 @@ def main():
         expected_pickup_end = expected_pickup_start + timedelta(days=99)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
         frozen_source_rates = {}
+        unmapped_source_rates = {}
         real_target = None
         for row in range(5, real_ws.max_row + 1):
             group = str(real_ws.cell(row, 1).value or "").strip().upper()
             zone = str(real_ws.cell(row, 4).value or "").strip().upper()
             pickup_date = parse_date_value(real_ws.cell(row, 7).value)
             old_rate = parse_number(real_ws.cell(row, 10).value)
+            if zone in unmapped_source_zones and pickup_date is not None:
+                end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
+                unmapped_source_rates.setdefault((group, zone), []).append((
+                    pickup_date, end_date, tuple(real_ws.cell(row, col).value for col in range(9, 15)),
+                ))
             if group in frozen_groups and pickup_date and expected_pickup_start <= pickup_date <= expected_pickup_end:
                 frozen_source_rates[(group, zone, pickup_date)] = tuple(
                     real_ws.cell(row, col).value for col in range(9, 15)
@@ -1989,6 +1998,15 @@ def main():
         for group in frozen_groups:
             assert any(key[0] == group for key in frozen_source_rates), f"Real workbook needs baseline rows for {group}."
         real_before.close()
+        expected_unmapped_rows = Counter()
+        for (group, zone), source_rates in unmapped_source_rates.items():
+            for offset in range(100):
+                pickup_date = expected_pickup_start + timedelta(days=offset)
+                matching_rates = [rates for low, high, rates in source_rates if low <= pickup_date <= high]
+                if not matching_rates:
+                    matching_rates = [max(enumerate(source_rates), key=lambda item: (item[1][0], item[0]))[1][2]]
+                for rates in matching_rates:
+                    expected_unmapped_rows[(group, zone, pickup_date, rates)] += 1
         real_pickup_date, real_old_rate = real_target
         real_recommendations_path.write_text(
             json.dumps(
@@ -2048,6 +2066,7 @@ def main():
             baseline_real_ws = baseline_real_workbook["Sheet1"]
             pickup_dates = []
             frozen_output_rates = {}
+            unmapped_output_rows = Counter()
             for values in baseline_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
                 group = str(values[0] or "").strip().upper()
                 zone = str(values[3] or "").strip().upper()
@@ -2056,11 +2075,18 @@ def main():
                     pickup_dates.append(pickup_date)
                 if group in frozen_groups and pickup_date is not None:
                     frozen_output_rates[(group, zone, pickup_date)] = tuple(values[8:14])
-            assert_equal(baseline_real_ws.max_row <= 28000, True, "real workbook stays within broker row limit")
+                if zone in unmapped_source_zones:
+                    unmapped_output_rows[(group, zone, pickup_date, tuple(values[8:14]))] += 1
+            assert_equal(unmapped_output_rows, expected_unmapped_rows,
+                         "all unmapped baseline classes, zones, 100 pickup dates, rates and row multiplicities retained")
+            assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
+            assert_equal(baseline_real_ws.max_row, baseline_real_summary["import_row_count"], "all generated rows exported")
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             for key, expected_rates in frozen_source_rates.items():
-                if key[1] == "SZLO":
+                protected = (date(2026, 10, 31) <= key[2] <= date(2026, 11, 1)
+                             or date(2026, 12, 15) <= key[2] <= date(2027, 1, 10))
+                if key[1] == "SZLO" and not protected:
                     expected_rates = tuple(max(rate, minimum) for rate, minimum in
                                            zip(expected_rates, (300, 150, 130, 110, 90, 90)))
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")

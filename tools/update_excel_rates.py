@@ -27,7 +27,6 @@ except ImportError as exc:  # pragma: no cover - runtime environment guard
     raise SystemExit("Missing dependency: openpyxl. Install it with: pip install openpyxl") from exc
 
 
-BROKER_IMPORT_ROW_LIMIT = 28000
 
 
 DEFAULT_CONFIG = {
@@ -46,7 +45,7 @@ DEFAULT_CONFIG = {
     },
     "location_zones": {},
     "apply_groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
-    "max_import_rows": BROKER_IMPORT_ROW_LIMIT,
+    "max_import_rows": None,
     "max_recommendation_duration_days": 20,
     "duration_band_evidence_max_days": {"8-20": 14},
     "broker_markup_learning": {"enabled": False},
@@ -302,6 +301,15 @@ def load_baseline_confirmation(config: dict[str, Any], input_workbook_sha256: st
                 "Input workbook does not match the baseline manifest; no workbook changes were made. "
                 f"Expected {expected_hash}, got {input_workbook_sha256}."
             )
+        if status == "user_approved_baseline":
+            if manifest.get("approved_by") != "user" or not manifest.get("approved_at"):
+                raise ValueError("Baseline replacement requires explicit user approval.")
+            return {
+                "status": status, "confirmed": False, "recommendation_eligible": True,
+                "calibration_eligible": False, "workbook_sha256": expected_hash,
+                "approved_at": manifest["approved_at"], "approved_by": manifest["approved_by"],
+                "manifest_path": str(manifest_path),
+            }
         approved_extension = status == "user_approved_extension"
         approved_floor_correction = status == "user_approved_floor_correction"
         approved_rate_correction = status == "user_approved_rate_correction"
@@ -1152,6 +1160,8 @@ def get_mandatory_zone_floor(zone: Any, min_days: int, max_days: int, config: di
 def is_mandatory_zone_floor_change(change: dict[str, Any], config: dict[str, Any]) -> bool:
     if change.get("recommendation_type") != "mandatory_zone_floor":
         return False
+    if date_is_rate_protected(parse_date_value(change.get("pickup_date")), get_protected_rate_periods(config)):
+        return False
     minimum = get_mandatory_zone_floor(change.get("zone"), int(change.get("duration_min_days") or 0),
                                        int(change.get("duration_max_days") or 0), config)
     old_rate, new_rate = parse_number(change.get("old_rate")), parse_number(change.get("new_rate"))
@@ -1164,6 +1174,7 @@ def enforce_mandatory_zone_floors(
     dry_run: bool, existing_changes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     floors = get_mandatory_zone_floors(config)
+    protected_periods = get_protected_rate_periods(config)
     columns = config["columns"]
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
     missing_duration_days = sorted(set(range(1, 36)) - set(duration_columns))
@@ -1179,6 +1190,8 @@ def enforce_mandatory_zone_floors(
         pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         if not group or pickup is None:
             raise ValueError(f"Missing group or pickup date for mandatory zone floor: row {row}.")
+        if date_is_rate_protected(pickup, protected_periods):
+            continue
         for col, (label, low, high) in bands_by_col.items():
             minimum = get_mandatory_zone_floor(zone, low, high, config)
             if minimum is None:
@@ -1200,7 +1213,7 @@ def enforce_mandatory_zone_floors(
                 "duration_band": label, "duration_min_days": low, "duration_max_days": high,
                 "cell": cell.coordinate, "old_rate": old_rate, "new_rate": minimum,
                 "delta": round(minimum - old_rate, 2), "minimum_rate_pln_day": minimum,
-                "minimum_reason": "Obowiazkowe minimum strefowe dla wszystkich klas i dat.",
+                "minimum_reason": "Obowiazkowe minimum strefowe dla wszystkich klas poza chronionymi datami.",
                 "source_decision_count": 0,
             }
             changes.append(change)
@@ -1376,8 +1389,8 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
     for zone, bands in get_mandatory_zone_floors(config).items():
         amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
                             for band in bands)
-        parts.append(f"Obowiazkowe minimum {zone}, bezterminowo dla wszystkich klas i dat: {amounts}. "
-                     "Podnosimy tylko stawki ponizej minimum, takze w klasach wykluczonych i chronionych datach, "
+        parts.append(f"Obowiazkowe minimum {zone}, bezterminowo dla wszystkich klas poza chronionymi datami: {amounts}. "
+                     "Podnosimy tylko stawki ponizej minimum, takze w klasach wykluczonych; chronione daty zachowuja stawki bazowe, "
                      "bez wymagania ceny ze scrapera i poza jego zakresem; wyzsze ceny nie sa obnizane przez te korekte")
     global_min = parse_number(rules.get("global_min_pln_day"))
     if global_min is not None:
@@ -1469,7 +1482,7 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         duration_rule += f" Kolumna {band} dni jest zmieniana na podstawie scenariuszy do {evidence_max} dni; zmiana obejmuje caly przedzial, a pozostale duration nie sa weryfikowane. Brak danych w wymaganym zakresie blokuje zmiany tej kolumny, rowniez parytet."
     mandatory_rule = (
         " Wyjatek: obowiazkowe minimum strefowe podnosi kazda klase i kazdy przedzial duration, "
-        "takze w chronionych datach. Szczegoly w legendzie Floor cenowy."
+        "z wylaczeniem chronionych dat, ktore zawsze zachowuja stawki bazowe. Szczegoly w legendzie Floor cenowy."
         if get_mandatory_zone_floors(config) else ""
     )
     return (
@@ -1529,7 +1542,8 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
         "ranking_target": "cel rankingowy w powyzszych granicach",
         "premium_parity": "parytet bazowych klas i premium +1 PLN (rezerwa uwzgledniona przed capem)",
     }
-    mandatory = ("Nadrzedny wyjatek: obowiazkowe minimum strefowe dla wszystkich klas, dat i przedzialow; "
+    mandatory = ("Ochrona dat ma pierwszenstwo przed wszystkimi zmianami. Poza chronionymi datami: "
+                 "obowiazkowe minimum strefowe dla wszystkich klas i przedzialow; "
                  "tylko podniesienie stawek ponizej minimum, bez celu rankingowego. "
                  if get_mandatory_zone_floors(config) else "")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
@@ -2001,6 +2015,12 @@ def build_validation_rows(
     virtual_rates = {change["cell"]: change["new_rate"] for change in changes
                      if change.get("cell") and "new_rate" in change} if dry_run else {}
     mandatory_floor_violations: list[str] = []
+    protected_periods = get_protected_rate_periods(config)
+    protected_changes = [
+        f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
+        for change in changes
+        if date_is_rate_protected(parse_date_value(change.get("pickup_date")), protected_periods)
+    ]
 
     data_rows = 0
     booking_mismatch: list[str] = []
@@ -2042,7 +2062,8 @@ def build_validation_rows(
                 missing_rates.append(f"row {row} {get_column_letter(col)}")
             minimum = get_mandatory_zone_floor(zone, *bands_by_col[col], config)
             final_rate = parse_number(virtual_rates.get(ws.cell(row, col).coordinate, value))
-            if minimum is not None and (final_rate is None or final_rate < minimum):
+            if (minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
+                and (final_rate is None or final_rate < minimum)):
                 mandatory_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
 
     excluded_changed = [
@@ -2127,6 +2148,7 @@ def build_validation_rows(
     return [
         ["Wiersze danych w Sheet1", "INFO", data_rows, ""],
         ["Zmienione komorki stawek", "INFO", len(changes), ""],
+        ["Zmienione stawki w chronionych datach", get_validation_status(len(protected_changes)), len(protected_changes), first_items(protected_changes)],
         ["Klasy bez reguly - stawki zachowane", get_validation_status(len(unknown_groups), warning=True), len(unknown_groups), first_items(sorted(unknown_groups))],
         ["Zmienione klasy spoza listy dopuszczonej", get_validation_status(len(unauthorized_changed)), len(unauthorized_changed), first_items(unauthorized_changed)],
         ["Brakujace grupy po ekspansji dat", get_validation_status(len(missing_groups_after_expansion)), len(missing_groups_after_expansion), first_items(missing_groups_after_expansion)],
@@ -2935,16 +2957,18 @@ def maybe_sync_booking_end_to_pickup_end(ws: Any, row: int, columns: dict[str, A
     return True
 
 
-def get_import_row_limit(config: dict[str, Any]) -> int:
-    configured_max = int(config.get("max_import_rows") or 0)
+def get_import_row_limit(config: dict[str, Any]) -> int | None:
+    if config.get("max_import_rows") is None:
+        return None
+    configured_max = int(config["max_import_rows"])
     if configured_max <= 0:
         raise ValueError("max_import_rows must be a positive integer.")
-    return min(configured_max, BROKER_IMPORT_ROW_LIMIT)
+    return configured_max
 
 
-def validate_import_row_limit(ws: Any, config: dict[str, Any]) -> int:
+def validate_import_row_limit(ws: Any, config: dict[str, Any]) -> int | None:
     max_rows = get_import_row_limit(config)
-    if ws.max_row > max_rows:
+    if max_rows is not None and ws.max_row > max_rows:
         raise ValueError(
             f"Import workbook row limit exceeded: Sheet1 has {ws.max_row} rows, "
             f"but the configured maximum is {max_rows}. No Excel files were saved."

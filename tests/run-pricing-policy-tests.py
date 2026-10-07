@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.update_excel_rates import (  # noqa: E402
     apply_updates, build_validation_rows, get_duration_columns, get_review_status, merge_config,
-    load_baseline_confirmation,
+    load_baseline_confirmation, get_import_row_limit, validate_import_row_limit,
 )
 
 
@@ -31,11 +31,47 @@ class PricingPolicyTests(unittest.TestCase):
             "location_zones": {"City": ["WA1"]},
             "city_zone_airport_zones": {"WA1": ["WALO"]},
             "protected_rate_periods": [
-                {"start_date": "2026-10-31", "end_date": "2026-11-02"},
+                {"start_date": "2026-10-31", "end_date": "2026-11-01"},
                 {"start_date": "2026-12-15", "end_date": "2027-01-10"},
             ],
             "minimum_rates": {"global_min_pln_day": 50, "bands": []},
         })
+
+    def test_user_approved_baseline_allows_recommendations_but_not_calibration(self):
+        manifest = {
+            "status": "user_approved_baseline", "workbook_sha256": "b" * 64,
+            "approved_by": "user", "approved_at": "2026-10-07",
+        }
+        path = self.root / "baseline.json"
+        config = {**self.config, "baseline_manifest_file": str(path)}
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = load_baseline_confirmation(config, "b" * 64)
+        self.assertTrue(result["recommendation_eligible"])
+        self.assertFalse(result["confirmed"])
+        self.assertFalse(result["calibration_eligible"])
+        self.assertEqual(result["approved_by"], "user")
+        for field in ("approved_by", "approved_at"):
+            path.write_text(json.dumps({k: v for k, v in manifest.items() if k != field}), encoding="utf-8")
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                load_baseline_confirmation(config, "b" * 64)
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_baseline_confirmation(config, "c" * 64)
+
+    def test_row_limit_is_optional_and_explicit_limits_are_still_enforced(self):
+        book = openpyxl.Workbook()
+        self.addCleanup(book.close)
+        sheet = book.active
+        sheet.cell(30001, 1, "CDMV")
+        for config in (self.config, {"max_import_rows": None}, {}):
+            with self.subTest(config=config):
+                self.assertIsNone(get_import_row_limit(config))
+                self.assertIsNone(validate_import_row_limit(sheet, config))
+        self.assertEqual(validate_import_row_limit(sheet, {"max_import_rows": 31000}), 31000)
+        with self.assertRaisesRegex(ValueError, "row limit exceeded"):
+            validate_import_row_limit(sheet, {"max_import_rows": 28000})
+        with self.assertRaises(ValueError):
+            get_import_row_limit({"max_import_rows": 0})
 
     def test_approved_floor_corrected_baseline_is_not_claimed_as_imported(self):
         floors = [
@@ -176,8 +212,8 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
         return path
 
-    def test_szlo_minima_cover_every_class_band_and_date_without_market_evidence(self):
-        pickups = ("2026-10-01", "2026-12-20", "2028-02-10")
+    def test_szlo_minima_cover_every_class_and_band_outside_protected_dates(self):
+        pickups = ("2026-10-01", "2026-12-14", "2028-02-10")
         source = self.szlo_workbook(pickups=pickups)
         before = {column: self.rates(source, column) for column in range(9, 15)}
         summary, output, import_output = self.run_updates([], source)
@@ -208,6 +244,40 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
         for column in range(9, 15):
             self.assertEqual(self.rates(source, column), before[column])
+
+    def test_protected_dates_preserve_all_szlo_rates_even_below_mandatory_floors(self):
+        protected = {"2026-10-31", "2026-11-01", "2026-12-15", "2026-12-20", "2027-01-10"}
+        unprotected = {"2026-10-30", "2026-11-02", "2026-12-14", "2027-01-11"}
+        source = self.szlo_workbook(pickups=tuple(sorted(protected | unprotected)))
+        source_bytes = source.read_bytes()
+        before = {column: self.rates(source, column) for column in range(9, 15)}
+        summary, output, import_output = self.run_updates([], source)
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], len(unprotected) * 12 * 6)
+        self.assertTrue(all(row["status"] != "FAIL" for row in summary["validation"]))
+        for path in (output, import_output):
+            for column, minimum in ((9, 300), (10, 150), (11, 130), (12, 110), (13, 90), (14, 90)):
+                for key, actual in self.rates(path, column).items():
+                    expected = minimum if key[1] == "SZLO" and key[2] in unprotected else before[column][key]
+                    self.assertEqual(actual, expected, f"{path.name}/{key}/{column}")
+        self.assertEqual(source.read_bytes(), source_bytes)
+
+    def test_validation_rejects_any_change_on_a_protected_date(self):
+        source = self.szlo_workbook(pickups=("2026-12-20",))
+        book = openpyxl.load_workbook(source)
+        self.addCleanup(book.close)
+        sheet = book["Sheet1"]
+        change = {
+            "group": "PDAH", "zone": "SZLO", "pickup_date": "2026-12-20",
+            "duration_min_days": 2, "duration_max_days": 2, "duration_band": "2-2",
+            "old_rate": 45, "new_rate": 150, "action": "increase",
+            "recommendation_type": "mandatory_zone_floor",
+        }
+        checks = {row[0]: row for row in build_validation_rows(
+            sheet, self.config, get_duration_columns(sheet, self.config), [change], [],
+        )}
+        self.assertEqual(checks["Zmienione stawki w chronionych datach"][1:3], ["FAIL", 1])
+        self.assertEqual(checks["Zmienione grupy wykluczone"][2], 1)
+        self.assertEqual(checks["Stawki ponizej obowiazkowego minimum strefowego"][2], 0)
 
     def test_szlo_higher_rates_and_other_szczecin_locations_remain_unchanged(self):
         source = self.szlo_workbook(rate=500)
@@ -378,7 +448,7 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertEqual(self.rates(output, 10)["CDMV", "WA1", "2026-10-26"], 60)
 
     def test_holidays_protect_all_rates_even_with_priority_tag(self):
-        pickups = ("2026-10-31", "2026-11-02", "2026-12-15", "2027-01-10")
+        pickups = ("2026-10-31", "2026-11-01", "2026-12-15", "2027-01-10")
         source = self.workbook(pickups=pickups)
         before = {column: self.rates(source, column) for column in range(9, 15)}
         summary, output, import_output = self.run_updates([

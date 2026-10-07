@@ -1,26 +1,9 @@
 {
   "schema_version": 1,
-  "status": "user_approved_rate_correction",
-  "workbook_sha256": "c07bd0b9941d842e0d5272c0f385235a10e264957329cf44198394a744cc9f9d",
-  "approved_at": "2026-10-06",
+  "status": "user_approved_baseline",
+  "workbook_sha256": "ecaf320c4be7e272b8f466ad631743af91a4cf634093cf4470512167e1d63fc4",
+  "approved_at": "2026-10-07",
   "approved_by": "user",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 06-Oct-26.xlsx",
-  "source_baseline": {
-    "status": "user_supplied",
-    "workbook_sha256": "240692794a80201b06fbed6458a335f1624c73fc513b556ebe4aab0efcf73e2f",
-    "supplied_at": "2026-10-06",
-    "supplied_by": "user",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 06-Oct-26.xlsx"
-  },
-  "rate_corrections": [
-    {
-      "group": "FVMD",
-      "start_date": "2026-10-06",
-      "end_date": "2026-10-12",
-      "rate_pln_day": 400,
-      "all_duration_bands": true
-    }
-  ],
-  "rate_correction_cell_count": 42,
-  "note": "User supplied this workbook as the new baseline on 2026-10-06 and requested FVMD at 400 PLN/day in every duration band from today until 13 October, with source prices retained from 13 October. The applied interval is 6-12 October inclusive. All 252 rate cells across 42 matching rows now equal 400; only 42 cells needed changes, all in the 1-day band. All other workbook values, rows, dates, styles and native features are preserved. This approved correction is not a confirmation that the corrected prices have already been imported. The baseline is eligible for recommendations but not broker markup calibration; markup remains frozen. SZLO mandatory minima remain a separate unchanged pricing policy. No market recommendation or scraping was performed for this replacement."
+  "source_filename": "MM_Cars_Rental_Rental_Rates_INCLUSIVE_FC_REDUCED_06_Oct_26_2.xlsx",
+  "note": "User supplied and approved this workbook as the new baseline. The canonical workbook is a byte-identical copy of the attachment; no rates, rows, dates, styles or native features were changed. Approval of this baseline is not an explicit confirmation of import at the broker and does not permit markup calibration. Generated workbooks retain a rolling 100-day pickup horizon without a row-count cap. All rates on 2026-10-31, 2026-11-01 and 2026-12-15 through 2027-01-10 inclusive are preserved from this baseline, including SZLO rates below mandatory floors. Other pricing rules and frozen markup remain unchanged."
 }

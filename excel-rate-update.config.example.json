@@ -15,7 +15,7 @@
     "rate_start": 9
   },
   "apply_groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
-  "max_import_rows": 28000,
+  "max_import_rows": null,
   "max_recommendation_duration_days": 20,
   "duration_band_evidence_max_days": { "8-20": 14 },
   "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
@@ -35,7 +35,7 @@
     }
   },
   "protected_rate_periods": [
-    { "start_date": "2026-10-31", "end_date": "2026-11-02" },
+    { "start_date": "2026-10-31", "end_date": "2026-11-01" },
     { "start_date": "2026-12-15", "end_date": "2027-01-10" }
   ],
   "city_top1_airport_cap": {
