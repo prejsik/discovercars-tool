@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+from bisect import bisect_left
 from collections import defaultdict
 from copy import copy
 from datetime import date, datetime, timedelta
@@ -50,6 +51,7 @@ DEFAULT_CONFIG = {
     "duration_band_evidence_max_days": {"8-20": 14},
     "broker_markup_learning": {"enabled": False},
     "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
+    "omitted_group_zones": {"SZLO": ["FVMD"]},
     "protected_rate_periods": [],
     "excluded_group_highlights": {
         "SWAV": 150,
@@ -659,6 +661,14 @@ def group_is_allowed(group: Any, allowed_groups: set[str]) -> bool:
 def group_is_excluded(group: Any, config: dict[str, Any]) -> bool:
     excluded = {normalize_code(item) for item in config.get("excluded_groups", [])}
     return normalize_code(group) in excluded
+
+
+def get_omitted_group_zones(config: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        (normalize_code(group), normalize_code(zone))
+        for zone, groups in (config.get("omitted_group_zones") or {}).items()
+        for group in groups
+    }
 
 
 def priority_top1_applies(target: dict[str, Any], group: Any, config: dict[str, Any]) -> bool:
@@ -1485,6 +1495,11 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         "z wylaczeniem chronionych dat, ktore zawsze zachowuja stawki bazowe. Szczegoly w legendzie Floor cenowy."
         if get_mandatory_zone_floors(config) else ""
     )
+    omitted = sorted(f"{group}/{zone}" for group, zone in get_omitted_group_zones(config))
+    omitted_rule = (
+        " Nie eksportujemy dla zadnej daty ani duration: " + ", ".join(omitted) + "."
+        if omitted else ""
+    )
     return (
         f"Zmiany dozwolone tylko dla klas: {format_group_list(sorted(resolve_apply_groups(config, None)))}. "
         f"Zmiana stawek: {format_group_list(base_groups)} maja taka sama cene bazowa; "
@@ -1494,6 +1509,7 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         f"{duration_rule}"
         f"{protected_rule}"
         f"{mandatory_rule}"
+        f"{omitted_rule}"
     )
 
 
@@ -2753,6 +2769,40 @@ def seed_missing_zones(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     return {"seeded_row_count": len(pending), "seeded_zones": seeded_zones, "unavailable_sources": unavailable_sources}
 
 
+def remove_omitted_group_zone_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
+    omitted = get_omitted_group_zones(config)
+    group_col, zone_col = int(config["columns"]["group"]), int(config["columns"]["zone"])
+    removed = [
+        row for row in range(int(config["data_start_row"]), ws.max_row + 1)
+        if (normalize_code(ws.cell(row, group_col).value),
+            normalize_code(ws.cell(row, zone_col).value)) in omitted
+    ]
+    if not removed:
+        return {"removed_row_count": 0}
+    removed_set = set(removed)
+    dimensions = {
+        row: copy(dimension) for row, dimension in ws.row_dimensions.items()
+        if row >= removed[0] and row not in removed_set
+    }
+    blocks: list[list[int]] = []
+    for row in removed:
+        if blocks and row == blocks[-1][0] + blocks[-1][1]:
+            blocks[-1][1] += 1
+        else:
+            blocks.append([row, 1])
+    for start, count in reversed(blocks):
+        ws.delete_rows(start, count)
+    # openpyxl moves cells on deletion, but not the associated row dimensions.
+    for row in list(ws.row_dimensions):
+        if row >= removed[0]:
+            del ws.row_dimensions[row]
+    for row, dimension in dimensions.items():
+        target = row - bisect_left(removed, row)
+        dimension.index = target
+        ws.row_dimensions[target] = dimension
+    return {"removed_row_count": len(removed)}
+
+
 def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("pickup_date_expansion") or {}
     if not settings.get("enabled"):
@@ -3164,6 +3214,7 @@ def apply_updates(
     ws = workbook[sheet_name]
 
     zone_seed_summary = seed_missing_zones(ws, config)
+    omitted_group_zone_summary = remove_omitted_group_zone_rows(ws, config)
     expansion_summary = expand_pickup_date_rows(ws, config)
     recommendations, recommendation_out_of_pickup_range_count = filter_recommendations_to_pickup_date_range(
         recommendations,
@@ -3521,6 +3572,7 @@ def apply_updates(
         "synced_booking_end_count": synced_booking_end_count,
         "pickup_date_expansion": expansion_summary,
         "zone_seeding": zone_seed_summary,
+        "omitted_group_zone_rows": omitted_group_zone_summary,
         "skipped_target_count": len(skipped_targets),
         "accepted_only": accepted_only,
         "accepted_target_count": accepted_target_count,

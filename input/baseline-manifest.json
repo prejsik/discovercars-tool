@@ -1,9 +1,25 @@
 {
   "schema_version": 1,
   "status": "user_approved_baseline",
-  "workbook_sha256": "ecaf320c4be7e272b8f466ad631743af91a4cf634093cf4470512167e1d63fc4",
+  "workbook_sha256": "680cf5062068a4994826043356f2fb6b0d9fd588787065de20555be075ea9c45",
   "approved_at": "2026-10-07",
   "approved_by": "user",
-  "source_filename": "MM_Cars_Rental_Rental_Rates_INCLUSIVE_FC_REDUCED_06_Oct_26_2.xlsx",
-  "note": "User supplied and approved this workbook as the new baseline. The canonical workbook is a byte-identical copy of the attachment; no rates, rows, dates, styles or native features were changed. Approval of this baseline is not an explicit confirmation of import at the broker and does not permit markup calibration. Generated workbooks retain a rolling 100-day pickup horizon without a row-count cap. All rates on 2026-10-31, 2026-11-01 and 2026-12-15 through 2027-01-10 inclusive are preserved from this baseline, including SZLO rates below mandatory floors. Other pricing rules and frozen markup remain unchanged."
+  "source_filename": "rates-import-ready (7).xlsx",
+  "source_baseline": {
+    "status": "user_supplied",
+    "workbook_sha256": "680cf5062068a4994826043356f2fb6b0d9fd588787065de20555be075ea9c45"
+  },
+  "baseline_modifications": [
+    {
+      "operation": "remove_all_group_zone_rows",
+      "group": "FVMD",
+      "zone": "SZLO",
+      "all_pickup_dates": true,
+      "all_duration_bands": true,
+      "previous_local_workbook_sha256": "513f2aa1af79dce8420723297cb3049868c0c4295735482a75345929067f3931",
+      "removed_rows_from_previous_local_workbook": 29,
+      "remaining_rows_modified": 0
+    }
+  ],
+  "note": "User revoked the previous FVMD/SZLO additions and explicitly requested that this group/zone pair be absent for every pickup date and duration. All 29 locally added rows were removed. The resulting baseline is byte-identical to the original rates-import-ready (7).xlsx attachment, which already had no FVMD/SZLO rows. All remaining rates, rows, formatting and native features are unchanged. The shared Excel configuration now omits FVMD/SZLO before date expansion, including rows introduced by zone seeding, from both recommendation and import outputs. This approval does not confirm import at the broker and does not permit markup calibration. Other group/zone pairs, price rules, frozen markup and schedules remain unchanged."
 }

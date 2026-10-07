@@ -19,6 +19,7 @@
   "max_recommendation_duration_days": 20,
   "duration_band_evidence_max_days": { "8-20": 14 },
   "excluded_groups": ["FVMD", "SWAV", "CFAV", "PDAH", "PDAV"],
+  "omitted_group_zones": {"SZLO": ["FVMD"]},
   "excluded_group_highlights": {
     "SWAV": 150
   },

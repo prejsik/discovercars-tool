@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.update_excel_rates import (  # noqa: E402
     apply_updates, build_validation_rows, get_duration_columns, get_review_status, merge_config,
-    load_baseline_confirmation, get_import_row_limit, validate_import_row_limit,
+    load_baseline_confirmation, get_import_row_limit, validate_import_row_limit, parse_date_value,
 )
 
 
@@ -212,6 +212,61 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
         return path
 
+    def test_fvmd_is_omitted_only_in_szlo_for_all_dates_and_both_outputs(self):
+        pickups = ("2026-10-01", "2026-10-31", "2027-01-10", "2027-01-11")
+        source = self.szlo_workbook(pickups=pickups, rate=500)
+        book = openpyxl.load_workbook(source)
+        sheet = book["Sheet1"]
+        sheet.append([" fvmd ", None, None, " szlo "] + ["2026-10-02"] * 4 + [500] * 6)
+        sheet.row_dimensions[sheet.max_row].hidden = True
+        for row in sheet.iter_rows(min_row=5):
+            if row[0].value == "SWAV" and row[3].value == "SZLO":
+                sheet.row_dimensions[row[0].row].height = 31
+                sheet.row_dimensions[row[0].row].hidden = True
+        book.save(source)
+        book.close()
+        before = source.read_bytes()
+        for enabled in (False, True):
+            config = {**self.config, "pickup_date_expansion": {
+                "enabled": enabled, "start_date": "2026-10-01", "end_date": "2027-01-11",
+            }}
+            summary, output, import_output = self.run_updates([], source, config)
+            for path in (output, import_output):
+                prices = {(g, z, str(parse_date_value(d))): rate
+                          for (g, z, d), rate in self.rates(path, 10).items()}
+                self.assertFalse(any(g.strip().upper() == "FVMD" and z.strip().upper() == "SZLO"
+                                     for g, z, _date in prices))
+                self.assertEqual({d for g, z, d in prices if g == "FVMD" and z == "SZO1"}, set(pickups))
+                for pickup in pickups:
+                    self.assertEqual(prices["CFAV", "SZLO", pickup], 500)
+                    self.assertEqual(prices["FVMD", "SZO1", pickup], 70)
+                book = openpyxl.load_workbook(path)
+                for row in book["Sheet1"].iter_rows(min_row=5):
+                    if row[0].value == "SWAV" and row[3].value == "SZLO":
+                        dimension = book["Sheet1"].row_dimensions[row[0].row]
+                        self.assertEqual(dimension.height, 31)
+                        self.assertTrue(dimension.hidden)
+                book.close()
+            self.assertEqual(summary["omitted_group_zone_rows"]["removed_row_count"], 5)
+            self.assertEqual(source.read_bytes(), before)
+
+    def test_zone_seeding_cannot_reintroduce_fvmd_in_szlo(self):
+        source = self.workbook(airport_rate=500)
+        book = openpyxl.load_workbook(source)
+        for row in book["Sheet1"].iter_rows(min_row=5):
+            if row[3].value == "WALO":
+                row[3].value = "LOLO"
+        book.save(source)
+        book.close()
+        config = {**self.config, "zone_seeds": {"SZLO": "LOLO"}}
+        summary, output, import_output = self.run_updates([], source, config)
+        for path in (output, import_output):
+            prices = self.rates(path, 10)
+            self.assertNotIn(("FVMD", "SZLO", "2026-10-01"), prices)
+            self.assertEqual(prices["FVMD", "LOLO", "2026-10-01"], 500)
+            self.assertEqual(prices["CFAV", "SZLO", "2026-10-01"], 500)
+        self.assertEqual(summary["omitted_group_zone_rows"]["removed_row_count"], 1)
+
     def test_szlo_minima_cover_every_class_and_band_outside_protected_dates(self):
         pickups = ("2026-10-01", "2026-12-14", "2028-02-10")
         source = self.szlo_workbook(pickups=pickups)
@@ -221,8 +276,11 @@ class PricingPolicyTests(unittest.TestCase):
             for column, minimum in ((9, 300), (10, 150), (11, 130), (12, 110), (13, 90), (14, 90)):
                 prices = self.rates(path, column)
                 for key, old_rate in before[column].items():
+                    if key[0] == "FVMD" and key[1] == "SZLO":
+                        self.assertNotIn(key, prices)
+                        continue
                     self.assertEqual(prices[key], minimum if key[1] == "SZLO" else old_rate)
-        self.assertEqual(summary["mandatory_zone_floor_change_count"], 216)
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], 198)
         checks = {row["check"]: row["issue_count"] for row in summary["validation"]}
         for check in ("Zmienione grupy wykluczone", "Zmienione klasy spoza listy dopuszczonej",
                       "Zmienione rekomendacje bez ceny benchmarku", "Stawki ponizej obowiazkowego minimum strefowego"):
@@ -252,7 +310,7 @@ class PricingPolicyTests(unittest.TestCase):
         source_bytes = source.read_bytes()
         before = {column: self.rates(source, column) for column in range(9, 15)}
         summary, output, import_output = self.run_updates([], source)
-        self.assertEqual(summary["mandatory_zone_floor_change_count"], len(unprotected) * 12 * 6)
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], len(unprotected) * 11 * 6)
         self.assertTrue(all(row["status"] != "FAIL" for row in summary["validation"]))
         for path in (output, import_output):
             for column, minimum in ((9, 300), (10, 150), (11, 130), (12, 110), (13, 90), (14, 90)):
@@ -291,7 +349,9 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertEqual(summary["change_count"], 0)
         for path in (output, import_output):
             for column in range(9, 15):
-                self.assertEqual(self.rates(path, column), before[column])
+                expected = {key: value for key, value in before[column].items()
+                            if key[0] != "FVMD" or key[1] != "SZLO"}
+                self.assertEqual(self.rates(path, column), expected)
 
     def test_szlo_mandatory_minimum_overrides_priority_top1_and_long_duration_floor(self):
         source = self.szlo_workbook()
@@ -311,7 +371,7 @@ class PricingPolicyTests(unittest.TestCase):
         before = source.read_bytes()
         summary = apply_updates(source, recommendations, self.root / "unused.xlsx", self.config,
                                 cli_groups=None, dry_run=True, import_output_path=self.root / "unused-import.xlsx")
-        self.assertEqual(summary["mandatory_zone_floor_change_count"], 72)
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], 66)
         self.assertEqual(source.read_bytes(), before)
         self.assertFalse((self.root / "unused.xlsx").exists())
         self.assertFalse((self.root / "unused-import.xlsx").exists())
