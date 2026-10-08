@@ -1,25 +1,20 @@
 {
   "schema_version": 1,
   "status": "user_approved_baseline",
-  "workbook_sha256": "680cf5062068a4994826043356f2fb6b0d9fd588787065de20555be075ea9c45",
-  "approved_at": "2026-10-07",
+  "workbook_sha256": "24562e85c7c14ce8329a0219b056159878353238a2fdfc6defcaa6140200e437",
+  "approved_at": "2026-10-08",
   "approved_by": "user",
-  "source_filename": "rates-import-ready (7).xlsx",
+  "source_filename": "rates-import-ready.xlsx",
   "source_baseline": {
-    "status": "user_supplied",
-    "workbook_sha256": "680cf5062068a4994826043356f2fb6b0d9fd588787065de20555be075ea9c45"
+    "status": "published_morning_import",
+    "workbook_sha256": "24562e85c7c14ce8329a0219b056159878353238a2fdfc6defcaa6140200e437",
+    "run_id": "37706736505",
+    "run_number": 623,
+    "generated_at": "2026-10-08T08:23:58.257Z",
+    "git_sha": "26fd6c6ba441b236d038e0f2d06438a715fb97bc",
+    "artifact_id": "11536414817",
+    "artifact_url": "https://github.com/prejsik/discovercars-tool/actions/runs/37706736505/artifacts/11536414817"
   },
-  "baseline_modifications": [
-    {
-      "operation": "remove_all_group_zone_rows",
-      "group": "FVMD",
-      "zone": "SZLO",
-      "all_pickup_dates": true,
-      "all_duration_bands": true,
-      "previous_local_workbook_sha256": "513f2aa1af79dce8420723297cb3049868c0c4295735482a75345929067f3931",
-      "removed_rows_from_previous_local_workbook": 29,
-      "remaining_rows_modified": 0
-    }
-  ],
-  "note": "User revoked the previous FVMD/SZLO additions and explicitly requested that this group/zone pair be absent for every pickup date and duration. All 29 locally added rows were removed. The resulting baseline is byte-identical to the original rates-import-ready (7).xlsx attachment, which already had no FVMD/SZLO rows. All remaining rates, rows, formatting and native features are unchanged. The shared Excel configuration now omits FVMD/SZLO before date expansion, including rows introduced by zone seeding, from both recommendation and import outputs. This approval does not confirm import at the broker and does not permit markup calibration. Other group/zone pairs, price rules, frozen markup and schedules remain unchanged."
+  "previous_baseline_sha256": "680cf5062068a4994826043356f2fb6b0d9fd588787065de20555be075ea9c45",
+  "note": "The user explicitly requested the import workbook from the morning Telegram report of 8 October 2026 as the new baseline and authorized pushing it to main. The workbook is byte-identical to rates-import-ready.xlsx from run 37706736505, artifact discovercars-excel-import-623; its hash matches the publication manifest. It contains 24866 total rows, all 11 source classes and 26 zones, with 100 pickup dates from 2026-10-08 through 2027-01-15. FVMD/SZLO is absent and no panes are frozen. No further rates, formatting, rules, frozen broker markup or schedules were changed. This approval does not independently confirm that the workbook has been imported at the broker and does not permit automatic markup calibration. Both scheduled runs use this shared baseline."
 }
