@@ -113,6 +113,7 @@ DEFAULT_CONFIG = {
     },
     "recommendation_colors": {
         "mandatory_zone_floor": "FCE4D6",
+        "mandatory_group_floor": "FCE4D6",
         "top1_gap": "9DC3E6",
         "top3_small_decrease": "FFC7CE",
         "top1_undercut": "F4B183",
@@ -130,6 +131,7 @@ DEFAULT_CONFIG = {
 }
 
 CONFIRMED_BASELINE_STATUSES = {"confirmed_imported", "verified_live"}
+MANDATORY_FLOOR_TYPES = {"mandatory_zone_floor", "mandatory_group_floor"}
 
 PRICING_POLICY_PRECEDENCE = (
     "protected_dates", "class_allowlist", "required_evidence", "priority_top1",
@@ -1000,6 +1002,8 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
 def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
     if change.get("recommendation_type") == "mandatory_zone_floor":
         return "zgodnosc z minimum lokalizacji; bez celu rankingowego."
+    if change.get("recommendation_type") == "mandatory_group_floor":
+        return "zgodnosc z minimum klasy; bez celu rankingowego."
     if change.get("target_achievable") is False:
         outcome = "cel rankingowy nie jest gwarantowany przy finalnej stawce; pozycja wymaga kontroli."
         return outcome
@@ -1030,9 +1034,9 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
     duration_min = int(parse_number(target.get("duration_min_days")) or parse_number(target.get("rental_days")) or 0)
     duration_max = int(parse_number(target.get("duration_max_days")) or duration_min)
-    mandatory_minimum = get_mandatory_zone_floor(target.get("zone"), duration_min, duration_max, config)
+    mandatory_minimum, _ = get_mandatory_floor(target.get("zone"), target.get("group"), duration_min, duration_max, config)
     if mandatory_minimum is not None:
-        return mandatory_minimum, "Obowiazkowe minimum strefowe dla wszystkich klas i dat."
+        return mandatory_minimum, "Obowiazkowe minimum lokalizacji lub klasy poza chronionymi datami."
     if priority_overrides_rule(target, target.get("group"), "scoped_floor", config):
         rule = next(r for r in config["_priority_top1_rules"] if r["id"] == target["priority_rule_id"])
         return float(rule["minimumRatePlnDay"]), f"Priorytet top1: minimum {rule['minimumRatePlnDay']} PLN brutto/dzien."
@@ -1132,30 +1136,43 @@ def get_mandatory_zone_floors(config: dict[str, Any]) -> dict[str, list[dict[str
 
 
 def validate_mandatory_zone_floors(floors: Any) -> dict[str, list[dict[str, Any]]]:
+    return validate_mandatory_floors(floors, "mandatoryZoneFloorsPlnDay", require_all_days=True)
+
+
+def get_mandatory_group_floors(config: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    if "_mandatory_group_floors" in config:
+        return config["_mandatory_group_floors"]
+    return validate_mandatory_floors(get_pricing_rules(config).get("mandatoryGroupFloorsPlnDay", {}),
+                                     "mandatoryGroupFloorsPlnDay", require_all_days=False)
+
+
+def validate_mandatory_floors(
+    floors: Any, rule_name: str, require_all_days: bool,
+) -> dict[str, list[dict[str, Any]]]:
     if not isinstance(floors, dict):
-        raise ValueError("mandatoryZoneFloorsPlnDay must contain zone duration bands.")
+        raise ValueError(f"{rule_name} must contain code-to-duration bands.")
     validated = {}
     for zone, bands in floors.items():
         normalized_zone = normalize_code(zone)
         if not normalized_zone or normalized_zone != zone or not isinstance(bands, list) or not bands:
-            raise ValueError("Invalid mandatoryZoneFloorsPlnDay zone/bands.")
+            raise ValueError(f"Invalid {rule_name} code/bands.")
         covered_days: set[int] = set()
         normalized_bands = []
         for band in bands:
             if not isinstance(band, dict) or any(type(band.get(key)) not in {int, float}
                                                 for key in ("minDays", "maxDays", "minimumRatePlnDay")):
-                raise ValueError(f"Invalid mandatoryZoneFloorsPlnDay band for {zone}.")
+                raise ValueError(f"Invalid {rule_name} band for {zone}.")
             low, high, rate = (parse_number(band.get(key)) for key in ("minDays", "maxDays", "minimumRatePlnDay"))
             if (low is None or high is None or rate is None or low < 1 or high < low
                 or high > 35 or not low.is_integer() or not high.is_integer() or rate <= 0):
-                raise ValueError(f"Invalid mandatoryZoneFloorsPlnDay band for {zone}.")
+                raise ValueError(f"Invalid {rule_name} band for {zone}.")
             days = set(range(int(low), int(high) + 1))
             if covered_days & days:
-                raise ValueError(f"Overlapping mandatoryZoneFloorsPlnDay bands for {zone}.")
+                raise ValueError(f"Overlapping {rule_name} bands for {zone}.")
             covered_days.update(days)
             normalized_bands.append({"minDays": int(low), "maxDays": int(high), "minimumRatePlnDay": rate})
-        if covered_days != set(range(1, 36)):
-            raise ValueError(f"mandatoryZoneFloorsPlnDay must cover every duration 1-35 for {zone}.")
+        if require_all_days and covered_days != set(range(1, 36)):
+            raise ValueError(f"{rule_name} must cover every duration 1-35 for {zone}.")
         validated[normalized_zone] = normalized_bands
     return validated
 
@@ -1167,45 +1184,66 @@ def get_mandatory_zone_floor(zone: Any, min_days: int, max_days: int, config: di
     return max(matches) if matches else None
 
 
-def is_mandatory_zone_floor_change(change: dict[str, Any], config: dict[str, Any]) -> bool:
-    if change.get("recommendation_type") != "mandatory_zone_floor":
+def get_mandatory_group_floor(group: Any, min_days: int, max_days: int, config: dict[str, Any]) -> float | None:
+    bands = get_mandatory_group_floors(config).get(normalize_code(group), [])
+    matches = [float(band["minimumRatePlnDay"]) for band in bands
+               if min_days <= band["maxDays"] and max_days >= band["minDays"]]
+    return max(matches) if matches else None
+
+
+def get_mandatory_floor(
+    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any],
+) -> tuple[float | None, str]:
+    zone_minimum = get_mandatory_zone_floor(zone, min_days, max_days, config)
+    group_minimum = get_mandatory_group_floor(group, min_days, max_days, config)
+    if group_minimum is not None and (zone_minimum is None or group_minimum > zone_minimum):
+        return group_minimum, "mandatory_group_floor"
+    return zone_minimum, "mandatory_zone_floor"
+
+
+def is_mandatory_floor_change(change: dict[str, Any], config: dict[str, Any]) -> bool:
+    if change.get("recommendation_type") not in MANDATORY_FLOOR_TYPES:
         return False
     if date_is_rate_protected(parse_date_value(change.get("pickup_date")), get_protected_rate_periods(config)):
         return False
-    minimum = get_mandatory_zone_floor(change.get("zone"), int(change.get("duration_min_days") or 0),
-                                       int(change.get("duration_max_days") or 0), config)
+    minimum, recommendation_type = get_mandatory_floor(change.get("zone"), change.get("group"),
+        int(change.get("duration_min_days") or 0), int(change.get("duration_max_days") or 0), config)
     old_rate, new_rate = parse_number(change.get("old_rate")), parse_number(change.get("new_rate"))
-    return (minimum is not None and old_rate is not None and new_rate is not None
+    return (change.get("recommendation_type") == recommendation_type
+            and minimum is not None and old_rate is not None and new_rate is not None
             and old_rate < minimum and new_rate == minimum and change.get("action") == "increase")
 
 
-def enforce_mandatory_zone_floors(
+def enforce_mandatory_floors(
     ws: Any, config: dict[str, Any], duration_columns: dict[int, tuple[int, str, int, int]],
     dry_run: bool, existing_changes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     floors = get_mandatory_zone_floors(config)
+    group_floors = get_mandatory_group_floors(config)
     protected_periods = get_protected_rate_periods(config)
     columns = config["columns"]
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
-    missing_duration_days = sorted(set(range(1, 36)) - set(duration_columns))
     virtual_rates = {change["cell"]: change["new_rate"] for change in existing_changes}
     changes = []
     for row in range(int(config["data_start_row"]), ws.max_row + 1):
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
-        if zone not in floors:
-            continue
-        if missing_duration_days:
-            raise ValueError(f"Missing Excel duration columns for mandatory zone floor {zone}: {missing_duration_days}.")
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
+        if zone not in floors and group not in group_floors:
+            continue
+        required_days = {day for band in floors.get(zone, []) + group_floors.get(group, [])
+                         for day in range(band["minDays"], band["maxDays"] + 1)}
+        missing_duration_days = sorted(required_days - set(duration_columns))
+        if missing_duration_days:
+            raise ValueError(f"Missing Excel duration columns for mandatory floor {group}/{zone}: {missing_duration_days}.")
         pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         if not group or pickup is None:
             raise ValueError(f"Missing group or pickup date for mandatory zone floor: row {row}.")
         if date_is_rate_protected(pickup, protected_periods):
             continue
         for col, (label, low, high) in bands_by_col.items():
-            minimum = get_mandatory_zone_floor(zone, low, high, config)
+            minimum, recommendation_type = get_mandatory_floor(zone, group, low, high, config)
             if minimum is None:
-                raise ValueError(f"Missing mandatory zone floor for {zone}, duration {label}.")
+                continue
             cell = ws.cell(row, col)
             old_rate = parse_number(virtual_rates.get(cell.coordinate, cell.value))
             if old_rate is None:
@@ -1216,14 +1254,16 @@ def enforce_mandatory_zone_floors(
                 raise ValueError(f"Final recommendation below mandatory zone floor: {zone}/{cell.coordinate}.")
             change = {
                 "action": "increase", "recommendation_action": "increase",
-                "recommendation_type": "mandatory_zone_floor", "target_rank": "",
-                "reason": "Podniesienie stawki ponizej obowiazkowego minimum lokalizacji; bez celu rankingowego.",
+                "recommendation_type": recommendation_type, "target_rank": "",
+                "reason": ("Podniesienie stawki ponizej obowiazkowego minimum "
+                           + ("klasy" if recommendation_type == "mandatory_group_floor" else "lokalizacji")
+                           + "; bez celu rankingowego."),
                 "location": (config.get("zone_location_labels") or {}).get(zone, zone),
                 "zone": zone, "group": group, "pickup_date": pickup.isoformat(),
                 "duration_band": label, "duration_min_days": low, "duration_max_days": high,
                 "cell": cell.coordinate, "old_rate": old_rate, "new_rate": minimum,
                 "delta": round(minimum - old_rate, 2), "minimum_rate_pln_day": minimum,
-                "minimum_reason": "Obowiazkowe minimum strefowe dla wszystkich klas poza chronionymi datami.",
+                "minimum_reason": "Obowiazkowe minimum lokalizacji lub klasy poza chronionymi datami.",
                 "source_decision_count": 0,
             }
             changes.append(change)
@@ -1396,6 +1436,13 @@ def get_grouped_groups(changes: list[dict[str, Any]]) -> str:
 def get_floor_legend_text(config: dict[str, Any]) -> str:
     rules = config.get("minimum_rates") or {}
     parts: list[str] = []
+    for group, bands in get_mandatory_group_floors(config).items():
+        amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
+                            for band in bands)
+        parts.append(f"Obowiazkowe minimum klasy {group}, bezterminowo we wszystkich lokalizacjach: {amounts}. "
+                     "Podnosimy tylko stawki ponizej minimum, bez danych ze scrapera i poza jego zakresem. "
+                     "Wyzsze stawki i chronione daty pozostaja bez zmian; klasa nadal nie podlega rekomendacjom konkurencyjnym. "
+                     "Jesli minimum lokalizacji jest wyzsze, obowiazuje wyzsze minimum")
     for zone, bands in get_mandatory_zone_floors(config).items():
         amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
                             for band in bands)
@@ -1495,6 +1542,10 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         "z wylaczeniem chronionych dat, ktore zawsze zachowuja stawki bazowe. Szczegoly w legendzie Floor cenowy."
         if get_mandatory_zone_floors(config) else ""
     )
+    if get_mandatory_group_floors(config):
+        mandatory_rule += (" Wyjatek od wykluczenia klas i blokady dlugich duration: obowiazkowe minimum klasy "
+                           "podnosi tylko stawki ponizej wskazanego progu i przedzialu, we wszystkich lokalizacjach, "
+                           "poza chronionymi datami. Szczegoly w legendzie Floor cenowy.")
     omitted = sorted(f"{group}/{zone}" for group, zone in get_omitted_group_zones(config))
     omitted_rule = (
         " Nie eksportujemy dla zadnej daty ani duration: " + ", ".join(omitted) + "."
@@ -1521,9 +1572,9 @@ def get_excluded_group_highlight_legend_text(config: dict[str, Any]) -> str:
         if parse_number(threshold) is not None
     ]
     if not parts:
-        return "Wykluczone klasy nie sa zmieniane z rekomendacji konkurencyjnych; brak dodatkowych progow podswietlenia."
+        return "Wykluczone klasy nie sa zmieniane z rekomendacji konkurencyjnych; wyjatkiem sa obowiazkowe minima. Brak dodatkowych progow podswietlenia."
     return (
-        "Poza korekta do obowiazkowego minimum strefowego wykluczone klasy nie sa zmieniane; moga byc podswietlone kontrolnie: "
+        "Poza korekta do obowiazkowego minimum lokalizacji lub klasy wykluczone klasy nie sa zmieniane; moga byc podswietlone kontrolnie: "
         + "; ".join(parts)
         + "."
     )
@@ -1562,6 +1613,10 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
                  "obowiazkowe minimum strefowe dla wszystkich klas i przedzialow; "
                  "tylko podniesienie stawek ponizej minimum, bez celu rankingowego. "
                  if get_mandatory_zone_floors(config) else "")
+    if get_mandatory_group_floors(config):
+        mandatory += ("Obowiazkowe minimum klasy dziala we wszystkich lokalizacjach tylko we wskazanych przedzialach, "
+                      "takze dla wykluczonych klas; chronione daty pozostaja bez zmian. Przy zbiegu z minimum lokalizacji "
+                      "stosujemy wyzsze minimum. Tylko podniesienie, bez celu rankingowego. ")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
     ) + ". Zwykly konflikt floor/cap: zachowaj dotkniete stawki bazowe i eksportuj pozostale rekomendacje."
@@ -1601,6 +1656,8 @@ def get_ranking_limit_reason(
 def build_review_notes(changes: list[dict[str, Any]]) -> str:
     if all(change.get("recommendation_type") == "mandatory_zone_floor" for change in changes):
         return "Obowiazkowa korekta do minimum lokalizacji, bez celu rankingowego; nie wymaga danych konkurencji."
+    if all(change.get("recommendation_type") in MANDATORY_FLOOR_TYPES for change in changes):
+        return "Obowiazkowa korekta do minimum klasy lub lokalizacji, bez celu rankingowego; nie wymaga danych konkurencji."
     notes: list[str] = []
     strongest = get_strongest_delta_change(changes)
     strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
@@ -1644,7 +1701,7 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
 
 
 def get_review_status(changes: list[dict[str, Any]]) -> str:
-    if all(change.get("recommendation_type") == "mandatory_zone_floor" for change in changes):
+    if all(change.get("recommendation_type") in MANDATORY_FLOOR_TYPES for change in changes):
         return "Gotowe z uwaga"
     strongest = get_strongest_delta_change(changes)
     strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
@@ -1671,6 +1728,8 @@ def get_recommendation_label_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
     if recommendation_type == "mandatory_zone_floor":
         return "Obowiazkowe minimum strefowe"
+    if recommendation_type == "mandatory_group_floor":
+        return "Obowiazkowe minimum klasy"
     if recommendation_type == "priority_top3":
         return f"Priorytet top{int(parse_number(change.get('target_rank')) or 3)} przy floor"
     if recommendation_type == "group_parity":
@@ -2031,6 +2090,7 @@ def build_validation_rows(
     virtual_rates = {change["cell"]: change["new_rate"] for change in changes
                      if change.get("cell") and "new_rate" in change} if dry_run else {}
     mandatory_floor_violations: list[str] = []
+    mandatory_group_floor_violations: list[str] = []
     protected_periods = get_protected_rate_periods(config)
     protected_changes = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
@@ -2081,25 +2141,29 @@ def build_validation_rows(
             if (minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
                 and (final_rate is None or final_rate < minimum)):
                 mandatory_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
+            group_minimum = get_mandatory_group_floor(group, *bands_by_col[col], config)
+            if (group_minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
+                and (final_rate is None or final_rate < group_minimum)):
+                mandatory_group_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
 
     excluded_changed = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
         for change in changes
         if normalize_code(change.get("group")) in excluded_groups
         and not priority_top1_applies(change, change.get("group"), config)
-        and not is_mandatory_zone_floor_change(change, config)
+        and not is_mandatory_floor_change(change, config)
     ]
     unauthorized_changed = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
         for change in changes
         if normalize_code(change.get("group")) not in approved_groups
-        and not is_mandatory_zone_floor_change(change, config)
+        and not is_mandatory_floor_change(change, config)
     ]
     missing_benchmark = sorted({
         str(change.get("scenario_id") or change.get("cell"))
         for change in changes
         if change.get("recommendation_type") != "group_parity"
-        and not is_mandatory_zone_floor_change(change, config)
+        and not is_mandatory_floor_change(change, config)
         and parse_number(change.get("benchmark_rate")) is None
     })
     below_floor_changes: list[str] = []
@@ -2177,6 +2241,7 @@ def build_validation_rows(
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
         ["Stawki ponizej obowiazkowego minimum strefowego", get_validation_status(len(mandatory_floor_violations)), len(mandatory_floor_violations), first_items(mandatory_floor_violations)],
+        ["Stawki ponizej obowiazkowego minimum klasy", get_validation_status(len(mandatory_group_floor_violations)), len(mandatory_group_floor_violations), first_items(mandatory_group_floor_violations)],
         ["Stawki miejskie powyzej 130% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
         ["Sprzeczne rekomendacje w przedziale duration", get_validation_status(len(aggregation_conflicts), warning=True), len(aggregation_conflicts), first_items(aggregation_conflicts)],
@@ -3202,7 +3267,8 @@ def apply_updates(
     pricing_rules = get_pricing_rules(config)
     config = {**config, "_priority_top1_rules": pricing_rules.get("priorityTop1Rules", []),
               "_pricing_policy": get_pricing_policy(config),
-              "_mandatory_zone_floors": get_mandatory_zone_floors(config)}
+              "_mandatory_zone_floors": get_mandatory_zone_floors(config),
+              "_mandatory_group_floors": get_mandatory_group_floors(config)}
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -3482,14 +3548,17 @@ def apply_updates(
         simulated_rates={change["cell"]: change["new_rate"] for change in changes} if dry_run else None,
     )
     changes.extend(group_price_parity_changes)
-    mandatory_zone_floor_changes = enforce_mandatory_zone_floors(ws, config, duration_columns, dry_run, changes)
-    changes.extend(mandatory_zone_floor_changes)
+    mandatory_floor_changes = enforce_mandatory_floors(ws, config, duration_columns, dry_run, changes)
+    changes.extend(mandatory_floor_changes)
+    mandatory_zone_floor_changes = [change for change in mandatory_floor_changes if change["recommendation_type"] == "mandatory_zone_floor"]
+    mandatory_group_floor_changes = [change for change in mandatory_floor_changes if change["recommendation_type"] == "mandatory_group_floor"]
     mandatory_zone_floor_dates = {parse_date_value(change["pickup_date"]) for change in mandatory_zone_floor_changes}
+    mandatory_group_floor_dates = {parse_date_value(change["pickup_date"]) for change in mandatory_group_floor_changes}
     changes_outside_recommendation_scope = sorted({
         str(change.get("pickup_date") or "")
         for change in changes
         if parse_date_value(change.get("pickup_date")) not in recommendation_scope_dates
-        and not is_mandatory_zone_floor_change(change, config)
+        and not is_mandatory_floor_change(change, config)
     })
     if changes_outside_recommendation_scope:
         raise ValueError(
@@ -3555,6 +3624,13 @@ def apply_updates(
             "start_date": min(mandatory_zone_floor_dates).isoformat() if mandatory_zone_floor_dates else None,
             "end_date": max(mandatory_zone_floor_dates).isoformat() if mandatory_zone_floor_dates else None,
             "date_count": len(mandatory_zone_floor_dates),
+        },
+        "mandatory_group_floor_change_count": len(mandatory_group_floor_changes),
+        "mandatory_group_floor_groups": sorted({change["group"] for change in mandatory_group_floor_changes}),
+        "mandatory_group_floor_date_scope": {
+            "start_date": min(mandatory_group_floor_dates).isoformat() if mandatory_group_floor_dates else None,
+            "end_date": max(mandatory_group_floor_dates).isoformat() if mandatory_group_floor_dates else None,
+            "date_count": len(mandatory_group_floor_dates),
         },
         "recommendation_out_of_pickup_range_count": recommendation_out_of_pickup_range_count,
         "dry_run": dry_run,

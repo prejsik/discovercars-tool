@@ -217,6 +217,8 @@ def main():
                 scoped = zone in {"KRLO", "KRTI"} and group in {"CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"} and (low, high) in {(2, 2), (3, 4)}
                 long_band = (low, high) == (8, 20) and group in {"CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"}
                 expected = 40 if long_band else 30 if scoped else 50 if zone == "WALO" else 39
+                if group == "PDAH" and (low, high) == (21, 35):
+                    expected = 170
                 assert_equal(get_minimum_rate(target, example_config)[0], expected, f"scoped floor {zone}/{group}/{low}-{high}")
     assert "Wyjatek nadrzedny" in get_floor_legend_text(example_config)
     assert_equal(
@@ -343,7 +345,7 @@ def main():
             "EDMV": [130, 131, 132, 133, 134, 135],
             "CFAV": [140, 141, 142, 143, 144, 145],
             "EDAV": [150, 151, 152, 153, 154, 155],
-            "PDAH": [160, 161, 162, 163, 164, 165],
+            "PDAH": [160, 161, 162, 163, 164, 170],
             "FVMD": [260, 261, 262, 263, 264, 265],
             "PDAV": [400, 350, 300, 290, 260, 250],
         }
@@ -437,7 +439,7 @@ def main():
         for row in scoped_book["Sheet1"].iter_rows(min_row=5, values_only=True):
             expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] in {"EDAV", "EDMV"} else 30
             assert_equal(row[9:11], (expected, expected), f"scoped applied floor {row[0]}/{row[3]}")
-            assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "unaffected duration bands")
+            assert_equal((row[8], *row[11:14]), (100, 100, 100, 170 if row[0] == "PDAH" else 100), "unaffected bands except approved PDAH minimum")
         scoped_book.close()
 
         priority_payload = json.loads(scoped_json.read_text())
@@ -450,7 +452,7 @@ def main():
         for row in priority_book["Sheet1"].iter_rows(min_row=5, values_only=True):
             expected = 100 if row[0] in {"PDAV", "PDAH"} else 31 if row[0] in {"EDAV", "EDMV"} else 30
             assert_equal(row[9:11], (expected, expected), f"priority floor and EDAV/EDMV parity {row[0]}/{row[3]}")
-            assert_equal((row[8], *row[11:14]), (100, 100, 100, 100), "priority leaves other bands unchanged")
+            assert_equal((row[8], *row[11:14]), (100, 100, 100, 170 if row[0] == "PDAH" else 100), "priority leaves other bands unchanged except PDAH minimum")
         assert not any(v["status"] == "FAIL" for v in priority_summary["validation"])
         priority_book.close()
 
@@ -472,7 +474,7 @@ def main():
         for row in all_city_book["Sheet1"].iter_rows(min_row=5, values_only=True):
             expected = (100, 100, 100) if row[0] in {"PDAV", "PDAH"} else (31, 31, 41) if row[0] in {"EDAV", "EDMV"} else (30, 30, 40)
             assert_equal(row[9:12], expected, f"all-city short/week floors {row[0]}/{row[3]}")
-            assert_equal((row[8], *row[12:14]), (100, 100, 100), "no changes for 1 or 8+ days")
+            assert_equal((row[8], *row[12:14]), (100, 100, 170 if row[0] == "PDAH" else 100), "no market changes for 1 or 8+ days; PDAH minimum remains active")
         assert not any(v["status"] == "FAIL" for v in all_city_summary["validation"])
         all_city_book.close()
 
@@ -577,7 +579,7 @@ def main():
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(
                     [holiday_ws.cell(row, col).value for col in range(9, 15)],
-                    holiday_group_rates[group],
+                    holiday_group_rates[group][:5] + [170] if group == "PDAH" else holiday_group_rates[group],
                     f"frozen rates outside holidays for {group}/{pickup_date.isoformat()}",
                 )
         holiday_book.close()
@@ -2057,8 +2059,9 @@ def main():
             dry_run=False,
             import_output_path=baseline_real_import_path,
         )
-        assert_equal(baseline_real_summary["change_count"], baseline_real_summary["mandatory_zone_floor_change_count"],
-                     "empty recommendations only raise below-floor SZLO prices without market changes")
+        assert_equal(baseline_real_summary["change_count"], baseline_real_summary["mandatory_zone_floor_change_count"]
+                     + baseline_real_summary["mandatory_group_floor_change_count"],
+                     "empty recommendations only enforce approved zone and class minima without market changes")
         assert_equal(baseline_real_summary["change_statistics"]["decrease_count"], 0,
                      "mandatory floor correction never lowers baseline prices")
         for output_file in (baseline_real_output_path, baseline_real_import_path):
@@ -2089,6 +2092,8 @@ def main():
                 if key[1] == "SZLO" and not protected:
                     expected_rates = tuple(max(rate, minimum) for rate, minimum in
                                            zip(expected_rates, (300, 150, 130, 110, 90, 90)))
+                if key[0] == "PDAH" and not protected:
+                    expected_rates = (*expected_rates[:5], max(expected_rates[5], 170))
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
             baseline_real_workbook.close()
 

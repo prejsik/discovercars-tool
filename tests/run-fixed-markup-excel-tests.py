@@ -36,7 +36,7 @@ def main():
         ws['A1'].fill = PatternFill(fill_type='solid', fgColor='1F4E78')
         for start in [date(2026,10,1), date(2026,10,31), date(2026,11,3)]:
             for group in groups:
-                ws.append([group,None,None,'WALO',start,start,start,start]+[150]*6)
+                ws.append([group,None,None,'WALO',start,start,start,start]+[150]*5+[170 if group=='PDAH' else 150])
                 if start == date(2026,10,1):
                     ws.cell(ws.max_row,13).value = 50
         ws.auto_filter.ref = f'A4:N{ws.max_row}'
@@ -103,7 +103,7 @@ def main():
                 assert [c.value for c in row[9:12]]==[70+adjustment,85+adjustment,91+adjustment]
             else:
                 assert all(c.value==150 for c in row[9:12])
-            assert [row[i].value for i in [8,13]]==[150,150]
+            assert [row[i].value for i in [8,13]]==[150,170 if group=='PDAH' else 150]
             if group in active and row[6].value.date()!=date(2026,10,31):
                 expected_long = 88 if group in {'EDAV','EDMV'} else 87
             else:
@@ -152,9 +152,9 @@ def main():
         restricted_book=openpyxl.load_workbook(restricted)
         for row in restricted_book['Sheet1'].iter_rows(min_row=5):
             if row[0].value!='CDMV' or row[6].value.date()==date(2026,10,31):
-                assert all(row[i].value==150 for i in [8,9,10,11,13]), 'Parity must not modify unauthorized groups'
+                assert all(row[i].value==150 for i in [8,9,10,11]), 'Parity must not modify unauthorized groups'
                 assert row[12].value==(50 if row[6].value.date()==date(2026,10,1) else 150)
-            assert [row[i].value for i in [8,13]]==[150,150]
+            assert [row[i].value for i in [8,13]]==[150,170 if row[0].value=='PDAH' else 150]
         restricted_book.close()
         columns={days:(13,'8-20',8,20) for days in range(8,21)}
         long_decisions=[item for item in decisions['decisions'] if item['start_date']=='2026-11-03' and 8 <= item['rental_days'] <= 14]
@@ -200,7 +200,8 @@ def main():
         assert floor_summary['change_count']==6
         floor_book=openpyxl.load_workbook(floor_output)
         for row in floor_book['Sheet1'].iter_rows(min_row=5):
-            assert all(row[i].value==150 for i in [8,9,10,11,13])
+            assert all(row[i].value==150 for i in [8,9,10,11])
+            assert row[13].value==(170 if row[0].value=='PDAH' else 150)
             if row[6].value.date()==date(2026,11,3) and row[0].value in active:
                 assert row[12].value==(41 if row[0].value in {'EDAV','EDMV'} else 40), 'Saved workbook respects long-band floor and parity'
             else:

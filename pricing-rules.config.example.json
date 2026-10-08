@@ -1,5 +1,8 @@
 {
   "pricing": {
+    "mandatoryGroupFloorsPlnDay": {
+      "PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}]
+    },
     "mandatoryZoneFloorsPlnDay": {
       "SZLO": [
         {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 300},

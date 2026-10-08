@@ -35,7 +35,131 @@ class PricingPolicyTests(unittest.TestCase):
                 {"start_date": "2026-12-15", "end_date": "2027-01-10"},
             ],
             "minimum_rates": {"global_min_pln_day": 50, "bands": []},
+            # Isolate legacy market/zone fixtures; group minima have dedicated tests below.
+            "_mandatory_group_floors": {},
         })
+
+    def pdah_floor_config(self):
+        return {key: value for key, value in self.config.items() if key != "_mandatory_group_floors"}
+
+    def test_pdah_long_floor_covers_all_zones_dates_and_both_outputs(self):
+        source = self.workbook(pickups=("2026-10-01", "2028-02-10"), airport_rate=450, city_rate=450)
+        book = openpyxl.load_workbook(source)
+        sheet = book["Sheet1"]
+        sheet.append(["PDAH", None, None, "SZLO"] + ["2026-10-01"] * 4 + [450] * 5 + [100])
+        sheet.append(["CFAV", None, None, "SZLO"] + ["2026-10-01"] * 4 + [450] * 5 + [100])
+        pdah_rates = iter((100, 169.99, 170, 220))
+        for row in sheet.iter_rows(min_row=5):
+            if row[0].value == "PDAH" and row[3].value != "SZLO":
+                row[13].value = next(pdah_rates)
+                sheet.row_dimensions[row[0].row].hidden = True
+        book.save(source)
+        book.close()
+        source_bytes = source.read_bytes()
+        before = {column: self.rates(source, column) for column in range(9, 15)}
+        summary, output, import_output = self.run_updates([], source, self.pdah_floor_config())
+        for path in (output, import_output):
+            for column, old_prices in before.items():
+                prices = self.rates(path, column)
+                for key, old_rate in old_prices.items():
+                    expected = max(old_rate, 170) if key[0] == "PDAH" and column == 14 else old_rate
+                    self.assertEqual(prices[key], expected)
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 3)
+        self.assertEqual(summary["mandatory_group_floor_groups"], ["PDAH"])
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], 0)
+        self.assertEqual(summary["change_statistics"]["decrease_count"], 0)
+        self.assertEqual(summary["recommendation_date_scope"]["date_count"], 0)
+        self.assertEqual(source.read_bytes(), source_bytes)
+        self.assertFalse(any(row["status"] == "FAIL" for row in summary["validation"]))
+        book = openpyxl.load_workbook(output)
+        legend = " ".join(str(cell.value or "") for row in book["Changed Positions"].iter_rows() for cell in row)
+        self.assertIn("PDAH", legend)
+        self.assertIn("21-35: 170 PLN", legend)
+        review_rows = list(book["Recommendations Review"].iter_rows(min_row=2, values_only=True))
+        self.assertTrue(review_rows)
+        for row in review_rows:
+            self.assertEqual(row[1], "Gotowe z uwaga")
+            self.assertIn("bez celu rankingowego", row[2])
+            self.assertEqual(row[14], "Obowiazkowe minimum klasy")
+        book.close()
+
+    def test_pdah_long_floor_preserves_protected_dates_and_other_bands(self):
+        protected = {"2026-10-31", "2026-11-01", "2026-12-15", "2027-01-10"}
+        source = self.workbook(pickups=tuple(sorted(protected | {"2027-01-11"})), airport_rate=500, city_rate=500)
+        book = openpyxl.load_workbook(source)
+        for row in book["Sheet1"].iter_rows(min_row=5):
+            if row[0].value == "PDAH":
+                for cell in row[8:14]:
+                    cell.value = 100
+        book.save(source)
+        book.close()
+        summary, output, import_output = self.run_updates([], source, self.pdah_floor_config())
+        for path in (output, import_output):
+            for column in range(9, 15):
+                for key, rate in self.rates(path, column).items():
+                    if key[0] == "PDAH":
+                        self.assertEqual(rate, 170 if column == 14 and key[2] not in protected else 100)
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 2)
+
+    def test_pdah_long_floor_dry_run_matches_export_and_detects_final_breach(self):
+        source = self.workbook(airport_rate=100, city_rate=100)
+        recommendations = self.root / "empty.json"
+        recommendations.write_text('{"decisions": []}', encoding="utf-8")
+        config = self.pdah_floor_config()
+        source_bytes = source.read_bytes()
+        preview = apply_updates(source, recommendations, None, config, None, True)
+        written, output, _ = self.run_updates([], source, config)
+        self.assertEqual(preview["mandatory_group_floor_change_count"], 2)
+        self.assertEqual(preview["changes"], written["changes"])
+        self.assertEqual(source.read_bytes(), source_bytes)
+        book = openpyxl.load_workbook(output)
+        sheet = book["Sheet1"]
+        pdah_row = next(row[0].row for row in sheet.iter_rows(min_row=5) if row[0].value == "PDAH")
+        sheet.cell(pdah_row, 14).value = 169.99
+        checks = build_validation_rows(sheet, config, get_duration_columns(sheet, config), [], [])
+        check = next(row for row in checks if row[0] == "Stawki ponizej obowiazkowego minimum klasy")
+        self.assertEqual(check[2], 1)
+        book.close()
+
+    def test_pdah_floor_missing_duration_column_and_invalid_config_fail_closed(self):
+        source = self.workbook(airport_rate=500, city_rate=500)
+        book = openpyxl.load_workbook(source)
+        book["Sheet1"].delete_cols(14)
+        book.save(source)
+        book.close()
+        with self.assertRaisesRegex(ValueError, "Missing Excel duration columns"):
+            self.run_updates([], source, self.pdah_floor_config())
+        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        for floors in ([], {"pdah": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}]},
+                       {"PDAH": []}, {"PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": -1}]},
+                       {"PDAH": [{"minDays": 21, "maxDays": 36, "minimumRatePlnDay": 170}]}):
+            path = self.root / "invalid-group-floors.json"
+            path.write_text(json.dumps({"pricing": {**original["pricing"], "mandatoryGroupFloorsPlnDay": floors}}), encoding="utf-8")
+            config = {**self.pdah_floor_config(), "pricing_rules_file": str(path)}
+            with self.subTest(floors=floors), self.assertRaisesRegex(ValueError, "mandatoryGroupFloorsPlnDay"):
+                self.run_updates([], self.workbook(airport_rate=500, city_rate=500), config)
+
+    def test_pdah_floor_respects_higher_zone_minimum_without_double_counting(self):
+        rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        rules["pricing"]["mandatoryZoneFloorsPlnDay"]["SZLO"][-1]["minimumRatePlnDay"] = 200
+        path = self.root / "higher-zone-floor.json"
+        path.write_text(json.dumps(rules), encoding="utf-8")
+        source = self.szlo_workbook(rate=500)
+        book = openpyxl.load_workbook(source)
+        for row in book["Sheet1"].iter_rows(min_row=5):
+            if row[0].value == "PDAH":
+                row[13].value = 100
+        book.save(source)
+        book.close()
+        config = {**self.pdah_floor_config(), "pricing_rules_file": str(path)}
+        summary, output, import_output = self.run_updates([], source, config)
+        for output_path in (output, import_output):
+            prices = self.rates(output_path, 14)
+            self.assertEqual(prices["PDAH", "SZLO", "2026-10-01"], 200)
+            self.assertEqual(prices["PDAH", "SZO1", "2026-10-01"], 170)
+        self.assertEqual(summary["change_count"], 2)
+        self.assertEqual(summary["mandatory_zone_floor_change_count"], 1)
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 1)
 
     def test_user_approved_baseline_allows_recommendations_but_not_calibration(self):
         manifest = {

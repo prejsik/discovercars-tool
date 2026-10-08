@@ -1487,6 +1487,45 @@ runTest("Telegram separates mandatory floor raises outside the scraped date scop
   assert.doesNotMatch(message, /nie potwierdzono ceny, nie zmieniano stawek\./);
 });
 
+runTest("Telegram reports mandatory class floor raises separately from market recommendations", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" },
+    expectedScope: { start_dates: ["2026-10-05"], durations: [2, 3] },
+    excelSummary: {
+      change_statistics: { increase_count: 6, decrease_count: 0 },
+      mandatory_group_floor_change_count: 6,
+      mandatory_group_floor_groups: ["PDAH"],
+      mandatory_group_floor_date_scope: { start_date: "2026-10-05", end_date: "2027-01-12", date_count: 100 }
+    }
+  });
+  assert.match(message, /wyjątkiem są obowiązkowe minima klas\./);
+  assert.match(message, /Minimum PDAH: 6 podwyżek niezależnie od scrapera, także poza jego zakresem dat\./);
+  assert.match(message, /Zakres korekt minimum PDAH: 05\.10\.2026–12\.01\.2027/);
+  assert.doesNotMatch(message, /Tam, gdzie nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek\./);
+});
+
+runTest("Telegram keeps mandatory class and location floor counts and date scopes distinct", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    qualityAlerts: { status: "success" },
+    excelSummary: {
+      change_statistics: { increase_count: 60, decrease_count: 0 },
+      mandatory_zone_floor_change_count: 54,
+      mandatory_zone_floor_zones: ["SZLO"],
+      mandatory_zone_floor_date_scope: { start_date: "2026-10-05", end_date: "2027-01-12", date_count: 100 },
+      mandatory_group_floor_change_count: 6,
+      mandatory_group_floor_groups: ["PDAH"],
+      mandatory_group_floor_date_scope: { start_date: "2026-10-06", end_date: "2027-01-13", date_count: 100 }
+    }
+  });
+  assert.match(message, /wyjątkiem są obowiązkowe minima lokalizacji i klas\./);
+  assert.match(message, /Minima SZLO: 54 podwyżek niezależnie od scrapera/);
+  assert.match(message, /Zakres korekt minimum: 05\.10\.2026–12\.01\.2027/);
+  assert.match(message, /Minimum PDAH: 6 podwyżek niezależnie od scrapera/);
+  assert.match(message, /Zakres korekt minimum PDAH: 06\.10\.2026–13\.01\.2027/);
+});
+
 runTest("Telegram cannot invent zero Excel changes or full coverage from absent statistics", () => {
   const message = buildTelegramSummary({
     env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
