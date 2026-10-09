@@ -42,6 +42,70 @@ class PricingPolicyTests(unittest.TestCase):
     def pdah_floor_config(self):
         return {key: value for key, value in self.config.items() if key != "_mandatory_group_floors"}
 
+    def test_fvmd_holiday_minima_boundaries_all_bands_and_preserved_higher_rates(self):
+        dates = ("2026-12-14", "2026-12-15", "2026-12-25", "2027-01-05", "2027-01-06", "2027-01-10")
+        source = self.workbook(pickups=dates, airport_rate=1200, city_rate=1200)
+        book = openpyxl.load_workbook(source)
+        for row in book["Sheet1"].iter_rows(min_row=5):
+            if row[0].value == "FVMD" and row[3].value == "WA1":
+                for cell in row[8:14]:
+                    cell.value = 100
+        book["Sheet1"].append(["FVMD", None, None, "SZLO"] + ["2026-12-25"] * 4 + [100] * 6)
+        book.save(source)
+        book.close()
+        original = source.read_bytes()
+        summary, output, import_output = self.run_updates([], source, self.pdah_floor_config())
+        minima = (1000, 700, 600, 500, 500, 400)
+        for path in (output, import_output):
+            for col, minimum in enumerate(minima, 9):
+                prices = self.rates(path, col)
+                self.assertFalse(any(key[:2] == ("FVMD", "SZLO") for key in prices))
+                for key, price in prices.items():
+                    active = key[0] == "FVMD" and key[1] == "WA1" and "2026-12-15" <= key[2] <= "2027-01-05"
+                    old = 100 if key[0] == "FVMD" and key[1] == "WA1" else 1200 + (key[0] in {"EDAV", "EDMV"})
+                    self.assertEqual(price, minimum if active else old, (key, col))
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 18)
+        self.assertFalse(any(row["status"] == "FAIL" for row in summary["validation"]))
+        self.assertEqual(source.read_bytes(), original)
+        book = openpyxl.load_workbook(output)
+        legend = " ".join(str(c.value or "") for row in book["Changed Positions"].iter_rows() for c in row)
+        self.assertIn("FVMD", legend)
+        self.assertIn("2026-12-15", legend)
+        self.assertIn("2027-01-05", legend)
+        book.close()
+
+    def test_fvmd_holiday_dry_run_and_validator_reject_breach_or_unauthorized_change(self):
+        source = self.workbook(pickups=("2026-12-15",), airport_rate=100, city_rate=100)
+        config = self.pdah_floor_config()
+        recommendations = self.root / "empty.json"
+        recommendations.write_text('{"decisions": []}', encoding="utf-8")
+        preview = apply_updates(source, recommendations, None, config, None, True)
+        summary, output, _ = self.run_updates([], source, config)
+        self.assertEqual(preview["changes"], summary["changes"])
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 12)
+        book = openpyxl.load_workbook(output)
+        sheet = book["Sheet1"]
+        row = next(r[0].row for r in sheet.iter_rows(min_row=5) if r[0].value == "FVMD")
+        sheet.cell(row, 9).value = 999
+        checks = build_validation_rows(sheet, config, get_duration_columns(sheet, config), [], [])
+        self.assertEqual(next(c for c in checks if c[0] == "Stawki ponizej obowiazkowego minimum klasy")[2], 1)
+        fake = {**summary["changes"][0], "new_rate": 1001}
+        checks = build_validation_rows(sheet, config, get_duration_columns(sheet, config), [fake], [])
+        self.assertEqual(next(c for c in checks if c[0] == "Zmienione stawki w chronionych datach")[2], 1)
+        book.close()
+
+    def test_fvmd_holiday_invalid_scope_fails_closed(self):
+        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        for override in ({"start_date": "bad"}, {"end_date": "2026-12-14"},
+                         {"override_protected_dates": "true"}, {"end_date": None}):
+            rules = json.loads(json.dumps(original))
+            rules["pricing"]["mandatoryGroupFloorsPlnDay"]["FVMD"][0].update(override)
+            path = self.root / "bad-holiday-scope.json"
+            path.write_text(json.dumps(rules), encoding="utf-8")
+            config = {**self.pdah_floor_config(), "pricing_rules_file": str(path)}
+            with self.subTest(override=override), self.assertRaisesRegex(ValueError, "date scope"):
+                self.run_updates([], self.workbook(), config)
+
     def test_pdah_long_floor_covers_all_zones_dates_and_both_outputs(self):
         source = self.workbook(pickups=("2026-10-01", "2028-02-10"), airport_rate=450, city_rate=450)
         book = openpyxl.load_workbook(source)
@@ -88,6 +152,9 @@ class PricingPolicyTests(unittest.TestCase):
         source = self.workbook(pickups=tuple(sorted(protected | {"2027-01-11"})), airport_rate=500, city_rate=500)
         book = openpyxl.load_workbook(source)
         for row in book["Sheet1"].iter_rows(min_row=5):
+            if row[0].value == "FVMD":
+                for cell in row[8:14]:
+                    cell.value = 1200
             if row[0].value == "PDAH":
                 for cell in row[8:14]:
                     cell.value = 100

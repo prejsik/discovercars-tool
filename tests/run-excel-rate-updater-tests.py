@@ -2080,6 +2080,7 @@ def main():
                     frozen_output_rates[(group, zone, pickup_date)] = tuple(values[8:14])
                 if zone in unmapped_source_zones:
                     unmapped_output_rows[(group, zone, pickup_date, tuple(values[8:14]))] += 1
+            baseline_real_workbook.close()
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
                          "all unmapped baseline classes, zones, 100 pickup dates, rates and row multiplicities retained")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
@@ -2094,8 +2095,10 @@ def main():
                                            zip(expected_rates, (300, 150, 130, 110, 90, 90)))
                 if key[0] == "PDAH" and not protected:
                     expected_rates = (*expected_rates[:5], max(expected_rates[5], 170))
+                if key[0] == "FVMD" and date(2026, 12, 15) <= key[2] <= date(2027, 1, 5):
+                    expected_rates = tuple(max(rate, minimum) for rate, minimum in
+                                           zip(expected_rates, (1000, 700, 600, 500, 500, 400)))
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
-            baseline_real_workbook.close()
 
     print("All Excel rate updater tests passed.")
 

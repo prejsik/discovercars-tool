@@ -1034,9 +1034,10 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
 def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[float, str]:
     duration_min = int(parse_number(target.get("duration_min_days")) or parse_number(target.get("rental_days")) or 0)
     duration_max = int(parse_number(target.get("duration_max_days")) or duration_min)
-    mandatory_minimum, _ = get_mandatory_floor(target.get("zone"), target.get("group"), duration_min, duration_max, config)
+    mandatory_minimum, _ = get_mandatory_floor(target.get("zone"), target.get("group"), duration_min, duration_max, config,
+                                               target.get("pickup_date") or target.get("start_date"))
     if mandatory_minimum is not None:
-        return mandatory_minimum, "Obowiazkowe minimum lokalizacji lub klasy poza chronionymi datami."
+        return mandatory_minimum, "Obowiazkowe minimum lokalizacji lub klasy w zatwierdzonym zakresie dat."
     if priority_overrides_rule(target, target.get("group"), "scoped_floor", config):
         rule = next(r for r in config["_priority_top1_rules"] if r["id"] == target["priority_rule_id"])
         return float(rule["minimumRatePlnDay"]), f"Priorytet top1: minimum {rule['minimumRatePlnDay']} PLN brutto/dzien."
@@ -1170,7 +1171,15 @@ def validate_mandatory_floors(
             if covered_days & days:
                 raise ValueError(f"Overlapping {rule_name} bands for {zone}.")
             covered_days.update(days)
-            normalized_bands.append({"minDays": int(low), "maxDays": int(high), "minimumRatePlnDay": rate})
+            normalized_band = {"minDays": int(low), "maxDays": int(high), "minimumRatePlnDay": rate}
+            if any(key in band for key in ("start_date", "end_date", "override_protected_dates")):
+                start, end = parse_date_value(band.get("start_date")), parse_date_value(band.get("end_date"))
+                override = band.get("override_protected_dates", False)
+                if require_all_days or start is None or end is None or start > end or type(override) is not bool:
+                    raise ValueError(f"Invalid {rule_name} date scope for {zone}.")
+                normalized_band.update(start_date=start.isoformat(), end_date=end.isoformat(),
+                                       override_protected_dates=override)
+            normalized_bands.append(normalized_band)
         if require_all_days and covered_days != set(range(1, 36)):
             raise ValueError(f"{rule_name} must cover every duration 1-35 for {zone}.")
         validated[normalized_zone] = normalized_bands
@@ -1184,18 +1193,29 @@ def get_mandatory_zone_floor(zone: Any, min_days: int, max_days: int, config: di
     return max(matches) if matches else None
 
 
-def get_mandatory_group_floor(group: Any, min_days: int, max_days: int, config: dict[str, Any]) -> float | None:
+def get_mandatory_group_floor(
+    group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
+) -> float | None:
     bands = get_mandatory_group_floors(config).get(normalize_code(group), [])
+    if not bands:
+        return None
+    pickup = parse_date_value(pickup_date)
+    protected = date_is_rate_protected(pickup, get_protected_rate_periods(config))
     matches = [float(band["minimumRatePlnDay"]) for band in bands
-               if min_days <= band["maxDays"] and max_days >= band["minDays"]]
+               if min_days <= band["maxDays"] and max_days >= band["minDays"]
+               and (not band.get("start_date") or pickup is not None
+                    and band["start_date"] <= pickup.isoformat() <= band["end_date"])
+               and (not protected or band.get("override_protected_dates") is True)]
     return max(matches) if matches else None
 
 
 def get_mandatory_floor(
-    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any],
+    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
 ) -> tuple[float | None, str]:
     zone_minimum = get_mandatory_zone_floor(zone, min_days, max_days, config)
-    group_minimum = get_mandatory_group_floor(group, min_days, max_days, config)
+    if zone_minimum is not None and date_is_rate_protected(parse_date_value(pickup_date), get_protected_rate_periods(config)):
+        zone_minimum = None
+    group_minimum = get_mandatory_group_floor(group, min_days, max_days, config, pickup_date)
     if group_minimum is not None and (zone_minimum is None or group_minimum > zone_minimum):
         return group_minimum, "mandatory_group_floor"
     return zone_minimum, "mandatory_zone_floor"
@@ -1204,10 +1224,8 @@ def get_mandatory_floor(
 def is_mandatory_floor_change(change: dict[str, Any], config: dict[str, Any]) -> bool:
     if change.get("recommendation_type") not in MANDATORY_FLOOR_TYPES:
         return False
-    if date_is_rate_protected(parse_date_value(change.get("pickup_date")), get_protected_rate_periods(config)):
-        return False
     minimum, recommendation_type = get_mandatory_floor(change.get("zone"), change.get("group"),
-        int(change.get("duration_min_days") or 0), int(change.get("duration_max_days") or 0), config)
+        int(change.get("duration_min_days") or 0), int(change.get("duration_max_days") or 0), config, change.get("pickup_date"))
     old_rate, new_rate = parse_number(change.get("old_rate")), parse_number(change.get("new_rate"))
     return (change.get("recommendation_type") == recommendation_type
             and minimum is not None and old_rate is not None and new_rate is not None
@@ -1220,7 +1238,6 @@ def enforce_mandatory_floors(
 ) -> list[dict[str, Any]]:
     floors = get_mandatory_zone_floors(config)
     group_floors = get_mandatory_group_floors(config)
-    protected_periods = get_protected_rate_periods(config)
     columns = config["columns"]
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
     virtual_rates = {change["cell"]: change["new_rate"] for change in existing_changes}
@@ -1238,10 +1255,8 @@ def enforce_mandatory_floors(
         pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         if not group or pickup is None:
             raise ValueError(f"Missing group or pickup date for mandatory zone floor: row {row}.")
-        if date_is_rate_protected(pickup, protected_periods):
-            continue
         for col, (label, low, high) in bands_by_col.items():
-            minimum, recommendation_type = get_mandatory_floor(zone, group, low, high, config)
+            minimum, recommendation_type = get_mandatory_floor(zone, group, low, high, config, pickup)
             if minimum is None:
                 continue
             cell = ws.cell(row, col)
@@ -1263,7 +1278,7 @@ def enforce_mandatory_floors(
                 "duration_band": label, "duration_min_days": low, "duration_max_days": high,
                 "cell": cell.coordinate, "old_rate": old_rate, "new_rate": minimum,
                 "delta": round(minimum - old_rate, 2), "minimum_rate_pln_day": minimum,
-                "minimum_reason": "Obowiazkowe minimum lokalizacji lub klasy poza chronionymi datami.",
+                "minimum_reason": "Obowiazkowe minimum lokalizacji lub klasy w zatwierdzonym zakresie dat.",
                 "source_decision_count": 0,
             }
             changes.append(change)
@@ -1438,10 +1453,16 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
     parts: list[str] = []
     for group, bands in get_mandatory_group_floors(config).items():
         amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
+                            + (f" (pickup {band['start_date']}-{band['end_date']}, daty wlacznie)" if band.get("start_date") else "")
+                            + ("; wyjatek od ochrony dat" if band.get("override_protected_dates") else "")
                             for band in bands)
-        parts.append(f"Obowiazkowe minimum klasy {group}, bezterminowo we wszystkich lokalizacjach: {amounts}. "
+        scope = "w podanym okresie" if any(band.get("start_date") for band in bands) else "bezterminowo"
+        protection = ("Minima obowiazuja takze w chronionych datach tylko w podanym okresie. "
+                      if any(band.get("override_protected_dates") for band in bands)
+                      else "Chronione daty pozostaja bez zmian. ")
+        parts.append(f"Obowiazkowe minimum klasy {group}, {scope} we wszystkich istniejacych lokalizacjach: {amounts}. "
                      "Podnosimy tylko stawki ponizej minimum, bez danych ze scrapera i poza jego zakresem. "
-                     "Wyzsze stawki i chronione daty pozostaja bez zmian; klasa nadal nie podlega rekomendacjom konkurencyjnym. "
+                     + protection + "Wyzsze stawki pozostaja bez zmian; klasa nadal nie podlega rekomendacjom konkurencyjnym. "
                      "Jesli minimum lokalizacji jest wyzsze, obowiazuje wyzsze minimum")
     for zone, bands in get_mandatory_zone_floors(config).items():
         amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
@@ -1524,7 +1545,7 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
     protected_rule = (
         " Istniejace stawki pozostaja bez zmian dla pickup start date: "
         + "; ".join(f"{start_date.isoformat()}-{end_date.isoformat()}" for start_date, end_date in protected_periods)
-        + " (daty wlacznie)."
+        + " (daty wlacznie), poza jawnym wyjatkiem minimum klasy opisanym w legendzie Floor cenowy."
         if protected_periods
         else ""
     )
@@ -1539,13 +1560,13 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         duration_rule += f" Kolumna {band} dni jest zmieniana na podstawie scenariuszy do {evidence_max} dni; zmiana obejmuje caly przedzial, a pozostale duration nie sa weryfikowane. Brak danych w wymaganym zakresie blokuje zmiany tej kolumny, rowniez parytet."
     mandatory_rule = (
         " Wyjatek: obowiazkowe minimum strefowe podnosi kazda klase i kazdy przedzial duration, "
-        "z wylaczeniem chronionych dat, ktore zawsze zachowuja stawki bazowe. Szczegoly w legendzie Floor cenowy."
+        "z wylaczeniem chronionych dat. Szczegoly w legendzie Floor cenowy."
         if get_mandatory_zone_floors(config) else ""
     )
     if get_mandatory_group_floors(config):
         mandatory_rule += (" Wyjatek od wykluczenia klas i blokady dlugich duration: obowiazkowe minimum klasy "
                            "podnosi tylko stawki ponizej wskazanego progu i przedzialu, we wszystkich lokalizacjach, "
-                           "poza chronionymi datami. Szczegoly w legendzie Floor cenowy.")
+                           "poza chronionymi datami, chyba ze jawnie zatwierdzono wyjatek dla klasy i okresu. Szczegoly w legendzie Floor cenowy.")
     omitted = sorted(f"{group}/{zone}" for group, zone in get_omitted_group_zones(config))
     omitted_rule = (
         " Nie eksportujemy dla zadnej daty ani duration: " + ", ".join(omitted) + "."
@@ -1609,13 +1630,13 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
         "ranking_target": "cel rankingowy w powyzszych granicach",
         "premium_parity": "parytet bazowych klas i premium +1 PLN (rezerwa uwzgledniona przed capem)",
     }
-    mandatory = ("Ochrona dat ma pierwszenstwo przed wszystkimi zmianami. Poza chronionymi datami: "
+    mandatory = ("Ochrona dat ma pierwszenstwo poza jawnym wyjatkiem minimum klasy i okresu z legendy Floor cenowy. Poza chronionymi datami: "
                  "obowiazkowe minimum strefowe dla wszystkich klas i przedzialow; "
                  "tylko podniesienie stawek ponizej minimum, bez celu rankingowego. "
                  if get_mandatory_zone_floors(config) else "")
     if get_mandatory_group_floors(config):
         mandatory += ("Obowiazkowe minimum klasy dziala we wszystkich lokalizacjach tylko we wskazanych przedzialach, "
-                      "takze dla wykluczonych klas; chronione daty pozostaja bez zmian. Przy zbiegu z minimum lokalizacji "
+                      "takze dla wykluczonych klas; chronione daty pozostaja bez zmian poza jawnym wyjatkiem klasy i okresu. Przy zbiegu z minimum lokalizacji "
                       "stosujemy wyzsze minimum. Tylko podniesienie, bez celu rankingowego. ")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
@@ -2096,6 +2117,7 @@ def build_validation_rows(
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
         for change in changes
         if date_is_rate_protected(parse_date_value(change.get("pickup_date")), protected_periods)
+        and not is_mandatory_floor_change(change, config)
     ]
 
     data_rows = 0
@@ -2141,9 +2163,8 @@ def build_validation_rows(
             if (minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
                 and (final_rate is None or final_rate < minimum)):
                 mandatory_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
-            group_minimum = get_mandatory_group_floor(group, *bands_by_col[col], config)
-            if (group_minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
-                and (final_rate is None or final_rate < group_minimum)):
+            group_minimum = get_mandatory_group_floor(group, *bands_by_col[col], config, pickup_start)
+            if group_minimum is not None and (final_rate is None or final_rate < group_minimum):
                 mandatory_group_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
 
     excluded_changed = [

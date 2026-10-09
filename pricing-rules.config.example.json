@@ -1,7 +1,15 @@
 {
   "pricing": {
     "mandatoryGroupFloorsPlnDay": {
-      "PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}]
+      "PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}],
+      "FVMD": [
+        {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 1000, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
+        {"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 700, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
+        {"minDays": 3, "maxDays": 4, "minimumRatePlnDay": 600, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
+        {"minDays": 5, "maxDays": 7, "minimumRatePlnDay": 500, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
+        {"minDays": 8, "maxDays": 20, "minimumRatePlnDay": 500, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
+        {"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 400, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true}
+      ]
     },
     "mandatoryZoneFloorsPlnDay": {
       "SZLO": [
