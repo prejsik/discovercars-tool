@@ -172,6 +172,23 @@ def build_minimal_workbook(path, rows):
     workbook.save(path)
 
 
+def expected_approved_floor_rates(group, zone, pickup_date, rates):
+    expected = tuple(rates)
+    protected = (date(2026, 10, 31) <= pickup_date <= date(2026, 11, 1)
+                 or date(2026, 12, 15) <= pickup_date <= date(2027, 1, 10))
+    if zone == "SZLO" and not protected:
+        expected = tuple(max(rate, minimum) for rate, minimum in
+                         zip(expected, (300, 150, 130, 110, 90, 90)))
+    if group == "PDAH" and not protected:
+        expected = (*expected[:5], max(expected[5], 170))
+    if date(2026, 10, 30) <= pickup_date <= date(2026, 11, 1):
+        expected = tuple(max(rate, 110) for rate in expected)
+    if group == "FVMD" and date(2026, 12, 15) <= pickup_date <= date(2027, 1, 5):
+        expected = tuple(max(rate, minimum) for rate, minimum in
+                         zip(expected, (1000, 700, 600, 500, 500, 400)))
+    return expected
+
+
 def main():
     for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
         try:
@@ -482,12 +499,15 @@ def main():
         holiday_recommendations_path = temporary_path / "holiday-protection-recommendations.json"
         holiday_output_path = temporary_path / "holiday-protection-output.xlsx"
         holiday_dates = [
+            "29-10-26",
             "30-10-26",
             "31-10-26",
             "01-11-26",
             "02-11-26",
             "14-12-26",
             "15-12-26",
+            "05-01-27",
+            "06-01-27",
             "10-01-27",
             "11-01-27",
         ]
@@ -500,6 +520,9 @@ def main():
             "EDAV": [140, 141, 142, 143, 144, 145],
             "CFAV": [150, 151, 152, 153, 154, 155],
             "PDAH": [160, 161, 162, 163, 164, 165],
+            "FVMD": [1100, 110, 130, 109, 200, 450],
+            "PDAV": [100, 101, 102, 103, 104, 105],
+            "SWAV": [109, 110, 111, 70, 200, 105],
         }
         build_minimal_workbook(
             holiday_workbook_path,
@@ -541,7 +564,8 @@ def main():
             cli_groups=None,
             dry_run=False,
         )
-        assert_equal(holiday_summary["skipped_target_count"], 4, "four holiday recommendations skipped")
+        assert_equal(holiday_summary["skipped_target_count"], 6, "six protected holiday recommendations skipped")
+        assert not any(item["status"] == "FAIL" for item in holiday_summary["validation"])
         holiday_book = openpyxl.load_workbook(holiday_output_path)
         holiday_ws = holiday_book["Sheet1"]
         holiday_rows = {
@@ -555,17 +579,20 @@ def main():
             date(2026, 10, 31),
             date(2026, 11, 1),
             date(2026, 12, 15),
+            date(2027, 1, 5),
+            date(2027, 1, 6),
             date(2027, 1, 10),
         }
         for pickup_date in protected_dates:
             for group, original_rates in holiday_group_rates.items():
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(
-                    [holiday_ws.cell(row, col).value for col in range(9, 15)],
-                    original_rates,
-                    f"protected holiday rates for {group}/{pickup_date.isoformat()}",
+                    tuple(holiday_ws.cell(row, col).value for col in range(9, 15)),
+                    expected_approved_floor_rates(group, "WA1", pickup_date, original_rates),
+                    f"protected holiday rates change only for approved minima: {group}/{pickup_date.isoformat()}",
                 )
         unprotected_dates = {
+            date(2026, 10, 29),
             date(2026, 10, 30),
             date(2026, 11, 2),
             date(2026, 12, 14),
@@ -575,14 +602,54 @@ def main():
             for group, expected_rate in (("CDMV", 222), ("CGAV", 222), ("CWAV", 222), ("CWMR", 222), ("EDAV", 223), ("EDMV", 223)):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(holiday_ws.cell(row, 10).value, expected_rate, f"unprotected rate for {group}/{pickup_date.isoformat()}")
-            for group in ("CFAV", "PDAH"):
+                expected_rates = expected_approved_floor_rates(group, "WA1", pickup_date, holiday_group_rates[group])
+                assert_equal(
+                    tuple(holiday_ws.cell(row, col).value for col in (9, 11, 12, 13, 14)),
+                    (expected_rates[0], *expected_rates[2:]),
+                    f"non-target duration rates change only for approved minima: {group}/{pickup_date.isoformat()}",
+                )
+            for group in ("CFAV", "PDAH", "FVMD", "PDAV", "SWAV"):
                 row = holiday_rows[(group, pickup_date)]
                 assert_equal(
-                    [holiday_ws.cell(row, col).value for col in range(9, 15)],
-                    holiday_group_rates[group][:5] + [170] if group == "PDAH" else holiday_group_rates[group],
-                    f"frozen rates outside holidays for {group}/{pickup_date.isoformat()}",
+                    tuple(holiday_ws.cell(row, col).value for col in range(9, 15)),
+                    expected_approved_floor_rates(group, "WA1", pickup_date, holiday_group_rates[group]),
+                    f"excluded classes change only for approved minima: {group}/{pickup_date.isoformat()}",
                 )
         holiday_book.close()
+
+        floor_workbook_path = temporary_path / "all-class-holiday-floor.xlsx"
+        floor_recommendations_path = temporary_path / "all-class-holiday-floor-recommendations.json"
+        floor_output_path = temporary_path / "all-class-holiday-floor-output.xlsx"
+        floor_zones = sorted(workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
+                             | {zone for zones in example_config["location_zones"].values() for zone in zones}
+                             | {"UNMAPPED"})
+        floor_rows = [
+            [group, None, None, zone, "09-06-26", pickup_date, pickup_date, pickup_date, *range(100, 106)]
+            for pickup_date in holiday_dates[:5]
+            for zone in floor_zones
+            for group in (*holiday_group_rates, "MDMR")
+            if group not in example_config["omitted_group_zones"].get(zone, [])
+        ]
+        build_minimal_workbook(floor_workbook_path, floor_rows)
+        floor_recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
+        floor_summary = apply_updates(
+            floor_workbook_path, floor_recommendations_path, floor_output_path, holiday_config, None, False,
+        )
+        assert_equal(floor_summary["change_statistics"]["decrease_count"], 0, "mandatory minima never lower rates")
+        assert not any(item["status"] == "FAIL" for item in floor_summary["validation"])
+        expected_floor_rows = Counter(
+            (row[0], row[3], parse_date_value(row[6]),
+             expected_approved_floor_rates(row[0], row[3], parse_date_value(row[6]), row[8:14]))
+            for row in floor_rows
+        )
+        floor_book = openpyxl.load_workbook(floor_output_path)
+        assert_equal(
+            Counter((row[0], row[3], parse_date_value(row[6]), tuple(row[8:14]))
+                    for row in floor_book["Sheet1"].iter_rows(min_row=5, values_only=True)),
+            expected_floor_rows,
+            "110 minimum covers every class, zone and duration on Oct 30-Nov 1 only, preserving other approved minima",
+        )
+        floor_book.close()
 
         pending_manifest = {
             "schema_version": 1,
@@ -2008,7 +2075,8 @@ def main():
                 if not matching_rates:
                     matching_rates = [max(enumerate(source_rates), key=lambda item: (item[1][0], item[0]))[1][2]]
                 for rates in matching_rates:
-                    expected_unmapped_rows[(group, zone, pickup_date, rates)] += 1
+                    expected_rates = expected_approved_floor_rates(group, zone, pickup_date, rates)
+                    expected_unmapped_rows[(group, zone, pickup_date, expected_rates)] += 1
         real_pickup_date, real_old_rate = real_target
         real_recommendations_path.write_text(
             json.dumps(
@@ -2082,22 +2150,13 @@ def main():
                     unmapped_output_rows[(group, zone, pickup_date, tuple(values[8:14]))] += 1
             baseline_real_workbook.close()
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
-                         "all unmapped baseline classes, zones, 100 pickup dates, rates and row multiplicities retained")
+                         "all unmapped baseline classes, zones, 100 pickup dates and row multiplicities retained; only approved minima change rates")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
             assert_equal(baseline_real_ws.max_row, baseline_real_summary["import_row_count"], "all generated rows exported")
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
             for key, expected_rates in frozen_source_rates.items():
-                protected = (date(2026, 10, 31) <= key[2] <= date(2026, 11, 1)
-                             or date(2026, 12, 15) <= key[2] <= date(2027, 1, 10))
-                if key[1] == "SZLO" and not protected:
-                    expected_rates = tuple(max(rate, minimum) for rate, minimum in
-                                           zip(expected_rates, (300, 150, 130, 110, 90, 90)))
-                if key[0] == "PDAH" and not protected:
-                    expected_rates = (*expected_rates[:5], max(expected_rates[5], 170))
-                if key[0] == "FVMD" and date(2026, 12, 15) <= key[2] <= date(2027, 1, 5):
-                    expected_rates = tuple(max(rate, minimum) for rate, minimum in
-                                           zip(expected_rates, (1000, 700, 600, 500, 500, 400)))
+                expected_rates = expected_approved_floor_rates(*key, expected_rates)
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
 
     print("All Excel rate updater tests passed.")

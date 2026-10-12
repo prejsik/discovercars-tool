@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { buildCompletionMessages, summarizeDomVerification } = require("./workflowQualityAlerts");
+const { buildCompletionMessages, summarizeDomVerification, getPreparationFailureMessage } = require("./workflowQualityAlerts");
 
 function safeReadJson(filePath) {
   try {
@@ -195,7 +195,8 @@ function buildPriceConflictAlert(excelSummary) {
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
   const quality = options.qualityAlerts || {};
-  const qualityStatus = env.QUALITY_STATUS === "failure" || quality.status === "failure" || quality.publication_status === "blocked"
+  const preparationFailureStage = String(env.PREPARATION_FAILURE_STAGE || "").trim();
+  const qualityStatus = preparationFailureStage || env.QUALITY_STATUS === "failure" || quality.status === "failure" || quality.publication_status === "blocked"
     ? "failure" : quality.status || env.QUALITY_STATUS || "failure";
   const domVerification = quality.dom_verification || summarizeDomVerification(options.recommendations);
   const completionMessages = buildCompletionMessages({ ...quality, dom_verification: domVerification });
@@ -235,7 +236,8 @@ function buildTelegramSummary(options = {}) {
   const priceConflictAlert = buildPriceConflictAlert(options.excelSummary);
 
   if (qualityStatus === "failure") {
-    const reason = blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
+    const preparationReason = getPreparationFailureMessage(preparationFailureStage);
+    const reason = preparationReason || blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
     return [
       `DiscoverCars | ${statusLabel}`,
       "",

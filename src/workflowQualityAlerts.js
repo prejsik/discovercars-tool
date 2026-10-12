@@ -4,6 +4,13 @@ const { validateScrapeScope } = require("./scrapeScope");
 
 const KEY_SAMPLE_LIMIT = 20;
 
+function getPreparationFailureMessage(stage) {
+  if (!String(stage || "").trim()) return "";
+  if (stage === "excel_preflight") return "Testy Excela przed scrapowaniem nie przeszły. Scraper nie został uruchomiony.";
+  if (stage === "regression_tests") return "Testy regresji przed scrapowaniem nie przeszły. Scraper nie został uruchomiony.";
+  return "Nie powiodło się przygotowanie runa. Scraper nie został uruchomiony.";
+}
+
 function readJsonIfExists(filePath) {
   if (!filePath || !fs.existsSync(filePath)) {
     return null;
@@ -348,7 +355,8 @@ function buildQualityReport({
   expectedScope,
   requireScope = false,
   scrapeOnly = false,
-  requireSanity = false
+  requireSanity = false,
+  preparationFailureStage = ""
 }) {
   const alerts = [];
   const blockingAlerts = [];
@@ -358,6 +366,10 @@ function buildQualityReport({
   };
   const scenarios = listScenarios(results);
   const scrape = buildScrapeQualityReport({ results, expectedLocations, expectedScope, requireScope });
+  const preparationFailureMessage = getPreparationFailureMessage(preparationFailureStage);
+  if (preparationFailureMessage) {
+    addBlockingAlert(preparationFailureMessage);
+  }
   const requireVerifiedSanitySample = Boolean(requireSanity && Number(excelSummary?.change_count || 0) > 0);
   const excelErrorMessage = getExcelErrorMessage(excelSummary);
 
@@ -411,6 +423,10 @@ function buildQualityReport({
     alerts.push("Kontrola cen objęła więcej próbek w lokalizacjach z różnicami cen.");
   }
 
+  if (preparationFailureMessage) {
+    scrape.status = "failure";
+    scrape.publication_status = publicationStatus("failure");
+  }
   if (scrapeOnly) {
     return { ...scrape, completion_messages: buildCompletionMessages(scrape), alert_count: alerts.length, alerts, blocking_alerts: blockingAlerts };
   }
@@ -553,7 +569,8 @@ function runCli(argv) {
     expectedScope,
     requireScope: scopeRequested || Object.prototype.hasOwnProperty.call(args, "require-scope"),
     scrapeOnly: Object.prototype.hasOwnProperty.call(args, "scrape-only"),
-    requireSanity: Object.prototype.hasOwnProperty.call(args, "require-sanity")
+    requireSanity: Object.prototype.hasOwnProperty.call(args, "require-sanity"),
+    preparationFailureStage: args["preparation-failure-stage"]
   });
   const output = report;
   const outputPath = args.output ? path.resolve(args.output) : null;
@@ -570,6 +587,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getPreparationFailureMessage,
   buildCompletionMessages,
   summarizeDomVerification,
   buildQualityAlerts,

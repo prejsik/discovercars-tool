@@ -98,6 +98,19 @@ test("complete 60 by 13 grid is complete with 1560 location checks", () => {
   assert.equal(quality.missing_scenario_count, 0);
 });
 
+test("failed preparation blocks publication even with complete retained results and valid Excel", () => {
+  for (const preparationFailureStage of ["excel_preflight", "regression_tests", "preparation"]) {
+    const quality = buildQualityReport({ ...publicationInput, expectedScope: fullScope, results: fullResults, preparationFailureStage });
+    assert.equal(quality.top3_coverage_percent, 100);
+    assert.equal(quality.status, "failure");
+    assert.equal(quality.publication_status, "blocked");
+    assert.match(quality.blocking_alerts[0], /Scraper nie został uruchomiony/);
+    assert.doesNotMatch(quality.alerts.join(" "), /Brak użytecznych danych cenowych/);
+    const message = buildTelegramSummary({ env, qualityAlerts: quality, excelAvailable: true });
+    assert.match(message, /^DiscoverCars \| BŁĄD\n/);
+  }
+});
+
 test("null-padded rankings count as checked locations but not available prices", () => {
   const expectedScope = scopeFixture(["2026-10-02"], [2], ["Warsaw", "Gdansk"]);
   const item = scenario("2026-10-02", 2, ["Warsaw"]);
@@ -326,6 +339,10 @@ test("scope and quality CLIs enforce the same file contract, missing scope fails
     assert.equal(partial.status, 0, partial.stderr);
     assert.equal(JSON.parse(partial.stdout).top3_coverage_percent, 25);
     assert.equal(JSON.parse(partial.stdout).publication_status, "partial");
+    const preflightFailed = JSON.parse(run([`--scope=${scopePath}`, "--preparation-failure-stage=excel_preflight"]).stdout);
+    assert.equal(preflightFailed.status, "failure");
+    assert.equal(preflightFailed.publication_status, "blocked");
+    assert.match(preflightFailed.blocking_alerts[0], /Testy Excela/);
     assert.equal(JSON.parse(run([`--scope=${scopePath}.missing`]).stdout).status, "failure");
     assert.equal(JSON.parse(run(["--require-scope"]).stdout).status, "failure");
     fs.writeFileSync(scopePath, "{bad");

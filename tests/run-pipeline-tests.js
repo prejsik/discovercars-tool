@@ -104,8 +104,8 @@ assert.match(job('assemble'), /name: Withhold unvalidated workbooks/);
 assert.match(job('publish'), /--validate-only=pages/);
 
 function workflowValue(value, context) {
-  const evaluate = expression => Function('github', 'steps', 'needs', 'success', 'always', `return (${expression.replace(/steps\.([\w-]+)/g, 'steps["$1"]')});`)(
-    context.github, context.steps, context.needs, () => !context.failed, () => true
+  const evaluate = expression => Function('github', 'steps', 'needs', 'success', 'always', 'failure', 'cancelled', `return (${expression.replace(/steps\.([\w-]+)/g, 'steps["$1"]')});`)(
+    context.github, context.steps, context.needs, () => !context.failed, () => true, () => Boolean(context.failed), () => false
   );
   if (typeof value !== 'string') return value;
   const expression = value.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
@@ -203,6 +203,16 @@ for (const [name, verify] of pagesRetryCases) {
 }
 assert.equal(pagesRetryFailureCount, 0, 'Pages retry safety regressions');
 assert.match(buildTelegramSummary({ env: { QUALITY_STATUS: 'failure', PAGES_PUBLICATION_FAILED: 'true' } }), /^DiscoverCars \| BŁĄD\n/);
+const preflightFailureMessage = buildTelegramSummary({
+  env: { QUALITY_STATUS: 'success', PREPARATION_FAILURE_STAGE: 'excel_preflight' },
+  qualityAlerts: { status: 'failure', blocking_alerts: ['Brak pliku results-latest.json.'] }
+});
+assert.match(preflightFailureMessage, /Powód: Testy Excela/);
+assert.doesNotMatch(preflightFailureMessage, /Brak pliku results-latest/);
+assert.match(buildTelegramSummary({
+  env: { QUALITY_STATUS: 'success', PREPARATION_FAILURE_STAGE: 'preparation' },
+  qualityAlerts: { status: 'success' }, excelAvailable: true, reportAvailable: true
+}), /^DiscoverCars \| BŁĄD\n/);
 
 const optionsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'discovercars-options-'));
 try {
@@ -223,6 +233,90 @@ try {
     assert.equal(values.speed_mode, override ? 'fast' : 'safe');
     assert.equal(values.locations, override ? require('../src/locationRegistry').getDailyLocations().join(',') : 'Warsaw Train Station');
   }
+  const failureStep = pipeline.jobs.prepare.steps.find(step => step.id === 'preparation-failure');
+  assert(failureStep, 'preparation failures must reach the Telegram notification');
+  for (const [label, failed, excelOutcome, regressionOutcome, expectedReason] of [
+    ['scheduled preflight', true, 'failure', 'skipped', /Testy Excela/],
+    ['manual regression', true, 'skipped', 'failure', /Testy regresji/],
+    ['setup failure', true, 'skipped', 'skipped', /przygotowanie/],
+    ['successful preparation', false, 'success', 'skipped', null]
+  ]) {
+    const context = { failed, steps: { 'excel-preflight': { outcome: excelOutcome }, regression: { outcome: regressionOutcome } } };
+    const output = path.join(optionsDirectory, `failure-${excelOutcome}-${regressionOutcome}`);
+    let stage = '';
+    if (workflowValue(`\${{ ${failureStep.if} }}`, context)) {
+      const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-s'], {
+        cwd: root, input: failureStep.run, encoding: 'utf8', timeout: 30000,
+        env: { ...process.env, GITHUB_OUTPUT: output.replaceAll('\\', '/'),
+          ...Object.fromEntries(Object.entries(failureStep.env).map(([key, value]) => [key, workflowValue(value, context)])) }
+      });
+      assert.equal(result.status, 0, result.stderr);
+      stage = fs.readFileSync(output, 'utf8').trim().slice('stage='.length);
+    }
+    context.steps['preparation-failure'] = { outputs: { stage } };
+    const prepareStage = workflowValue(pipeline.jobs.prepare.outputs.preparation_failure_stage, context);
+    context.needs = { prepare: { outputs: { preparation_failure_stage: prepareStage } } };
+    const scrapeStage = workflowValue(pipeline.jobs.scrape.outputs.preparation_failure_stage, context);
+    context.needs.scrape = { outputs: { preparation_failure_stage: scrapeStage } };
+    const notification = pipeline.jobs.publish.steps.find(step => step.name === 'Notify Telegram');
+    const telegramStage = workflowValue(notification.env.PREPARATION_FAILURE_STAGE, context);
+    const message = buildTelegramSummary({
+      env: { QUALITY_STATUS: failed ? 'failure' : 'success', PREPARATION_FAILURE_STAGE: telegramStage,
+        ARTIFACT_URL: 'https://example.test/results', EXCEL_ARTIFACT_URL: 'https://example.test/excel' },
+      qualityAlerts: failed ? { status: 'failure', blocking_alerts: ['Brak pliku results-latest.json.'] } : { status: 'success' },
+      excelAvailable: !failed, reportAvailable: !failed
+    });
+    if (failed) {
+      assert.match(message, /^DiscoverCars \| BŁĄD\n/, label);
+      assert.match(message, expectedReason, label);
+      assert.match(message, /Scraper nie został uruchomiony/, label);
+      assert.doesNotMatch(message, /Brak pliku results-latest/, label);
+    } else {
+      assert.equal(telegramStage, '', label);
+      assert.match(message, /^DiscoverCars\n/, label);
+    }
+    console.log(`PASS preparation failure notification: ${label}`);
+  }
+  const retainedDirectory = path.join(optionsDirectory, 'retained-attempt');
+  fs.mkdirSync(path.join(retainedDirectory, 'output'), { recursive: true });
+  const retainedFiles = {
+    'scrape-scope.json': require('../src/scrapeScope').buildScrapeScope({ locations: 'Warsaw', startDates: '2026-10-02', durations: '2' }),
+    'results-latest.json': { scenarios: [{ start_date: '2026-10-02', rental_days: 2, errors: [],
+      top_3_plus_mm_by_location: { Warsaw: { top_3: [{ provider_name: 'Other', currency: 'PLN', total_price: 200 }],
+        mm_cars_rental: { provider_name: 'MM Cars Rental', currency: 'PLN', total_price: 220 } } } }] },
+    'final-pricing-recommendations.json': { recommendations: [{ action: 'increase' }] },
+    'excel-rate-update-summary.json': { change_count: 1, validation: [{ status: 'OK' }] }
+  };
+  for (const [name, data] of Object.entries(retainedFiles)) fs.writeFileSync(path.join(retainedDirectory, 'output', name), JSON.stringify(data));
+  for (const name of ['rates-import-ready.xlsx', 'rates-updated.xlsx']) fs.writeFileSync(path.join(retainedDirectory, 'output', name), 'retained-workbook');
+  const qualityStep = pipeline.jobs.assemble.steps.find(step => step.id === 'quality');
+  const context = { failed: false, needs: { scrape: { outputs: {
+    should_run: 'true', locations: 'Warsaw', preparation_failure_stage: 'excel_preflight'
+  } } } };
+  const qualityRun = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-s'], {
+    cwd: retainedDirectory,
+    input: workflowValue(qualityStep.run, context).replace('node src/workflowQualityAlerts.js', `node "${path.join(root, 'src/workflowQualityAlerts.js').replaceAll('\\', '/')}"`),
+    encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, GITHUB_OUTPUT: path.join(retainedDirectory, 'actions-output').replaceAll('\\', '/'),
+      ...Object.fromEntries(Object.entries(qualityStep.env).map(([key, value]) => [key, workflowValue(value, context)])) }
+  });
+  assert.equal(qualityRun.status, 0, qualityRun.stderr);
+  const retainedQuality = JSON.parse(fs.readFileSync(path.join(retainedDirectory, 'output', 'quality-alerts.json'), 'utf8'));
+  assert.equal(retainedQuality.top3_coverage_percent, 100);
+  assert.equal(retainedQuality.status, 'failure');
+  assert.match(retainedQuality.blocking_alerts[0], /Testy Excela/);
+  context.steps = { quality: { outputs: { status: retainedQuality.status } } };
+  const withholdStep = pipeline.jobs.assemble.steps.find(step => step.name === 'Withhold unvalidated workbooks');
+  assert.equal(workflowValue(`\${{ ${withholdStep.if} }}`, context), true);
+  const withholdRun = spawnSync(bash, ['-e', '-c', withholdStep.run], { cwd: retainedDirectory, encoding: 'utf8' });
+  assert.equal(withholdRun.status, 0, withholdRun.stderr);
+  for (const name of ['rates-import-ready.xlsx', 'rates-updated.xlsx']) assert.equal(fs.existsSync(path.join(retainedDirectory, 'output', name)), false);
+  const excelUpload = pipeline.jobs.assemble.steps.find(step => step.id === 'upload-excel');
+  assert.equal(workflowValue(`\${{ ${excelUpload.if} }}`, context), false);
+  const finalGate = pipeline.jobs.publish.steps.find(step => step.name === 'Enforce final quality gate');
+  const finalRun = spawnSync(bash, ['-e', '-c', finalGate.run], { encoding: 'utf8', env: { ...process.env, QUALITY_STATUS: retainedQuality.status } });
+  assert.notEqual(finalRun.status, 0);
+  console.log('PASS preparation failure blocks retained workbooks, Excel upload and the final publication gate');
 } finally { fs.rmSync(optionsDirectory, { recursive: true, force: true }); }
 
 let publicationCases = 0;
