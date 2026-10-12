@@ -1196,7 +1196,8 @@ def get_mandatory_zone_floor(zone: Any, min_days: int, max_days: int, config: di
 def get_mandatory_group_floor(
     group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
 ) -> float | None:
-    bands = get_mandatory_group_floors(config).get(normalize_code(group), [])
+    floors = get_mandatory_group_floors(config)
+    bands = floors.get(normalize_code(group), []) + floors.get("*", [])
     if not bands:
         return None
     pickup = parse_date_value(pickup_date)
@@ -1245,9 +1246,9 @@ def enforce_mandatory_floors(
     for row in range(int(config["data_start_row"]), ws.max_row + 1):
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
-        if zone not in floors and group not in group_floors:
+        if zone not in floors and group not in group_floors and "*" not in group_floors:
             continue
-        required_days = {day for band in floors.get(zone, []) + group_floors.get(group, [])
+        required_days = {day for band in floors.get(zone, []) + group_floors.get(group, []) + group_floors.get("*", [])
                          for day in range(band["minDays"], band["maxDays"] + 1)}
         missing_duration_days = sorted(required_days - set(duration_columns))
         if missing_duration_days:
@@ -1452,6 +1453,13 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
     rules = config.get("minimum_rates") or {}
     parts: list[str] = []
     for group, bands in get_mandatory_group_floors(config).items():
+        if group == "*":
+            parts.append("Obowiazkowe minimum dla wszystkich klas i lokalizacji: " + ", ".join(
+                f"{band['start_date']}-{band['end_date']} (daty wlacznie), najem {band['minDays']}-{band['maxDays']} dni: "
+                f"{format_rate_for_comment(band['minimumRatePlnDay'])} PLN/dobe" for band in bands)
+                + ". Takze klasy wykluczone i chronione daty; podnosimy tylko nizsze stawki. "
+                "Wyzsze stawki i wyzsze aktywne minima pozostaja bez zmian.")
+            continue
         amounts = ", ".join(f"{band['minDays']}-{band['maxDays']}: {format_rate_for_comment(band['minimumRatePlnDay'])} PLN"
                             + (f" (pickup {band['start_date']}-{band['end_date']}, daty wlacznie)" if band.get("start_date") else "")
                             + ("; wyjatek od ochrony dat" if band.get("override_protected_dates") else "")

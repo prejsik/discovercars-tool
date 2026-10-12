@@ -1,6 +1,7 @@
 {
   "pricing": {
     "mandatoryGroupFloorsPlnDay": {
+      "*": [{"minDays": 1, "maxDays": 35, "minimumRatePlnDay": 110, "start_date": "2026-10-30", "end_date": "2026-11-01", "override_protected_dates": true}],
       "PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}],
       "FVMD": [
         {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 1000, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},

@@ -42,6 +42,20 @@ class PricingPolicyTests(unittest.TestCase):
     def pdah_floor_config(self):
         return {key: value for key, value in self.config.items() if key != "_mandatory_group_floors"}
 
+    def test_all_classes_october_holiday_floor_boundaries_and_higher_rates(self):
+        dates = ("2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02")
+        source = self.workbook(pickups=dates, airport_rate=80, city_rate=180)
+        original = source.read_bytes()
+        _, output, import_output = self.run_updates([], source, self.pdah_floor_config())
+        for path in (output, import_output):
+            for col in range(9, 15):
+                for (group, zone, pickup), price in self.rates(path, col).items():
+                    old = (80 if zone == "WALO" else 180) + (group in {"EDAV", "EDMV"})
+                    active = "2026-10-30" <= pickup <= "2026-11-01"
+                    minimum = 170 if group == "PDAH" and col == 14 and pickup not in {"2026-10-31", "2026-11-01"} else 0
+                    self.assertEqual(price, max(old, minimum, 110 if active else 0), (group, zone, pickup, col))
+        self.assertEqual(source.read_bytes(), original)
+
     def test_fvmd_holiday_minima_boundaries_all_bands_and_preserved_higher_rates(self):
         dates = ("2026-12-14", "2026-12-15", "2026-12-25", "2027-01-05", "2027-01-06", "2027-01-10")
         source = self.workbook(pickups=dates, airport_rate=1200, city_rate=1200)
@@ -165,8 +179,11 @@ class PricingPolicyTests(unittest.TestCase):
             for column in range(9, 15):
                 for key, rate in self.rates(path, column).items():
                     if key[0] == "PDAH":
-                        self.assertEqual(rate, 170 if column == 14 and key[2] not in protected else 100)
-        self.assertEqual(summary["mandatory_group_floor_change_count"], 2)
+                        expected = 170 if column == 14 and key[2] not in protected else 100
+                        if "2026-10-30" <= key[2] <= "2026-11-01":
+                            expected = max(expected, 110)
+                        self.assertEqual(rate, expected)
+        self.assertEqual(summary["mandatory_group_floor_change_count"], 26)
 
     def test_pdah_long_floor_dry_run_matches_export_and_detects_final_breach(self):
         source = self.workbook(airport_rate=100, city_rate=100)
