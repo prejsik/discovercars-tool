@@ -342,7 +342,9 @@ async function verifyActiveRecommendations(payload, options = {}) {
     if (!groups.has(groupKey)) groups.set(groupKey, []);
     groups.get(groupKey).push(entry);
   }
-  const groupItems = [...groups.values()];
+  const groupItems = [...groups.values()].sort((left, right) =>
+    groupKeyOf(right[0].item).slice(0, 10).localeCompare(groupKeyOf(left[0].item).slice(0, 10))
+    || Number(left[0].item.rental_days) - Number(right[0].item.rental_days));
   let next = 0;
   let processedLiveGroupCount = 0;
   const groupTimings = [];

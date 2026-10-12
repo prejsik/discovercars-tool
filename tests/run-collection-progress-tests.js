@@ -1,5 +1,5 @@
 const FIXTURE_ARG = "--offline-collection-case=";
-const fixtureMode = process.argv.find((arg) => arg.startsWith(FIXTURE_ARG))?.slice(FIXTURE_ARG.length);
+const fixtureMode = process.env.COLLECTION_FIXTURE_MODE || process.argv.find((arg) => arg.startsWith(FIXTURE_ARG))?.slice(FIXTURE_ARG.length);
 if (fixtureMode) process.stderr.write("[offline-fixture] ready\n");
 
 const assert = require("node:assert/strict");
@@ -26,11 +26,12 @@ if (fixtureMode) {
     const period = `${this.config.pickupDate}|${this.config.dropoffDate}`;
     const rentalDays = (Date.parse(this.config.dropoffDate) - Date.parse(this.config.pickupDate)) / 86400000;
     if (firstPeriod === null) firstPeriod = period;
-    fs.appendFileSync(path.resolve("location-starts.jsonl"), `${JSON.stringify({ location, period, attempt, rentalDays })}\n`);
+    fs.appendFileSync(path.resolve(process.env.COLLECTION_FIXTURE_DIR || ".", "location-starts.jsonl"), `${JSON.stringify({ location, period, attempt, rentalDays })}\n`);
     if (fixtureMode === "fatal-mixed" && period !== firstPeriod) {
       throw new Error("Offline fatal scenario before remaining locations execute");
     }
     if (fixtureMode === "hang" || (fixtureMode === "hang-after-partial" && period !== firstPeriod)
+      || (fixtureMode === "hang-after-two-dates" && this.config.pickupDate === "2026-10-02")
       || (retryFixture && ((attempt === 1 && rentalDays === 4)
         || (attempt > 1 && rentalDays === 3 && this.config.locations.indexOf(location) >= 11)))) {
       // An unresolved promise alone would let Node exit instead of simulating I/O.
@@ -39,7 +40,7 @@ if (fixtureMode) {
       return await new Promise(() => {});
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    fs.appendFileSync(path.resolve("location-outcomes.jsonl"), `${JSON.stringify({ location, pickup: this.config.pickupDate, dropoff: this.config.dropoffDate, attempt, rentalDays })}\n`);
+    fs.appendFileSync(path.resolve(process.env.COLLECTION_FIXTURE_DIR || ".", "location-outcomes.jsonl"), `${JSON.stringify({ location, pickup: this.config.pickupDate, dropoff: this.config.dropoffDate, attempt, rentalDays })}\n`);
     if (location === "Gdansk Downtown" && fixtureMode !== "fatal-mixed") {
       return { ok: false, error: new Error("No automatic offers; offline GD1 weekend fixture") };
     }
@@ -154,6 +155,77 @@ if (fixtureMode) {
         console.error(`FAIL ${name}: ${error.message}`);
       }
     }
+
+    for (const chunked of [false, true]) {
+      await test(`freshness order: ${chunked ? "weekly chunks" : "collector"} finishes with nearest dates without changing report order`, async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-date-order-"));
+        try {
+          const dates = ["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"];
+          const output = path.join(dir, "chunked");
+          const args = chunked
+            ? [path.resolve(__dirname, "../src/runDiscovercarsChunked.js"), `--output-dir=${output}`,
+              "--chunk-days=2", "--chunk-concurrency=1", "--skip-postprocess"]
+            : [CLI_PATH, `--save=${path.join(dir, "results.json")}`];
+          const child = spawnSync(process.execPath, [...args, `--start-dates=${dates.join(",")}`, "--durations=2,3",
+            "--locations=Warsaw Train Station", "--strategy=legacy-batch", "--scenario-concurrency=1",
+            "--location-concurrency=1", "--retries=0", "--offline-location-delay=1"], {
+            cwd: path.resolve(__dirname, ".."), encoding: "utf8", timeout: 30000,
+            env: { ...process.env, NODE_OPTIONS: `--require=${JSON.stringify(__filename)}`,
+              COLLECTION_FIXTURE_MODE: "date-order", COLLECTION_FIXTURE_DIR: dir }
+          });
+          assert.ifError(child.error);
+          assert.equal(child.status, 0, child.stderr + child.stdout);
+          const starts = fs.readFileSync(path.join(dir, "location-starts.jsonl"), "utf8").trim().split("\n")
+            .map((line) => { const row = JSON.parse(line); return [row.period.slice(0, 10), row.rentalDays]; });
+          assert.deepEqual(starts, [["2026-10-05", 2], ["2026-10-05", 3], ["2026-10-04", 2], ["2026-10-04", 3],
+            ["2026-10-03", 2], ["2026-10-03", 3], ["2026-10-02", 2], ["2026-10-02", 3]]);
+          const report = JSON.parse(fs.readFileSync(chunked ? path.join(output, "results-latest.json") : path.join(dir, "results.json")));
+          assert.deepEqual(report.scenarios.map((item) => [item.start_date, item.rental_days]),
+            dates.flatMap((date) => [[date, 2], [date, 3]]));
+        } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+      });
+    }
+
+    await test("freshness order: weekday searches use actual pickup dates, not just duration", async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "discovercars-weekday-order-"));
+      try {
+        const child = spawnSync(process.execPath, cliArgs(dir, "date-order", ["--start-dates=", "--scenario-mode=weekday",
+          "--start-day=both", "--locations=Warsaw Train Station", "--offline-location-delay=1"]), {
+          cwd: dir, encoding: "utf8", timeout: 15000
+        });
+        assert.ifError(child.error);
+        assert.equal(child.status, 0, child.stderr + child.stdout);
+        const starts = fs.readFileSync(path.join(dir, "location-starts.jsonl"), "utf8").trim().split("\n")
+          .map((line) => { const row = JSON.parse(line); return [row.period.slice(0, 10), row.rentalDays]; });
+        const dates = [...new Set(starts.map(([date]) => date))].sort().reverse();
+        assert.equal(dates.length, 2);
+        assert.deepEqual(starts, [[dates[0], 2], [dates[0], 3], [dates[1], 2], [dates[1], 3]]);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    await test("freshness order: interrupted snapshots and resumed output remain canonical", async () => {
+      const extra = ["--start-dates=2026-10-02,2026-10-03,2026-10-04", "--durations=2",
+        "--locations=Warsaw Train Station", "--offline-location-delay=1"];
+      await withWatchedCli("hang-after-two-dates", extra, async ({ dir, error }) => {
+        assert.match(error?.message || "", /made no progress/);
+        const partial = readJsonIfPresent(path.join(dir, "results.json"));
+        assert.deepEqual(partial.scenarios.map((row) => row.start_date), ["2026-10-03", "2026-10-04"]);
+        assert.deepEqual(partial.start_dates, ["2026-10-03", "2026-10-04"]);
+        const completed = readJsonIfPresent(path.join(dir, "state.json")).completed;
+        assert.ok(completed["date-20261004-2d"], "first finished scenario must have a durable checkpoint");
+        const child = spawnSync(process.execPath, cliArgs(dir, "date-order", extra), { cwd: dir, encoding: "utf8", timeout: 15000 });
+        assert.ifError(child.error);
+        assert.equal(child.status, 0, child.stderr + child.stdout);
+        const final = readJsonIfPresent(path.join(dir, "results.json"));
+        assert.deepEqual(final.scenarios.map((row) => row.start_date), ["2026-10-02", "2026-10-03", "2026-10-04"]);
+        for (const recorded of Object.values(completed)) {
+          assert.deepEqual(final.scenarios.find((row) => row.scenario_id === recorded.scenario_id), recorded,
+            "durably checkpointed scenarios retain prices and timestamps");
+        }
+        const starts = fs.readFileSync(path.join(dir, "location-starts.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+        assert.equal(starts.filter((row) => row.period.startsWith("2026-10-04")).length, 1);
+      });
+    });
 
     await test("attempted scope accepts complete error coverage without making partial scenarios reusable", async () => {
       const scope = {

@@ -609,7 +609,7 @@ async function main() {
     scenarioConcurrency: concurrencyProfile.scenarioConcurrency,
     locationConcurrency: concurrencyProfile.locationConcurrency
   };
-  const dateChunks = chunkDates(options.startDates, options.chunkDays);
+  const dateChunks = chunkDates([...options.startDates].sort(), options.chunkDays);
   const chunks = dateChunks.map((dates, index) => buildChunk(index, dates, options.outputDir));
 
   if (options.dryRun) {
@@ -628,7 +628,7 @@ async function main() {
   }
 
   const failed = [];
-  await runPool(chunks, concurrencyProfile.chunkConcurrency, async (chunk) => {
+  await runPool([...chunks].reverse(), concurrencyProfile.chunkConcurrency, async (chunk) => {
     if (hasCompleteChunkResults(chunk.resultsPath, chunk, options) && !options.resetState) {
       console.log(`Skipping completed ${chunk.label}`);
       return chunk.resultsPath;

@@ -90,6 +90,22 @@ function renderedOutput(config, rates, evidence = {}) {
   }])) };
 }
 
+test("DOM checks finish with nearest dates while preserving input decision order", async () => {
+  const decisions = [item(), item({ start_date: "2026-10-04", rental_days: 10 }),
+    item({ start_date: "2026-10-03" }), item({ start_date: "2026-10-04", rental_days: 2 })];
+  const starts = [];
+  await withScrape(async function () {
+    const days = (Date.parse(this.config.dropoffDate) - Date.parse(this.config.pickupDate)) / 86400000;
+    starts.push([this.config.pickupDate, days]);
+    return offers(this.config);
+  }, async () => {
+    const output = await verifyActiveRecommendations({ decisions }, options());
+    assert.deepEqual(starts, [["2026-10-04", 2], ["2026-10-04", 10], ["2026-10-03", 2], ["2026-10-02", 2]]);
+    assert.deepEqual(output.decisions.map((row) => [row.start_date, row.rental_days]),
+      decisions.map((row) => [row.start_date, row.rental_days]));
+  });
+});
+
 test("confirmed two-supplier market can retain Top1 without inventing a third supplier", async () => {
   const base = pricedPayload([["MM Cars Rental", 50], ["Budget", 100]]);
   await withScrape(async function () { return renderedOutput(this.config, [["MM Cars Rental", 50], ["Budget", 100]]); }, async () => {
@@ -655,10 +671,11 @@ test("unfinished groups remain budget-blocked while completed checkpoint survive
       assert.equal(output.dom_verification.processed_live_dom_group_count, 1);
       assert.equal(output.dom_verification.budget_exhausted_count, 1);
       assert.equal(output.dom_verification.elapsed_ms, 60);
-      assert.deepEqual(output.dom_verification.group_timings, [{ group_key: "2026-10-02|2", location_count: 1, elapsed_ms: 60 }]);
+      assert.deepEqual(output.dom_verification.group_timings, [{ group_key: "2026-10-03|2", location_count: 1, elapsed_ms: 60 }]);
       const resumed = await verifyActiveRecommendations(payload, { ...opts, maxDurationMs: 0 });
       assert.equal(resumed.dom_verification.reused_checkpoint_count, 1);
-      assert.equal(resumed.decisions[1].dom_verification_status, "dom_verification_budget_exhausted");
+      assert.equal(resumed.decisions[0].dom_verification_status, "dom_verification_budget_exhausted");
+      assert.equal(resumed.decisions[1].dom_verification_status, "confirmed");
     });
   } finally { Date.now = realNow; }
 });

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { readGroupTimings, extractorCodeHash, MAX_CURRENT_RUN_AGE_MS } = require("./verifyActiveRecommendationsDom");
-const { buildVerificationCostPlan, pendingRecommendationGroups } = require("./recommendationDomShards");
+const { buildVerificationCostPlan, pendingRecommendationGroups, verificationShardMatrix } = require("./recommendationDomShards");
 
 function listDecisions(payload) {
   if (Array.isArray(payload?.decisions)) return payload.decisions;
@@ -94,7 +94,7 @@ function buildRecommendationWorkload({
     pending_dom_recommendation_count: pendingCount,
     pending_dom_group_count: pendingGroups.size,
     shard_count: normalizedShardCount,
-    matrix: { shard: Array.from({ length: normalizedShardCount }, (_, index) => index) },
+    matrix: verificationShardMatrix(costPlan),
     max_parallel: maxParallel,
     target_worker_duration_seconds: targetWorkerSeconds,
     estimated_runner_waves: runnerWaves,

@@ -59,7 +59,8 @@ function createCostPlan(payload, count, groups, createdAt, weights) {
     shard.group_keys.push(group.group_key);
     shard.estimated_cost_ms += group.estimated_cost_ms;
   }
-  for (const shard of shards) shard.group_keys.sort((left, right) => left.localeCompare(right));
+  for (const shard of shards) shard.group_keys.sort((left, right) =>
+    right.slice(0, 10).localeCompare(left.slice(0, 10)) || Number(left.split("|")[1]) - Number(right.split("|")[1]));
   if (shards.some((shard) => !Number.isSafeInteger(shard.estimated_cost_ms))) throw new Error("Invalid DOM verification cost plan total");
   const plan = { version: 1, algorithm: "weighted-greedy-v1", created_at: createdAt,
     base_input_fingerprint: inputFingerprint(payload), extractor_hash: extractorCodeHash(),
@@ -71,6 +72,13 @@ function buildVerificationCostPlan(payload, shardCount, createdAt, weights) {
   const count = Number(shardCount);
   if (!Number.isInteger(count) || count < 1 || count > 16) throw new Error("shardCount must be an integer between 1 and 16");
   return createCostPlan(payload, count, pendingRecommendationGroups(payload, Date.parse(createdAt)), createdAt, weights);
+}
+
+function verificationShardMatrix(plan) {
+  // Queue shards containing the nearest dates last, without changing membership or weights.
+  const closestDate = (shard) => String(shard.group_keys.at(-1) || "").slice(0, 10);
+  return { shard: [...plan.shards].sort((left, right) =>
+    closestDate(right).localeCompare(closestDate(left)) || left.index - right.index).map((shard) => shard.index) };
 }
 
 function validateCostPlan(payload, count, groups, splitTime, plan) {
@@ -405,7 +413,7 @@ function runCli(argv) {
     const count = args["shard-count"] === undefined ? workload?.cost_plan?.shard_count ?? 4 : Number(args["shard-count"]);
     const shards = splitActiveRecommendations(readJson(args.input), count, new Date().toISOString(), workload);
     shards.forEach((shard) => writeJson(path.join(args["output-dir"], `shard-${shard.dom_shard.index}-input.json`), shard));
-    process.stdout.write(`${JSON.stringify({ shard_count: shards.length, matrix: { shard: shards.map((shard) => shard.dom_shard.index) }, input_counts: shards.map((shard) => shard.dom_shard.input_count) })}\n`);
+    process.stdout.write(`${JSON.stringify({ shard_count: shards.length, matrix: verificationShardMatrix(shards[0].dom_shard.cost_plan), input_counts: shards.map((shard) => shard.dom_shard.input_count) })}\n`);
     return;
   }
   if (command === "merge") {
@@ -440,6 +448,7 @@ if (require.main === module) {
 
 module.exports = {
   buildVerificationCostPlan,
+  verificationShardMatrix,
   pendingRecommendationGroups,
   dateDurationKey,
   listShardOutputFiles,

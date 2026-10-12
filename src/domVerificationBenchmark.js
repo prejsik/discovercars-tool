@@ -69,13 +69,14 @@ function buildBenchmarkInput(payload, options = {}) {
   }
 
   const ordered = splitActiveRecommendations(payload, 1)[0];
-  const selectedGroupKeys = ordered.dom_shard.group_keys.slice(0, groupLimit);
+  const selectedGroupKeys = [...ordered.dom_shard.group_keys].sort().slice(0, groupLimit);
   if (!selectedGroupKeys.length) {
     throw new Error("Source checkpoint has no active recommendations requiring DOM verification");
   }
 
   const selectedGroups = new Set(selectedGroupKeys);
-  const decisions = ordered.decisions.filter((item) => selectedGroups.has(dateDurationKey(item)));
+  const decisions = ordered.decisions.filter((item) => selectedGroups.has(dateDurationKey(item)))
+    .sort((left, right) => dateDurationKey(left).localeCompare(dateDurationKey(right)));
   assertUniqueDecisionKeys(decisions);
   const sample = {
     ...payload,

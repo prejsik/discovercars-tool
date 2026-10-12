@@ -78,13 +78,22 @@ test("deterministic weighted greedy lowers maximum predicted load compared with 
   const report = workload(current);
   const shards = splitActiveRecommendations(current, 2, new Date().toISOString(), report);
   assert.deepEqual(shards.map((shard) => shard.dom_shard.group_keys),
-    [["2026-10-02|2", "2026-10-03|2"], ["2026-10-04|2", "2026-10-05|2"]]);
+    [["2026-10-03|2", "2026-10-02|2"], ["2026-10-05|2", "2026-10-04|2"]]);
   assert.deepEqual(report.cost_plan.shards.map((shard) => shard.estimated_cost_ms), [270000, 270000]);
   assert.ok(Math.max(...report.cost_plan.shards.map((shard) => shard.estimated_cost_ms)) < 480000);
   const repeated = splitActiveRecommendations(current, 2, shards[0].dom_shard.created_at, report);
   assert.deepEqual(repeated, shards);
   assert.equal(shards.flatMap((shard) => shard.decisions).length, 18);
   assert.equal(new Set(shards.flatMap((shard) => shard.decisions).map(keyOf)).size, 18);
+});
+
+test("queued verification waves leave shards with nearest dates until last without changing weighted loads", () => {
+  const current = base([1, 1, 1, 1, 1, 1, 1, 1]);
+  const report = buildRecommendationWorkload({ current, shardCount: 8 });
+  assert.deepEqual(report.matrix.shard, [7, 6, 5, 4, 3, 2, 1, 0]);
+  assert.deepEqual(report.cost_plan.shards.map((shard) => shard.estimated_cost_ms), Array(8).fill(30000));
+  assert.equal(report.max_parallel, 4);
+  assert.equal(report.estimated_runner_waves, 2);
 });
 
 test("valid measured group history scales changed locations and unseen groups conservatively", () => {

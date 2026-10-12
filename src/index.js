@@ -1663,6 +1663,12 @@ async function main() {
     pendingScenarioIndices.push(index);
   }
 
+  // Change execution order only; checkpoint keys and output order stay canonical.
+  pendingScenarioIndices.sort((left, right) =>
+    String(scenarios[right].start_date || scenarios[right].weekend?.pickupIso || "").slice(0, 10)
+      .localeCompare(String(scenarios[left].start_date || scenarios[left].weekend?.pickupIso || "").slice(0, 10))
+    || scenarios[left].rental_days - scenarios[right].rental_days);
+
   const boundedConcurrency = Math.max(
     1,
     Math.min(cli.scenarioConcurrency || 1, pendingScenarioIndices.length || 1, 16)
@@ -1742,7 +1748,7 @@ async function main() {
       if (cli.savePath) {
         for (const recorded of payloadBuffer.filter(Boolean)) savedEvidence.set(recorded.scenario_id, recorded);
         const partial = buildMultiScenarioPayload({
-          scenarios: [...savedEvidence.values()], cli, resolvedProfile
+          scenarios: scenarios.map((item) => savedEvidence.get(item.scenario_id)).filter(Boolean), cli, resolvedProfile
         });
         partial.run_status = "in_progress";
         partial.collection_run_signature = runSignature;

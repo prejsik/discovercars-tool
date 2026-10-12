@@ -72,9 +72,10 @@ function buildPlan({ scope, runId, shardCount = 2, speedMode = "fast", now = new
   if (typeof runId !== "string" || !runId.trim() || runId !== runId.trim()) throw new Error("Plan requires an exact nonempty runId.");
   if (!Number.isInteger(shardCount) || shardCount < 1 || shardCount > 2) throw new Error("Collection supports one or two shards only.");
   const count = Math.min(shardCount, scope.start_dates.length);
+  const farthestFirst = [...scope.start_dates].reverse();
   const shards = Array.from({ length: count }, (_, index) => {
-    // Give the earlier shard the odd date; no date or location is split between runners.
-    const startDates = scope.start_dates.slice(Math.ceil(index * scope.start_dates.length / count), Math.ceil((index + 1) * scope.start_dates.length / count));
+    // Interleave far-to-near work; keep stored scope/chunk identities chronological.
+    const startDates = farthestFirst.filter((_, dateIndex) => dateIndex % count === index).reverse();
     const scenarioKeys = startDates.flatMap((date) => scope.durations.map((duration) => `${date}|${duration}`));
     return {
       index: index + 1, start_dates: startDates, locations: [...scope.locations], durations: [...scope.durations],

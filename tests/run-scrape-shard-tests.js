@@ -66,13 +66,23 @@ test("module exposes the bounded collection API", () => {
 
 test("plan partitions dates deterministically with exact scenario and location union", () => {
   const p = plan();
-  assert.deepEqual(p.shards.map((shard) => shard.start_dates), [["2026-10-02", "2026-10-03"], ["2026-10-04"]]);
+  assert.deepEqual(p.shards.map((shard) => shard.start_dates), [["2026-10-02", "2026-10-04"], ["2026-10-03"]]);
   assert.deepEqual(p.matrix, { shard: [1, 2] });
   assert.deepEqual(p.shards.flatMap((s) => s.scenario_keys).sort(), scope().scenario_keys.slice().sort());
   assert.deepEqual(p.shards.flatMap((s) => s.location_check_keys).sort(), scope().location_check_keys.slice().sort());
   for (const s of p.shards) { assert.deepEqual(s.locations, ["Warsaw", "Gdansk"]); assert.deepEqual(s.durations, [2, 3]); }
   assert.equal(plan([DATES[0]]).shards.length, 1);
   assert.deepEqual(p, plan());
+});
+
+test("45-day interleaved runners both retain nearest dates for their final chunk", () => {
+  const fullScope = buildScrapeScope({ now: NOW, rollingDays: 45, durations: [2, 14], locations: ["Warsaw"] });
+  const p = api().buildPlan({ scope: fullScope, runId: "run-123", shardCount: 2, now: NOW });
+  assert.deepEqual(p.shards.map((shard) => shard.start_dates.length), [23, 22]);
+  assert.deepEqual(p.shards.map((shard) => shard.start_dates[0]), ["2026-10-02", "2026-10-03"]);
+  assert.deepEqual(p.shards.map((shard) => shard.start_dates.at(-1)), ["2026-11-15", "2026-11-14"]);
+  assert.deepEqual(p.shards.flatMap((shard) => shard.start_dates).sort(), fullScope.start_dates);
+  assert.deepEqual(p.scope, fullScope);
 });
 
 test("two runners stay within eight global pages and immutable plan rejects tampering", () => {
@@ -300,7 +310,8 @@ test("two-shard fixture matches unsharded offer views, rankings, prices, timesta
     return item;
   }));
   const unsharded = mergePayloads([{ generated_at: FRESH, run_id: "run-123", locations: p.scope.locations, scenarios: items }]);
-  const a = await artifact(p, 1, items.slice(0, 4)); const b = await artifact(p, 2, items.slice(4));
+  const a = await artifact(p, 1, items.filter((item) => p.shards[0].start_dates.includes(item.start_date)));
+  const b = await artifact(p, 2, items.filter((item) => p.shards[1].start_dates.includes(item.start_date)));
   const merged = merge({ plan: p, inputDir: inputs(a, b), output: path.join(temp(), "results.json") });
   assert.equal(merged.results.run_status, "success"); assert.equal(merged.summary.missing_scenario_count, 0);
   assert.equal(merged.summary.missing_location_check_count, 0);
@@ -375,7 +386,7 @@ test("merge rejects conflicting scenario copies in chunk and aggregate", async (
 
 test("merge retains failed shard rows, original scope, missing counts and max elapsed duration", async () => {
   const p = plan(); const a = await artifact(p, 1, [scenario()], { exitCode: 1, duration: 18 });
-  const b = await artifact(p, 2, [scenario(DATES[2])], { duration: 11 });
+  const b = await artifact(p, 2, [scenario(DATES[1])], { duration: 11 });
   const output = path.join(temp(), "results-latest.json"); const merged = merge({ plan: p, inputDir: inputs(a, b), output });
   assert.equal(merged.results.scenarios.length, 2); assert.equal(merged.results.run_status, "degraded");
   assert.deepEqual(merged.results.collection_scope, p.scope); assert.equal(merged.summary.expected_scenario_count, 6);
