@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "status": "user_approved_baseline",
-  "workbook_sha256": "f7c11b6d90e527288867a890ed12a899aeaea11e2278fe9e9189b48d85cbb2bf",
+  "workbook_sha256": "1139bfa3b279b9e077af3483bc261e0000229e733ea2019d67143932a4b094fe",
   "approved_at": "2026-10-12",
   "approved_by": "user",
   "source_filename": "rates-import-ready.xlsx",
   "source_baseline": {
-    "status": "published_afternoon_import",
-    "workbook_sha256": "f7c11b6d90e527288867a890ed12a899aeaea11e2278fe9e9189b48d85cbb2bf",
-    "run_id": "38150142264",
-    "run_number": 647,
-    "generated_at": "2026-10-11T18:49:40.364Z",
+    "status": "published_morning_import",
+    "workbook_sha256": "1139bfa3b279b9e077af3483bc261e0000229e733ea2019d67143932a4b094fe",
+    "run_id": "38185358315",
+    "run_number": 651,
+    "generated_at": "2026-10-12T08:28:21.208Z",
     "git_sha": "c4dde9bfe1a1fcd837e9ad9639d703ad9fb017ac",
-    "artifact_id": "11711813217",
-    "artifact_url": "https://github.com/prejsik/discovercars-tool/actions/runs/38150142264/artifacts/11711813217"
+    "artifact_id": "11735107820",
+    "artifact_url": "https://github.com/prejsik/discovercars-tool/actions/runs/38185358315/artifacts/11735107820"
   },
-  "previous_baseline_sha256": "68b19cd1c8e10de88ffe7ffaa697c20dde135edb271e5598e408ef697113f4a3",
-  "note": "The user explicitly selected the import workbook sent via Telegram on 11 October 2026 at 20:50 Europe/Warsaw as the new baseline and authorized pushing it to main. The workbook is byte-identical to rates-import-ready.xlsx from run 38150142264, artifact discovercars-excel-import-647; its hash matches the publication manifest. The successful Telegram notification completed at 2026-10-11T18:50:31Z. It contains 24881 total rows, all 11 source classes and 26 zones, with 100 pickup dates from 2026-10-11 through 2027-01-18. Group-zone coverage matches the previous approved baseline. FVMD/SZLO is absent and no panes are frozen. No further rates, formatting, rules, frozen broker markup or schedules were changed. This approval does not independently confirm that the workbook has been imported at the broker and does not permit automatic markup calibration. Both scheduled runs use this shared baseline on their next checkout."
+  "previous_baseline_sha256": "f7c11b6d90e527288867a890ed12a899aeaea11e2278fe9e9189b48d85cbb2bf",
+  "note": "The user explicitly selected the import workbook sent via Telegram on 12 October 2026 at 10:29 Europe/Warsaw as the new baseline and authorized pushing it to main. The workbook is byte-identical to rates-import-ready.xlsx from run 38185358315, artifact discovercars-excel-import-651; its hash matches the publication manifest. The successful Telegram notification completed at 2026-10-12T08:29:10Z. It contains 24886 total rows, all 11 source classes and 26 zones, with 100 pickup dates from 2026-10-12 through 2027-01-19. Group-zone coverage matches the previous approved baseline. FVMD/SZLO is absent and no panes are frozen. No further rates, formatting, rules, frozen broker markup or schedules were changed. This approval does not independently confirm that the workbook has been imported at the broker and does not permit automatic markup calibration. Both scheduled runs use this shared baseline on their next checkout."
 }
