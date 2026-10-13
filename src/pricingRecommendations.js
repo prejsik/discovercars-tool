@@ -6,9 +6,10 @@ const {
   siteToImportRate, importToSiteRate, fixedMarkupFields
 } = require("./brokerMarkupCalibration");
 const {
-  DEFAULT_PRICING_RULES, resolveMandatoryZoneFloorPlnDay, validateMandatoryZoneFloorsPlnDay
+  DEFAULT_PRICING_RULES, resolveMandatoryZoneFloorPlnDay, validateMandatoryZoneFloorsPlnDay,
+  resolveLocationTypeFloorPlnDay, validateLocationTypeFloorsPlnDay
 } = require("./pricingRules");
-const { buildLocationZones } = require("./locationRegistry");
+const { buildLocationZones, loadLocationRegistry } = require("./locationRegistry");
 const { buildCurrentMarkupEvidence, hasMarkupConflict, keyOf: markupKey } = require("./currentBrokerMarkup");
 const { buildObservationKey, buildTop1RateSignalIndex } = require("./top1RateSignals");
 
@@ -163,7 +164,7 @@ function listOfferCurrencies(offers) {
   )];
 }
 
-function buildRecommendationForLocation({ rootPayload, scenario, location, options, locationZones, top1SignalIndex, markupEvidence }) {
+function buildRecommendationForLocation({ rootPayload, scenario, location, options, locationZones, zoneKinds, top1SignalIndex, markupEvidence }) {
   const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
     (rule.locations.includes("*") || rule.locations.includes(location))
     && scenario.start_date >= rule.startDate && scenario.start_date <= rule.endDate
@@ -185,7 +186,10 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const top3Rate = toDailyRate(top3);
   const top1Signal = top1SignalIndex?.get(buildObservationKey(scenario, location)) || null;
   const sourceValidation = scenario?.source_validation_by_location?.[location] || { status: "api_unverified", reasons: [] };
-  const mandatoryMinimum = Math.max(0, ...(locationZones?.[location] || [location]).map((zone) =>
+  const locationTypeMinimum = Math.max(0, ...(locationZones?.[location] || [location]).map((zone) =>
+    resolveLocationTypeFloorPlnDay(zoneKinds?.[zone], scenario.rental_days, options, scenario.group)
+  ));
+  const mandatoryMinimum = Math.max(locationTypeMinimum, ...(locationZones?.[location] || [location]).map((zone) =>
     resolveMandatoryZoneFloorPlnDay(zone, scenario.rental_days, options)
   ));
 
@@ -264,7 +268,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
   if (priorityRule) {
     const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
-    const minimumImport = Math.max(priorityRule.minimumRatePlnDay, mandatoryMinimum) + (priorityRule.premiumReservePlnDay || 0);
+    const minimumImport = Math.max(locationTypeMinimum || priorityRule.minimumRatePlnDay, mandatoryMinimum) + (priorityRule.premiumReservePlnDay || 0);
     const competitors = topOffers.filter((offer) => !isMmCarsProvider(offer.provider_name));
     for (const [index, competitor] of competitors.entries()) {
       const rate = toDailyRate(competitor);
@@ -430,8 +434,16 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
   validateMandatoryZoneFloorsPlnDay(options.mandatoryZoneFloorsPlnDay);
-  const locationZones = Object.keys(options.mandatoryZoneFloorsPlnDay || {}).length
-    ? buildLocationZones(options.locationRegistry) : null;
+  validateLocationTypeFloorsPlnDay(options.locationTypeFloorsPlnDay);
+  const needsRegistry = Object.keys(options.mandatoryZoneFloorsPlnDay || {}).length || options.locationTypeFloorsPlnDay;
+  const registry = needsRegistry ? options.locationRegistry || loadLocationRegistry() : null;
+  if (options.locationTypeFloorsPlnDay && registry.locations.some((entry) => !["city", "airport"].includes(entry.kind))) {
+    throw new Error("Location registry kind must be city or airport for locationTypeFloorsPlnDay.");
+  }
+  const locationZones = registry ? buildLocationZones(registry) : null;
+  const zoneKinds = registry ? Object.fromEntries(registry.locations.flatMap((entry) =>
+    entry.zones.map((zone) => [zone, entry.kind])
+  )) : null;
   const evidence = options.brokerMarkupCalibration?.manualOnly === true
     ? new Map() : buildCurrentMarkupEvidence(payload, options.currentBaseline, options.calibrationNow);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, options);
@@ -448,6 +460,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         location,
         options,
         locationZones,
+        zoneKinds,
         top1SignalIndex,
         markupEvidence: evidence.get(markupKey(location, scenario.start_date, scenario.rental_days))
       });

@@ -48,6 +48,27 @@ function resolveMandatoryZoneFloorPlnDay(zone, rentalDays, pricingRules) {
   return band?.minimumRatePlnDay || 0;
 }
 
+function validateLocationTypeFloorsPlnDay(rule) {
+  if (rule === undefined || rule === null) return;
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)
+      || !Array.isArray(rule.groups) || !rule.groups.length
+      || rule.groups.some((group) => typeof group !== "string" || !/^[A-Z0-9]{4}$/.test(group))
+      || new Set(rule.groups).size !== rule.groups.length
+      || !Number.isSafeInteger(rule.minDays) || rule.minDays < 1
+      || !Number.isSafeInteger(rule.maxDays) || rule.maxDays < rule.minDays || rule.maxDays > 20
+      || Object.keys(rule.minimumRatesByKind || {}).sort().join(",") !== "airport,city"
+      || ["city", "airport"].some((kind) => !Number.isFinite(rule.minimumRatesByKind?.[kind]) || rule.minimumRatesByKind[kind] <= 0)) {
+    throw new Error("Invalid locationTypeFloorsPlnDay groups, duration or city/airport minimum.");
+  }
+}
+
+function resolveLocationTypeFloorPlnDay(kind, rentalDays, pricingRules, group) {
+  const rule = pricingRules.locationTypeFloorsPlnDay;
+  if (!rule || (group != null && !rule.groups.includes(group))
+      || rentalDays < rule.minDays || rentalDays > rule.maxDays) return 0;
+  return rule.minimumRatesByKind[kind] || 0;
+}
+
 function loadPricingRules(configPath = process.env.PRICING_RULES_CONFIG) {
   const resolvedPath = path.resolve(configPath || "pricing-rules.config.example.json");
   if (!fs.existsSync(resolvedPath)) {
@@ -60,12 +81,15 @@ function loadPricingRules(configPath = process.env.PRICING_RULES_CONFIG) {
     ...(payload?.pricing || payload || {})
   };
   validateMandatoryZoneFloorsPlnDay(rules.mandatoryZoneFloorsPlnDay);
+  validateLocationTypeFloorsPlnDay(rules.locationTypeFloorsPlnDay);
   return rules;
 }
 
 module.exports = {
   DEFAULT_PRICING_RULES,
   loadPricingRules,
+  resolveLocationTypeFloorPlnDay,
   resolveMandatoryZoneFloorPlnDay,
+  validateLocationTypeFloorsPlnDay,
   validateMandatoryZoneFloorsPlnDay
 };

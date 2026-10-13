@@ -207,6 +207,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
     locations_by_id: dict[str, str] = {}
     locations_by_city: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     zone_location_labels: dict[str, str] = {}
+    zone_location_kinds: dict[str, str] = {}
     for location in registry["locations"]:
         location_id = str(location.get("id") or "").strip()
         label = str(location.get("scraper_label") or "").strip()
@@ -227,6 +228,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
             if zone in zone_location_labels and zone_location_labels[zone] != label:
                 raise ValueError(f"Zone {zone} belongs to more than one registry location.")
             zone_location_labels[zone] = label
+            zone_location_kinds[zone] = kind
 
     for alias, zones in (registry.get("aliases") or {}).items():
         normalized_zones = sorted({normalize_code(zone) for zone in zones if normalize_code(zone)})
@@ -256,6 +258,14 @@ def load_config(config_path: Path) -> dict[str, Any]:
             current = zone_mirrors[current]
         return current
 
+    for zone in zone_mirrors:
+        canonical = canonical_zone(zone)
+        if canonical not in zone_location_kinds:
+            raise ValueError(f"Zone mirror {zone} references an unregistered location: {canonical}.")
+        if zone in zone_location_kinds and zone_location_kinds[zone] != zone_location_kinds[canonical]:
+            raise ValueError(f"Zone mirror {zone} has a conflicting registry kind.")
+        zone_location_kinds[zone] = zone_location_kinds[canonical]
+
     city_zone_airport_zones: dict[str, list[str]] = {}
     for locations in locations_by_city.values():
         airport_zones = sorted({
@@ -282,6 +292,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
     config["zone_seeds"] = zone_seeds
     config["city_zone_airport_zones"] = city_zone_airport_zones
     config["zone_location_labels"] = zone_location_labels
+    config["zone_location_kinds"] = zone_location_kinds
     config["location_registry_path"] = str(registry_path)
     return config
 
@@ -1035,7 +1046,7 @@ def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[fl
     duration_min = int(parse_number(target.get("duration_min_days")) or parse_number(target.get("rental_days")) or 0)
     duration_max = int(parse_number(target.get("duration_max_days")) or duration_min)
     mandatory_minimum, _ = get_mandatory_floor(target.get("zone"), target.get("group"), duration_min, duration_max, config,
-                                               target.get("pickup_date") or target.get("start_date"))
+                                               target.get("pickup_date") or target.get("start_date") or target.get("target_date"))
     if mandatory_minimum is not None:
         return mandatory_minimum, "Obowiazkowe minimum lokalizacji lub klasy w zatwierdzonym zakresie dat."
     if priority_overrides_rule(target, target.get("group"), "scoped_floor", config):
@@ -1129,6 +1140,46 @@ def get_minimum_rate(target: dict[str, Any], config: dict[str, Any]) -> tuple[fl
     return minimum, reason
 
 
+def get_location_type_floors(config: dict[str, Any]) -> dict[str, Any]:
+    if "_location_type_floors" in config:
+        return config["_location_type_floors"]
+    rule = get_pricing_rules(config).get("locationTypeFloorsPlnDay", {})
+    if rule == {}:
+        return {}
+    if not isinstance(rule, dict):
+        raise ValueError("Invalid locationTypeFloorsPlnDay rule.")
+    groups = rule.get("groups")
+    low, high = (parse_number(rule.get(key)) for key in ("minDays", "maxDays"))
+    rates = rule.get("minimumRatesByKind")
+    if (not isinstance(groups, list) or not groups
+        or any(not isinstance(group, str) or re.fullmatch(r"[A-Z0-9]{4}", group) is None for group in groups)
+        or len(set(groups)) != len(groups)
+        or any(type(rule.get(key)) not in {int, float} for key in ("minDays", "maxDays"))
+        or low is None or high is None or not low.is_integer() or not high.is_integer()
+        or not 1 <= low <= high <= 20 or not isinstance(rates, dict)
+        or set(rates) != {"city", "airport"}
+        or any(type(rate) not in {int, float} or not math.isfinite(rate) or rate <= 0 for rate in rates.values())):
+        raise ValueError("Invalid locationTypeFloorsPlnDay groups, duration or minimumRatesByKind.")
+    return {"groups": [normalize_code(group) for group in groups], "minDays": int(low), "maxDays": int(high),
+            "minimumRatesByKind": {kind: float(rate) for kind, rate in rates.items()}}
+
+
+def get_location_type_floor(
+    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
+) -> float | None:
+    rule = get_location_type_floors(config)
+    group = normalize_code(group)
+    allowed = config.get("_location_type_allowed_groups")
+    if allowed is None:
+        allowed = resolve_apply_groups(config, None)
+    if (not rule or group not in rule["groups"] or group not in allowed or group_is_excluded(group, config)
+        or not rule["minDays"] <= min_days <= max_days <= rule["maxDays"]
+        or date_is_rate_protected(pickup_date, get_protected_rate_periods(config))):
+        return None
+    kind = (config.get("zone_location_kinds") or {}).get(normalize_code(zone))
+    return rule["minimumRatesByKind"].get(kind)
+
+
 def get_mandatory_zone_floors(config: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     if "_mandatory_zone_floors" in config:
         return config["_mandatory_zone_floors"]
@@ -1216,16 +1267,34 @@ def get_mandatory_floor(
     zone_minimum = get_mandatory_zone_floor(zone, min_days, max_days, config)
     if zone_minimum is not None and date_is_rate_protected(parse_date_value(pickup_date), get_protected_rate_periods(config)):
         zone_minimum = None
+    location_minimum = get_location_type_floor(zone, group, min_days, max_days, config, pickup_date)
+    if location_minimum is not None:
+        zone_minimum = max(zone_minimum or 0, location_minimum)
     group_minimum = get_mandatory_group_floor(group, min_days, max_days, config, pickup_date)
     if group_minimum is not None and (zone_minimum is None or group_minimum > zone_minimum):
         return group_minimum, "mandatory_group_floor"
     return zone_minimum, "mandatory_zone_floor"
 
 
+def get_mandatory_correction_floor(
+    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
+) -> tuple[float | None, str]:
+    minimum, recommendation_type = get_mandatory_floor(zone, group, min_days, max_days, config, pickup_date)
+    location_minimum = get_location_type_floor(zone, group, min_days, max_days, config, pickup_date)
+    # Reserve premium +1 for the new floor only; existing SZLO/holiday corrections are unchanged.
+    if (location_minimum is not None and minimum == location_minimum
+        and (get_mandatory_zone_floor(zone, min_days, max_days, config) or 0) < location_minimum
+        and (get_mandatory_group_floor(group, min_days, max_days, config, pickup_date) or 0) < location_minimum):
+        parity = get_group_price_parity(config)
+        if parity:
+            minimum += max(0, parity[1].get(normalize_code(group), 0))
+    return minimum, recommendation_type
+
+
 def is_mandatory_floor_change(change: dict[str, Any], config: dict[str, Any]) -> bool:
     if change.get("recommendation_type") not in MANDATORY_FLOOR_TYPES:
         return False
-    minimum, recommendation_type = get_mandatory_floor(change.get("zone"), change.get("group"),
+    minimum, recommendation_type = get_mandatory_correction_floor(change.get("zone"), change.get("group"),
         int(change.get("duration_min_days") or 0), int(change.get("duration_max_days") or 0), config, change.get("pickup_date"))
     old_rate, new_rate = parse_number(change.get("old_rate")), parse_number(change.get("new_rate"))
     return (change.get("recommendation_type") == recommendation_type
@@ -1239,6 +1308,7 @@ def enforce_mandatory_floors(
 ) -> list[dict[str, Any]]:
     floors = get_mandatory_zone_floors(config)
     group_floors = get_mandatory_group_floors(config)
+    location_floors = get_location_type_floors(config)
     columns = config["columns"]
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
     virtual_rates = {change["cell"]: change["new_rate"] for change in existing_changes}
@@ -1246,10 +1316,14 @@ def enforce_mandatory_floors(
     for row in range(int(config["data_start_row"]), ws.max_row + 1):
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
-        if zone not in floors and group not in group_floors and "*" not in group_floors:
+        has_location_floor = bool(location_floors and get_location_type_floor(
+            zone, group, location_floors["minDays"], location_floors["maxDays"], config) is not None)
+        if zone not in floors and group not in group_floors and "*" not in group_floors and not has_location_floor:
             continue
         required_days = {day for band in floors.get(zone, []) + group_floors.get(group, []) + group_floors.get("*", [])
                          for day in range(band["minDays"], band["maxDays"] + 1)}
+        if has_location_floor:
+            required_days.update(range(location_floors["minDays"], location_floors["maxDays"] + 1))
         missing_duration_days = sorted(required_days - set(duration_columns))
         if missing_duration_days:
             raise ValueError(f"Missing Excel duration columns for mandatory floor {group}/{zone}: {missing_duration_days}.")
@@ -1257,7 +1331,7 @@ def enforce_mandatory_floors(
         if not group or pickup is None:
             raise ValueError(f"Missing group or pickup date for mandatory zone floor: row {row}.")
         for col, (label, low, high) in bands_by_col.items():
-            minimum, recommendation_type = get_mandatory_floor(zone, group, low, high, config, pickup)
+            minimum, recommendation_type = get_mandatory_correction_floor(zone, group, low, high, config, pickup)
             if minimum is None:
                 continue
             cell = ws.cell(row, col)
@@ -1452,6 +1526,19 @@ def get_grouped_groups(changes: list[dict[str, Any]]) -> str:
 def get_floor_legend_text(config: dict[str, Any]) -> str:
     rules = config.get("minimum_rates") or {}
     parts: list[str] = []
+    location_floors = get_location_type_floors(config)
+    if location_floors:
+        rates = location_floors["minimumRatesByKind"]
+        parts.append(
+            "Obowiazkowe minimum wedlug typu lokalizacji z rejestru (takze zone_mirrors), bezterminowo: "
+            f"miasto {format_rate_for_comment(rates['city'])} PLN, lotnisko {format_rate_for_comment(rates['airport'])} PLN; "
+            f"duration {location_floors['minDays']}-{location_floors['maxDays']}; klasy "
+            + ", ".join(location_floors["groups"])
+            + ". Tylko klasy dopuszczone i niewykluczone, poza chronionymi datami. "
+            "Nowe minimum zastepuje zwykle minima scoped, priorytetowe i sezonowe w tym zakresie; wyzsze minima obowiazkowe pozostaja. "
+            "Podnosimy tylko nizsze stawki, takze przy hold i braku danych, poza zakresem scrapera, bez celu rankingowego. "
+            "Korekta nowego minimum zachowuje premium +1 PLN; nie obniza wyzszych stawek ani nie zmienia bazowego pliku"
+        )
     for group, bands in get_mandatory_group_floors(config).items():
         if group == "*":
             parts.append("Obowiazkowe minimum dla wszystkich klas i lokalizacji: " + ", ".join(
@@ -1479,6 +1566,8 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
                      "Podnosimy tylko stawki ponizej minimum, takze w klasach wykluczonych; chronione daty zachowuja stawki bazowe, "
                      "bez wymagania ceny ze scrapera i poza jego zakresem; wyzsze ceny nie sa obnizane przez te korekte")
     global_min = parse_number(rules.get("global_min_pln_day"))
+    if location_floors:
+        parts.append("Ponizsze zwykle minima obowiazuja tylko poza zakresem nowego minimum typu lokalizacji; nie zastepuja reguly miasto/lotnisko")
     if global_min is not None:
         if global_min > 0:
             parts.append(f"globalnie {format_rate_for_comment(global_min)} PLN")
@@ -1497,14 +1586,16 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
 
     zone_overrides = rules.get("zone_overrides_pln_day") or {}
     if zone_overrides:
-        parts.append("Wyjatki strefowe zastepuja pozostale minima: " + ", ".join(
+        parts.append(("Zwykle wyjatki strefowe (poza nowym minimum typu lokalizacji): " if location_floors
+                      else "Wyjatki strefowe zastepuja pozostale minima: ") + ", ".join(
             f"{normalize_code(zone)}: {format_rate_for_comment(parse_number(rate))} PLN"
             for zone, rate in zone_overrides.items()
         ))
 
     for override in rules.get("scoped_overrides") or []:
         parts.append(
-            "Wyjatek nadrzedny: strefy " + ("wszystkie" if "*" in override["zones"] else ", ".join(override["zones"]))
+            ("Zwykly wyjatek scoped (podrzedny wobec minimum typu lokalizacji): strefy " if location_floors
+             else "Wyjatek nadrzedny: strefy ") + ("wszystkie" if "*" in override["zones"] else ", ".join(override["zones"]))
             + "; klasy " + ", ".join(override["groups"])
             + f"; duration {override['min_days']}-{override['max_days']}: {format_rate_for_comment(override['min_pln_day'])} PLN"
             + " (nie znosi wykluczen klas ani ochrony dat)"
@@ -1575,6 +1666,9 @@ def get_group_rules_legend_text(config: dict[str, Any]) -> str:
         mandatory_rule += (" Wyjatek od wykluczenia klas i blokady dlugich duration: obowiazkowe minimum klasy "
                            "podnosi tylko stawki ponizej wskazanego progu i przedzialu, we wszystkich lokalizacjach, "
                            "poza chronionymi datami, chyba ze jawnie zatwierdzono wyjatek dla klasy i okresu. Szczegoly w legendzie Floor cenowy.")
+    if get_location_type_floors(config):
+        mandatory_rule += (" Minimum typu lokalizacji dotyczy tylko wskazanych dopuszczonych, niewykluczonych klas "
+                           "i duration; nie wymaga danych rynkowych. Chronione daty i wyzsze minima obowiazkowe pozostaja nadrzedne.")
     omitted = sorted(f"{group}/{zone}" for group, zone in get_omitted_group_zones(config))
     omitted_rule = (
         " Nie eksportujemy dla zadnej daty ani duration: " + ", ".join(omitted) + "."
@@ -1621,7 +1715,8 @@ def get_city_top1_airport_cap_legend_text(config: dict[str, Any]) -> str:
         "Aktywny priorytet Top1 jest nadrzedny i zastepuje ten limit. "
         "Lotniska nie sa ograniczane ta regula. Jesli limit jest nizszy od floor, zachowujemy "
         "stawki bazowe powiazanych klas w tej lokalizacji, dacie i przedziale duration; "
-        "konflikt trafia do kontroli bez blokowania pozostalych rekomendacji."
+        "konflikt trafia do kontroli bez blokowania pozostalych rekomendacji. "
+        "Obowiazkowe minimum nadal podnosi nizsze stawki, bez celu rankingowego i bez stosowania sprzecznego limitu."
     )
 
 
@@ -1646,6 +1741,10 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
         mandatory += ("Obowiazkowe minimum klasy dziala we wszystkich lokalizacjach tylko we wskazanych przedzialach, "
                       "takze dla wykluczonych klas; chronione daty pozostaja bez zmian poza jawnym wyjatkiem klasy i okresu. Przy zbiegu z minimum lokalizacji "
                       "stosujemy wyzsze minimum. Tylko podniesienie, bez celu rankingowego. ")
+    if get_location_type_floors(config):
+        mandatory += ("Obowiazkowe minimum typu lokalizacji zastepuje zwykle minima, takze priorytetowe, "
+                      "tylko dla wskazanych dopuszczonych i niewykluczonych klas oraz duration, poza chronionymi datami. "
+                      "Nie wygasa z priorytetem Top1; wyzsze minima obowiazkowe pozostaja nadrzedne. ")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
     ) + ". Zwykly konflikt floor/cap: zachowaj dotkniete stawki bazowe i eksportuj pozostale rekomendacje."
@@ -1818,12 +1917,19 @@ def write_changed_positions_sheet(
             ("F4B183", "Przebicie top1", f"MM Cars Rental jest top2 i brakuje mniej niz {undercut_limit} PLN/dzien, zeby zostac top1; rekomendacja ustawia cene {undercut_buffer} PLN ponizej obecnego top1."),
         ]
     for rule in pricing_rules.get("priorityTop1Rules", []):
+        location_floors = get_location_type_floors(config)
+        floor_text = f"{rule['minimumRatePlnDay']} PLN"
+        if (location_floors and set(rule["groups"]) <= set(location_floors["groups"])
+            and all(location_floors["minDays"] <= low <= high <= location_floors["maxDays"]
+                    for low, high in rule["durationBands"])):
+            rates = location_floors["minimumRatesByKind"]
+            floor_text = f"miasto {format_rate_for_comment(rates['city'])} PLN, lotnisko {format_rate_for_comment(rates['airport'])} PLN"
         color, label, description = recommendation_legend_items[-1]
         recommendation_legend_items[-1] = (color, label, description + " Priorytet top1 - automaty: " +
             f"{rule['startDate']}-{rule['endDate']} wlacznie; strefy {'wszystkie lokalizacje' if '*' in rule['zones'] else ', '.join(rule['zones'])}; "
             f"klasy {', '.join(rule['groups'])}; duration "
             + ', '.join(f"{lo}-{hi}" for lo, hi in rule['durationBands'])
-            + f" dni. Cel: 1 PLN ponizej konkurencji, bez progu obnizki 10 PLN; floor {rule['minimumRatePlnDay']} PLN. "
+            + f" dni. Cel: 1 PLN ponizej konkurencji, bez progu obnizki 10 PLN; floor {floor_text}. "
             + "Gdy floor blokuje top1, wybierane jest najwyzsze osiagalne top2/top3 bez limitu obnizki 10 PLN. Gdy brak celu w top3, stawka bazowa zostaje, poza obowiazkowa korekta minimum strefowego. Priorytet zastepuje limit miasto/lotnisko 130%, ale nie obowiazkowe minimum strefowe. Kontrola danych i ochrona dat pozostaja aktywne dla rekomendacji rynkowych.")
     legend_items = [
         *recommendation_legend_items,
@@ -2037,7 +2143,8 @@ def write_recommendations_review_sheet(
             "Data odbioru": conflict["pickup_date"],
             "Przedzial duration": conflict["duration_band"],
             "Typ rekomendacji": "Konflikt floor i limitu lotniska",
-            "Cel zmiany": "Stawki bazowe pozostawione bez zmian",
+            "Cel zmiany": ("Pominieto cel rankingowy; obowiazkowe minimum ma pierwszenstwo"
+                           if conflict.get("mandatory_minimum_active") else "Stawki bazowe pozostawione bez zmian"),
             "Powod": conflict["skip_reason"],
         }
         rows.append([values.get(header, "") for header in headers])
@@ -2120,6 +2227,7 @@ def build_validation_rows(
                      if change.get("cell") and "new_rate" in change} if dry_run else {}
     mandatory_floor_violations: list[str] = []
     mandatory_group_floor_violations: list[str] = []
+    location_type_floor_violations: list[str] = []
     protected_periods = get_protected_rate_periods(config)
     protected_changes = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
@@ -2174,6 +2282,11 @@ def build_validation_rows(
             group_minimum = get_mandatory_group_floor(group, *bands_by_col[col], config, pickup_start)
             if group_minimum is not None and (final_rate is None or final_rate < group_minimum):
                 mandatory_group_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
+            location_minimum = get_location_type_floor(zone, group, *bands_by_col[col], config, pickup_start)
+            if location_minimum is not None:
+                correction_minimum, _ = get_mandatory_correction_floor(zone, group, *bands_by_col[col], config, pickup_start)
+                if final_rate is None or final_rate < correction_minimum:
+                    location_type_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
 
     excluded_changed = [
         f"{change.get('group')}/{change.get('zone')}/{change.get('pickup_date')}"
@@ -2271,6 +2384,7 @@ def build_validation_rows(
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
         ["Stawki ponizej obowiazkowego minimum strefowego", get_validation_status(len(mandatory_floor_violations)), len(mandatory_floor_violations), first_items(mandatory_floor_violations)],
         ["Stawki ponizej obowiazkowego minimum klasy", get_validation_status(len(mandatory_group_floor_violations)), len(mandatory_group_floor_violations), first_items(mandatory_group_floor_violations)],
+        ["Stawki ponizej obowiazkowego minimum typu lokalizacji", get_validation_status(len(location_type_floor_violations)), len(location_type_floor_violations), first_items(location_type_floor_violations)],
         ["Stawki miejskie powyzej 130% ceny lotniskowej", get_validation_status(len(city_airport_cap_violations)), len(city_airport_cap_violations), first_items(city_airport_cap_violations)],
         ["Cele rankingowe nieosiagalne po finalnej stawce", get_validation_status(len(unachievable_targets), warning=True), len(unachievable_targets), first_items(unachievable_targets)],
         ["Sprzeczne rekomendacje w przedziale duration", get_validation_status(len(aggregation_conflicts), warning=True), len(aggregation_conflicts), first_items(aggregation_conflicts)],
@@ -3132,6 +3246,10 @@ def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path
     for sheet in list(workbook.worksheets):
         if sheet.title != sheet_name:
             workbook.remove(sheet)
+    for row in workbook[sheet_name]:
+        for cell in row:
+            if cell.comment is not None:
+                cell.comment = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clear_frozen_panes(workbook)
     workbook.save(output_path)
@@ -3297,7 +3415,9 @@ def apply_updates(
     config = {**config, "_priority_top1_rules": pricing_rules.get("priorityTop1Rules", []),
               "_pricing_policy": get_pricing_policy(config),
               "_mandatory_zone_floors": get_mandatory_zone_floors(config),
-              "_mandatory_group_floors": get_mandatory_group_floors(config)}
+              "_mandatory_group_floors": get_mandatory_group_floors(config),
+              "_location_type_floors": get_location_type_floors(config),
+              "_location_type_allowed_groups": resolve_apply_groups(config, None)}
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)
     allowed_groups = resolve_apply_groups(config, cli_groups)
     recommendations = load_recommendation_items(recommendations_path)
@@ -3387,17 +3507,22 @@ def apply_updates(
             preserved_rate_cells.update((*key, preserved_group) for preserved_group in preserved_groups)
             if group in parity_groups:
                 group_price_parity_scope.discard(key)
+            mandatory_minimum, _ = get_mandatory_floor(
+                zone, group, target["duration_min_days"], target["duration_max_days"], config, pickup_date)
             city_cap_conflicts.setdefault(key, {
                 "zone": zone,
                 "location": target.get("location", zone),
                 "pickup_date": pickup_date.isoformat(),
                 "duration_band": target["duration_band"],
                 "groups": [],
+                "mandatory_minimum_active": mandatory_minimum is not None,
                 "skip_reason": (
                     f"{group}/{zone}/{pickup_date.isoformat()} duration {target['duration_band']}: "
                     f"floor {format_rate_for_comment(minimum_rate + adjustment)} PLN/doba > "
                     f"limit miasta wzgledem lotniska {format_rate_for_comment(base_cap + adjustment)} PLN/doba. "
-                    "Zachowano stawki bazowe; wymagana kontrola."
+                    + ("Pominieto rekomendacje rynkowa; obowiazkowe minimum ma pierwszenstwo, "
+                       "tylko nizsze stawki zostana podniesione; wymagana kontrola."
+                       if mandatory_minimum is not None else "Zachowano stawki bazowe; wymagana kontrola.")
                 ),
             })
     skipped_targets.extend(city_cap_conflicts.values())

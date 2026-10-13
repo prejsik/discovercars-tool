@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { buildPricingRecommendations } = require('../src/pricingRecommendations');
-const { pricing } = require('../pricing-rules.config.example.json');
+const { pricing: configuredPricing } = require('../pricing-rules.config.example.json');
+// Legacy priority/SZLO fixtures are isolated; the permanent policy has its own production tests.
+const pricing = { ...configuredPricing, locationTypeFloorsPlnDay: undefined };
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

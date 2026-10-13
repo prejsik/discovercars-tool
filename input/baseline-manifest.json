@@ -1,20 +1,15 @@
 {
   "schema_version": 1,
   "status": "user_approved_baseline",
-  "workbook_sha256": "1139bfa3b279b9e077af3483bc261e0000229e733ea2019d67143932a4b094fe",
-  "approved_at": "2026-10-12",
+  "workbook_sha256": "3761c9d06fa9c7fb84d51726cbbe06b02c1e179c0da6c1c1ab545c39386965a2",
+  "approved_at": "2026-10-13",
   "approved_by": "user",
-  "source_filename": "rates-import-ready.xlsx",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 13-Oct-26 (1).xlsx",
   "source_baseline": {
-    "status": "published_morning_import",
-    "workbook_sha256": "1139bfa3b279b9e077af3483bc261e0000229e733ea2019d67143932a4b094fe",
-    "run_id": "38185358315",
-    "run_number": 651,
-    "generated_at": "2026-10-12T08:28:21.208Z",
-    "git_sha": "c4dde9bfe1a1fcd837e9ad9639d703ad9fb017ac",
-    "artifact_id": "11735107820",
-    "artifact_url": "https://github.com/prejsik/discovercars-tool/actions/runs/38185358315/artifacts/11735107820"
+    "status": "user_supplied",
+    "workbook_sha256": "3761c9d06fa9c7fb84d51726cbbe06b02c1e179c0da6c1c1ab545c39386965a2",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 13-Oct-26 (1).xlsx"
   },
-  "previous_baseline_sha256": "f7c11b6d90e527288867a890ed12a899aeaea11e2278fe9e9189b48d85cbb2bf",
-  "note": "The user explicitly selected the import workbook sent via Telegram on 12 October 2026 at 10:29 Europe/Warsaw as the new baseline and authorized pushing it to main. The workbook is byte-identical to rates-import-ready.xlsx from run 38185358315, artifact discovercars-excel-import-651; its hash matches the publication manifest. The successful Telegram notification completed at 2026-10-12T08:29:10Z. It contains 24886 total rows, all 11 source classes and 26 zones, with 100 pickup dates from 2026-10-12 through 2027-01-19. Group-zone coverage matches the previous approved baseline. FVMD/SZLO is absent and no panes are frozen. No further rates, formatting, rules, frozen broker markup or schedules were changed. This approval does not independently confirm that the workbook has been imported at the broker and does not permit automatic markup calibration. Both scheduled runs use this shared baseline on their next checkout."
+  "previous_baseline_sha256": "1139bfa3b279b9e077af3483bc261e0000229e733ea2019d67143932a4b094fe",
+  "note": "The user explicitly supplied and selected this INCLUSIVE POA workbook as the new baseline on 13 October 2026. The canonical workbook is byte-identical to the attachment, preserving all source rates, formatting and hidden or filtered rows. It contains 24881 total rows, all 11 source classes and 26 zones, and 100 pickup dates. Group-zone coverage matches the previous approved baseline, including WR2, SZLO, SZ1 and SZO1. FVMD/SZLO is absent. This approval does not independently confirm an import at the broker and does not permit automatic markup calibration. Both scheduled runs use this shared baseline after publication; publication has not been authorized by this baseline-selection request."
 }

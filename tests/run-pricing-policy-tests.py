@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 from tools.update_excel_rates import (  # noqa: E402
     apply_updates, build_validation_rows, get_duration_columns, get_review_status, merge_config,
     load_baseline_confirmation, get_import_row_limit, validate_import_row_limit, parse_date_value,
+    load_config, get_minimum_rate, get_mandatory_floor,
 )
 
 
@@ -26,8 +29,12 @@ class PricingPolicyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        legacy_rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        legacy_rules["pricing"].pop("locationTypeFloorsPlnDay", None)
+        legacy_path = self.root / "legacy-rules.json"
+        legacy_path.write_text(json.dumps(legacy_rules), encoding="utf-8")
         self.config = merge_config({
-            "pricing_rules_file": str(ROOT / "pricing-rules.config.example.json"),
+            "pricing_rules_file": str(legacy_path),
             "location_zones": {"City": ["WA1"]},
             "city_zone_airport_zones": {"WA1": ["WALO"]},
             "protected_rate_periods": [
@@ -695,7 +702,10 @@ class PricingPolicyTests(unittest.TestCase):
                 self.assertEqual(remaining[group, "WA1", "2026-10-01"], 52 + adjustment)
             book = openpyxl.load_workbook(path)
             self.assertEqual(book["Sheet1"]["J5"].fill.fgColor.rgb[-6:], "FFF2CC")
-            self.assertEqual(book["Sheet1"]["J5"].comment.text, "Baseline note")
+            if path == import_output:
+                self.assertIsNone(book["Sheet1"]["J5"].comment)
+            else:
+                self.assertEqual(book["Sheet1"]["J5"].comment.text, "Baseline note")
             book.close()
 
     def test_priority_expires_after_october_25_and_normal_cap_resumes(self):
@@ -865,6 +875,267 @@ class PricingPolicyTests(unittest.TestCase):
         original = openpyxl.load_workbook(source)
         self.assertEqual(original["Sheet1"].freeze_panes, "I5")
         original.close()
+
+
+class LocationTypeFloorTests(unittest.TestCase):
+    workbook = PricingPolicyTests.workbook
+    decision = PricingPolicyTests.decision
+    run_updates = PricingPolicyTests.run_updates
+    rates = PricingPolicyTests.rates
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.config = load_config(ROOT / "excel-rate-update.config.example.json")
+        self.config.update(baseline_manifest_file="", pickup_date_expansion={"enabled": False}, zone_seeds={})
+        self.config["pricing_rules_file"] = str(ROOT / "pricing-rules.config.example.json")
+        self.config["location_zones"]["City"] = ["WA1"]
+
+    def test_production_rule_replaces_priority_scoped_and_seasonal_floors_at_endpoints(self):
+        for pickup in ("2026-07-01", "2026-10-25", "2026-10-26", "2028-02-10"):
+            for zone, minimum in (("WA1", 60), ("WR2", 60), ("WALO", 35), ("KRTI", 35)):
+                for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20)):
+                    for group in ALLOWED:
+                        target = self.decision(low, pickup, priority=True)
+                        target.update(zone=zone, group=group, target_date=parse_date_value(pickup),
+                                      duration_min_days=low, duration_max_days=high)
+                        with self.subTest(pickup=pickup, zone=zone, group=group, band=(low, high)):
+                            self.assertEqual(get_minimum_rate(target, self.config)[0], minimum)
+                            self.assertEqual(get_mandatory_floor(zone, group, low, high, self.config, pickup)[0], minimum)
+        self.assertIsNone(get_mandatory_floor("WALO", "CDMV", 21, 35, self.config, "2026-10-26")[0])
+        self.assertEqual(get_mandatory_floor("SZLO", "CDMV", 1, 1, self.config, "2026-10-26")[0], 300)
+
+    def test_every_registry_zone_and_band_corrects_missing_market_without_lowering(self):
+        source = self.workbook(pickups=(), city_rate=10)
+        registry = json.loads((ROOT / "locations.config.json").read_text(encoding="utf-8"))
+        expected = {}
+        book = openpyxl.load_workbook(source)
+        book["Sheet1"].delete_rows(5, book["Sheet1"].max_row)
+        for location in registry["locations"]:
+            for zone in location["zones"]:
+                for group in ALLOWED + FROZEN + ["ZZAV"]:
+                    for pickup, old in (("2026-10-13", 10), ("2028-02-10", 1200)):
+                        if group == "FVMD" and zone == "SZLO":
+                            continue
+                        book["Sheet1"].append([group, None, None, zone] + [pickup] * 4 + [old] * 6)
+                        rates = []
+                        for index, zone_min in enumerate((300, 150, 130, 110, 90, 90)):
+                            minimum = zone_min if zone == "SZLO" else 0
+                            if group == "PDAH" and index == 5:
+                                minimum = max(minimum, 170)
+                            if group in ALLOWED and index < 5 and zone != "SZLO":
+                                minimum = (60 if location["kind"] == "city" else 35) + (group in {"EDAV", "EDMV"})
+                            rates.append(max(old, minimum))
+                        expected[group, zone, pickup] = rates
+        book.save(source)
+        book.close()
+        original = source.read_bytes()
+        summary, output, imported = self.run_updates([], source)
+        for path in (output, imported):
+            book = openpyxl.load_workbook(path)
+            for row in book["Sheet1"].iter_rows(min_row=5, values_only=True):
+                key = row[0], row[3], row[6]
+                self.assertEqual(list(row[8:14]), expected[key], key)
+            self.assertTrue(all(sheet.freeze_panes is None for sheet in book))
+            if path == imported:
+                self.assertEqual(book.sheetnames, ["Sheet1"])
+                self.assertTrue(all(cell.comment is None for row in book["Sheet1"] for cell in row))
+            else:
+                legend = " ".join(str(c.value or "") for row in book["Changed Positions"] for c in row)
+                for text in ("60 PLN", "35 PLN", "1-20", "typ", "zastepuje", "bez celu rankingowego"):
+                    self.assertIn(text, legend)
+            book.close()
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(summary["change_statistics"]["decrease_count"], 0)
+        self.assertEqual(summary["recommendation_date_scope"]["date_count"], 0)
+        self.assertEqual(summary["mandatory_zone_floor_date_scope"]["start_date"], "2026-10-13")
+        self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+        self.assertFalse(any(row["status"] == "FAIL" for row in summary["validation"]))
+
+    def test_floor_protects_real_rank_fail_hold_and_invalid_market_data(self):
+        for extra in ({"action": "hold", "recommendation_type": "priority_top3_unachievable", "target_achievable": False},
+                      {"action": "hold", "suggested_rate_pln_day": None, "maximum_import_rate_pln_day": None,
+                       "data_quality_status": "missing_top3"},
+                      {"data_quality_status": "missing_mm_rate"}):
+            with self.subTest(extra=extra):
+                source = self.workbook(city_rate=10, airport_rate=10)
+                summary, output, _ = self.run_updates([self.decision(priority=True, **extra)], source)
+                self.assertEqual(self.rates(output, 10)["CDMV", "WA1", "2026-10-01"], 60)
+                self.assertEqual(self.rates(output, 10)["EDMV", "WA1", "2026-10-01"], 61)
+                self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+                self.assertTrue(all(change["recommendation_type"] == "mandatory_zone_floor"
+                                    for change in summary["changes"] if change["group"] in ALLOWED))
+
+    def test_new_floor_respects_protected_dates_and_existing_holiday_exceptions(self):
+        dates = ("2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02",
+                 "2026-12-14", "2026-12-15", "2027-01-05", "2027-01-06", "2027-01-10", "2027-01-11")
+        source = self.workbook(pickups=dates, city_rate=10, airport_rate=10)
+        _, output, imported = self.run_updates([], source)
+        for path in (output, imported):
+            for col in range(9, 15):
+                for (group, zone, pickup), rate in self.rates(path, col).items():
+                    protected = pickup in {"2026-10-31", "2026-11-01", "2026-12-15", "2027-01-05", "2027-01-06", "2027-01-10"}
+                    old = 10 + (group in {"EDAV", "EDMV"})
+                    expected = old
+                    if not protected and group in ALLOWED and col < 14:
+                        expected = (60 if zone == "WA1" else 35) + (group in {"EDAV", "EDMV"})
+                    if group == "PDAH" and col == 14 and not protected:
+                        expected = 170
+                    if "2026-10-30" <= pickup <= "2026-11-01":
+                        expected = max(expected, 110)
+                    if group == "FVMD" and "2026-12-15" <= pickup <= "2027-01-05":
+                        expected = (1000, 700, 600, 500, 500, 400)[col - 9]
+                    self.assertEqual(rate, expected, (group, zone, pickup, col))
+
+    def test_floor_intersects_configured_groups_and_exclusions(self):
+        for override in ({"apply_groups": ["CDMV"]}, {"excluded_groups": FROZEN + ["EDMV"]}):
+            with self.subTest(override=override):
+                source = self.workbook(city_rate=10, airport_rate=10)
+                _, output, _ = self.run_updates([], source, {**self.config, **override})
+                prices = self.rates(output, 10)
+                self.assertEqual(prices["CDMV", "WA1", "2026-10-01"], 60)
+                self.assertEqual(prices["EDMV", "WA1", "2026-10-01"], 11)
+
+    def test_registry_mirrors_not_names_determine_kind(self):
+        registry = json.loads((ROOT / "locations.config.json").read_text(encoding="utf-8"))
+        for location in registry["locations"]:
+            location["scraper_label"] = "Airport-looking city" if location["kind"] == "city" else "Downtown-looking airport"
+            location["scraper_label"] += location["id"]
+        registry["zone_mirrors"]["NOT_AN_AIRPORT"] = "KRTI"
+        path = self.root / "registry.json"
+        path.write_text(json.dumps(registry), encoding="utf-8")
+        path = self.root / "config.json"
+        path.write_text(json.dumps({"location_registry_file": "registry.json",
+                                    "pricing_rules_file": self.config["pricing_rules_file"]}), encoding="utf-8")
+        config = load_config(path)
+        for zone, expected in (("WR2", 60), ("KRTI", 35), ("NOT_AN_AIRPORT", 35), ("UNKNOWN_AIRPORT", None)):
+            self.assertEqual(get_mandatory_floor(zone, "CDMV", 1, 1, config, "2026-10-13")[0], expected)
+
+    def test_invalid_new_rule_fails_closed_before_outputs_are_saved(self):
+        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        for override in ({"groups": ["cdmv"]}, {"groups": ["CDMV", "CDMV"]}, {"groups": ["*"]},
+                         {"groups": ["CDMVX"]}, {"maxDays": 21}, {"minDays": True},
+                         {"minimumRatesByKind": {"city": 60}},
+                         {"minimumRatesByKind": {"city": 60, "airport": 35, "other": 50}},
+                         {"minimumRatesByKind": {"city": True, "airport": 35}},
+                         {"minimumRatesByKind": {"city": 60, "airport": float("inf")}}):
+            rules = json.loads(json.dumps(original))
+            rules["pricing"]["locationTypeFloorsPlnDay"].update(override)
+            path = self.root / "invalid-new-rule.json"
+            path.write_text(json.dumps(rules), encoding="utf-8")
+            with self.subTest(override=override), self.assertRaisesRegex(ValueError, "locationTypeFloorsPlnDay"):
+                self.run_updates([], self.workbook(), {**self.config, "pricing_rules_file": str(path)})
+            self.assertFalse((self.root / "review.xlsx").exists())
+
+    def test_cli_market_selection_does_not_narrow_mandatory_allowlist(self):
+        source = self.workbook(city_rate=10, airport_rate=10)
+        recommendations = self.root / "empty.json"
+        recommendations.write_text('{"decisions": []}', encoding="utf-8")
+        summary = apply_updates(source, recommendations, None, self.config, "CDMV", True)
+        self.assertEqual({change["group"] for change in summary["changes"] if change["duration_max_days"] <= 20}, set(ALLOWED))
+
+    def test_post_priority_city_cap_conflict_skips_market_but_exports_mandatory_floor(self):
+        source = self.workbook(pickups=("2026-10-26",), city_rate=32, airport_rate=35)
+        original = source.read_bytes()
+        summary, output, imported = self.run_updates([
+            self.decision(pickup="2026-10-26", suggested=80, mm_rank=2)
+        ], source)
+        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 1)
+        self.assertEqual(summary["city_top1_airport_cap_violation_count"], 0)
+        self.assertFalse(any(row["status"] == "FAIL" for row in summary["validation"]))
+        self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+        for path in (output, imported):
+            prices = self.rates(path, 10)
+            for group in ALLOWED:
+                self.assertEqual(prices[group, "WA1", "2026-10-26"], 60 + (group in {"EDAV", "EDMV"}))
+                self.assertEqual(prices[group, "WALO", "2026-10-26"], 35 + (group in {"EDAV", "EDMV"}))
+            for group in FROZEN:
+                self.assertEqual(prices[group, "WA1", "2026-10-26"], 32)
+        self.assertEqual(source.read_bytes(), original)
+        book = openpyxl.load_workbook(output)
+        rows = list(book["Recommendations Review"].values)
+        headers = rows[0]
+        records = [dict(zip(headers, row)) for row in rows[1:]]
+        conflict = next(row for row in records if row["Typ rekomendacji"] == "Konflikt floor i limitu lotniska")
+        self.assertIn("45.5", conflict["Uwagi kontroli"])
+        self.assertIn("obowiazkowe minimum", conflict["Uwagi kontroli"])
+        self.assertNotIn("bez zmian", conflict["Cel zmiany"])
+        self.assertFalse(conflict["Prognoza na stronie"])
+        for row in records:
+            if row is not conflict:
+                self.assertIn("bez celu rankingowego", row["Uwagi kontroli"])
+        book.close()
+
+    def test_actual_js_rank_fail_hold_still_corrects_python_output(self):
+        node = shutil.which("node")
+        self.assertIsNotNone(node)
+        source = self.workbook(city_rate=10, airport_rate=500)
+        offers = [{"provider_name": provider, "total_price": rate * 2, "rental_days": 2, "currency": "PLN"}
+                  for provider, rate in (("Cheap One", 25), ("Cheap Two", 26), ("Cheap Three", 27), ("MM Cars Rental", 30))]
+        view = {"top_3": offers[:3], "mm_cars_rental": offers[3]}
+        payload = self.root / "results.json"
+        payload.write_text(json.dumps({"locations": ["Warsaw West Train Station"], "scenarios": [{
+            "start_date": "2026-10-01", "rental_days": 2,
+            "top_3_plus_mm_by_location": {"Warsaw West Train Station": view},
+            "offer_views_by_location": {"Warsaw West Train Station": {"automatic": view}},
+        }]}), encoding="utf-8")
+        recommendations = self.root / "js-recommendations.json"
+        subprocess.run([node, "src/pricingRecommendations.js", str(payload), str(recommendations),
+                        f"--config={self.config['pricing_rules_file']}"], cwd=ROOT, check=True, capture_output=True)
+        decisions = json.loads(recommendations.read_text(encoding="utf-8"))["decisions"]
+        self.assertTrue(decisions)
+        self.assertTrue(all(item["action"] == "hold" for item in decisions))
+        self.assertTrue(any(item["data_quality_status"] == "floor_blocks_top3" for item in decisions), decisions)
+        summary, output, _ = self.run_updates(decisions, source)
+        self.assertEqual(self.rates(output, 10)["CDMV", "WA1", "2026-10-01"], 60)
+        self.assertEqual(self.rates(output, 10)["EDAV", "WA1", "2026-10-01"], 61)
+        self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+
+    def test_dry_run_matches_export_and_validation_reads_final_floor_cells(self):
+        source = self.workbook(city_rate=10, airport_rate=10)
+        recommendations = self.root / "empty.json"
+        recommendations.write_text('{"decisions": []}', encoding="utf-8")
+        preview = apply_updates(source, recommendations, None, self.config, None, True)
+        summary, output, _ = self.run_updates([], source)
+        self.assertEqual(preview["changes"], summary["changes"])
+        self.assertEqual(summary["change_count"], 62)  # 2 zones * 6 groups * 5 bands, plus PDAH long minima.
+        book = openpyxl.load_workbook(output)
+        sheet = book["Sheet1"]
+        sheet["J5"] = 59
+        checks = build_validation_rows(sheet, self.config, get_duration_columns(sheet, self.config), [], [])
+        self.assertEqual(next(c[2] for c in checks if c[0] == "Stawki ponizej obowiazkowego minimum typu lokalizacji"), 1)
+        book.close()
+
+    def test_clean_import_preserves_merged_headers_and_handles_frozen_split(self):
+        source = self.workbook()
+        book = openpyxl.load_workbook(source)
+        sheet = book["Sheet1"]
+        sheet.merge_cells("A1:H1")
+        sheet.sheet_view.pane.state = "frozenSplit"
+        book.save(source)
+        book.close()
+        original = source.read_bytes()
+        _, output, imported = self.run_updates([], source)
+        for path in (output, imported):
+            book = openpyxl.load_workbook(path)
+            self.assertEqual([str(value) for value in book["Sheet1"].merged_cells.ranges], ["A1:H1"])
+            self.assertTrue(all(sheet.freeze_panes is None for sheet in book))
+            if path == imported:
+                self.assertTrue(all(cell.comment is None for row in book["Sheet1"] for cell in row))
+            book.close()
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_priority_legend_does_not_present_superseded_30_and_40_floors_as_active(self):
+        _, output, _ = self.run_updates([], self.workbook())
+        book = openpyxl.load_workbook(output)
+        rows = list(book['Changed Positions'].values)
+        text = next(str(row[1]) for row in rows if row[0] == 'Przebicie top1')
+        self.assertIn('miasto 60 PLN', text)
+        self.assertIn('lotnisko 35 PLN', text)
+        self.assertNotIn('floor 30 PLN', text)
+        self.assertNotIn('floor 40 PLN', text)
+        book.close()
 
 
 if __name__ == "__main__":

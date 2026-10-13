@@ -490,15 +490,9 @@ Kolory w Excelu:
 - w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: obnizka mniejsza niz `10 PLN/dzien` pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel jest `1 PLN` ponizej tej oferty.
 - w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental jest top2 i brakuje mniej niz `10 PLN/dzien`, zeby zostac top1; cel jest `1 PLN` ponizej obecnego top1.
 
-Minimalne stawki przy aktualizacji Excela:
+Bezterminowe minima dla klas `CDMV`, `CGAV`, `CWAV`, `CWMR`, `EDAV` i `EDMV`, dla calego duration `1-20` dni: **60 PLN brutto/doba poza lotniskami** oraz **35 PLN brutto/doba na lotniskach**. Jedynym zrodlem jest `pricing.locationTypeFloorsPlnDay`; rodzaj lokalizacji pochodzi z `locations.config.json`, nie z nazwy punktu. `KRTI` jest lotniskiem, a `WR2`, `SZ1` i `SZO1` sa punktami miejskimi. Te minima zastepuja dawne normalne floory 30/39/40/50 PLN w tym zakresie, takze przy priorytecie Top1. Wyzsze obowiazkowe minima SZLO i swiateczne nadal maja pierwszenstwo.
 
-- od `2026-07-01` do `2026-08-30` dla duration `1-7` stawka nie spada ponizej `70 PLN brutto/dzien`,
-- w tym samym okresie dla duration `8-20` stawka nie spada ponizej `115 PLN brutto/dzien`,
-- w tym samym okresie dla duration `21-35` stawka nie spada ponizej `100 PLN brutto/dzien`,
-- od `2026-09-01` do `2027-01-31` dla duration `1-35` stawka nie spada ponizej `50 PLN brutto/dzien`,
-- dla `2026-08-31` nie jest stosowany dodatkowy floor okresowy.
-
-Wyjatek dla Krakowa: `minimum_rates.zone_overrides_pln_day` ustawia minimum `39 PLN brutto/dzien` dla `KRDW`, `KRGA`, `KRLO` i `KRTI`. Nadrzedny floor kolumny `8-20` wynosi `40 PLN brutto/doba` we wszystkich lokalizacjach dla dopuszczonych klas, rowniez w Krakowie; zastepuje pozostale minima dla tej kolumny. Floor nie wymusza obnizki do minimum i nie znosi ochrony klas ani dat swiatecznych.
+Generowanie Excela podnosi tylko stawki ponizej tych minimow, rowniez gdy brak ceny konkurencji lub floor blokuje Top1-Top3. Takie korekty nie obiecuja pozycji rankingowej i sa oznaczane jako minimum, a nie rekomendacja konkurencyjna. Nie obnizamy wyzszych cen do progu, nie zmieniamy pliku bazowego, klas wykluczonych ani przedzialu `21-35`. Chronione daty zachowuja stawki bazowe poza wczesniej zatwierdzonymi wyjatkami. Parytet grup nadal dotyczy rekomendacji rynkowych; EDMV i EDAV maja stawke bazowa +1 PLN.
 
 `PDAH` i `FVMD` nie podlegaja rekomendacjom konkurencyjnym ani parytetowi. Bezterminowy wyjatek dla `PDAH` we wszystkich lokalizacjach: cala kolumna `21-35` dni ma minimum **170 PLN/doba** (rowniez dokladnie 21 dni). Regula `pricing.mandatoryGroupFloorsPlnDay` podnosi tylko nizsze ceny, bez wymagania danych ze scrapera i poza jego zakresem dat; nie obniza wyzszych cen, nie zmienia innych przedzialow ani pliku bazowego. Chronione Pickup start date zachowuja dotychczasowe stawki. Przy zbiegu z minimum strefowym stosujemy wyzsze z obu minimow. Korekta jest opisana jako minimum klasy w Changed Positions i Recommendations Review, sprawdzana w Validation i osobno liczona w Telegramie, bez obietnicy Top1.
 

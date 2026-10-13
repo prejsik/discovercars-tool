@@ -225,6 +225,8 @@ def main():
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    # These fixtures explicitly exercise legacy scoped/seasonal rules; production floors are covered separately.
+    example_config["_location_type_floors"] = {}
     import runpy
     runpy.run_path(str(ROOT / "tests/run-priority-fallback-tests.py"))
     for zone in ("KRLO", "KRTI", "KRDW", "KRGA", "WALO"):
@@ -1893,7 +1895,10 @@ def main():
             sheet = book["Sheet1"]
             assert_equal(sheet.max_row, 12, "all original rate rows preserved")
             assert_equal(rgb(sheet["J5"]), "FFF2CC", "skipped cell keeps its baseline fill")
-            assert_equal(sheet["J5"].comment.text, "Original baseline note", "skipped cell has no misleading new recommendation comment")
+            if path == conflict_import:
+                assert_equal(sheet["J5"].comment, None, "import removes inherited and generated comments")
+            else:
+                assert_equal(sheet["J5"].comment.text, "Original baseline note", "skipped cell has no misleading new recommendation comment")
             for row_number, original in enumerate(conflict_rows, start=5):
                 assert_equal(sheet.cell(row_number, 10).value, original[9], "conflict preserves original rates despite unequal class prices")
                 expected = 141 if original[0] == "EDMV" else 140
