@@ -8,6 +8,7 @@ import calendar
 import hashlib
 import json
 import math
+import posixpath
 import re
 from bisect import bisect_left
 from collections import defaultdict
@@ -17,6 +18,9 @@ from pathlib import Path
 from statistics import median
 from textwrap import wrap
 from typing import Any, Iterator
+from urllib.parse import urlsplit
+from xml.etree import ElementTree
+from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
 try:
@@ -3242,6 +3246,25 @@ def clear_frozen_panes(workbook: Any) -> None:
                 view.selection = [openpyxl.worksheet.views.Selection()]
 
 
+def validate_workbook_relationships(path: Path) -> None:
+    with ZipFile(path) as archive:
+        names = set(archive.namelist())
+        for name in sorted(names):
+            if not name.endswith(".rels"):
+                continue
+            base_dir = posixpath.dirname(posixpath.dirname(name))
+            for relationship in ElementTree.fromstring(archive.read(name)):
+                if relationship.get("TargetMode") == "External":
+                    continue
+                target = urlsplit(relationship.get("Target", "")).path
+                resolved = (posixpath.normpath(target.lstrip("/")) if target.startswith("/") else
+                            posixpath.normpath(posixpath.join(base_dir, target)))
+                if not target or resolved not in names:
+                    raise ValueError(
+                        f"Invalid XLSX package {path.name}: {name} references missing part {resolved}."
+                    )
+
+
 def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path) -> None:
     for sheet in list(workbook.worksheets):
         if sheet.title != sheet_name:
@@ -3250,9 +3273,12 @@ def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path
         for cell in row:
             if cell.comment is not None:
                 cell.comment = None
+    # Saving recommendations leaves this VML reference in memory after comments are removed.
+    workbook[sheet_name].legacy_drawing = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clear_frozen_panes(workbook)
     workbook.save(output_path)
+    validate_workbook_relationships(output_path)
 
 
 def enforce_group_price_parity(
@@ -3756,6 +3782,7 @@ def apply_updates(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         clear_frozen_panes(workbook)
         workbook.save(output_path)
+        validate_workbook_relationships(output_path)
         if import_output_path is not None:
             save_import_ready_workbook(workbook, sheet_name, import_output_path)
 

@@ -1,10 +1,13 @@
 import json
+import posixpath
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 import openpyxl
 from openpyxl.comments import Comment
@@ -17,7 +20,9 @@ from tools.update_excel_rates import (  # noqa: E402
     apply_updates, build_validation_rows, get_duration_columns, get_review_status, merge_config,
     load_baseline_confirmation, get_import_row_limit, validate_import_row_limit, parse_date_value,
     load_config, get_minimum_rate, get_mandatory_floor,
+    save_import_ready_workbook,
 )
+from tools import update_excel_rates as excel_updater  # noqa: E402
 
 
 ALLOWED = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"]
@@ -875,6 +880,143 @@ class PricingPolicyTests(unittest.TestCase):
         original = openpyxl.load_workbook(source)
         self.assertEqual(original["Sheet1"].freeze_panes, "I5")
         original.close()
+
+
+class ImportPackageTests(unittest.TestCase):
+    def test_package_validation_keeps_percent_escaped_part_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book = openpyxl.Workbook()
+            book.active["A1"].comment = Comment("Comment", "Test")
+            original = root / "original.xlsx"
+            book.save(original)
+            with ZipFile(original) as archive:
+                entries = {entry.filename: archive.read(entry) for entry in archive.infolist()}
+            drawing = "xl/drawings/commentsDrawing1.vml"
+            for filename in ("comment%20drawing.vml", "comment%23drawing.vml"):
+                for absolute in (True, False):
+                    for present in (True, False):
+                        with self.subTest(filename=filename, absolute=absolute, present=present):
+                            package = root / "escaped.xlsx"
+                            renamed = "xl/drawings/" + filename
+                            with ZipFile(package, "w") as archive:
+                                for name, data in entries.items():
+                                    if name == drawing:
+                                        if not present:
+                                            continue
+                                        name = renamed
+                                    elif name == "xl/worksheets/_rels/sheet1.xml.rels":
+                                        relationships = ElementTree.fromstring(data)
+                                        for relationship in relationships:
+                                            if relationship.get("Type", "").endswith("/vmlDrawing"):
+                                                relationship.set("Target", "/" + renamed if absolute else "../drawings/" + filename)
+                                        data = ElementTree.tostring(relationships)
+                                    archive.writestr(name, data)
+                            if present:
+                                excel_updater.validate_workbook_relationships(package)
+                            else:
+                                with self.assertRaisesRegex(ValueError, "missing part"):
+                                    excel_updater.validate_workbook_relationships(package)
+
+    def test_package_validation_rejects_absolute_and_relative_missing_parts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book = openpyxl.Workbook()
+            book.active["A1"].comment = Comment("Comment", "Test")
+            valid = root / "valid.xlsx"
+            book.save(valid)
+            excel_updater.validate_workbook_relationships(valid)
+            with ZipFile(valid) as archive:
+                entries = {entry.filename: archive.read(entry) for entry in archive.infolist()}
+            drawing = "xl/drawings/commentsDrawing1.vml"
+            self.assertIn(drawing, entries)
+            for target in ("/xl/drawings/commentsDrawing1.vml", "../drawings/commentsDrawing1.vml"):
+                with self.subTest(target=target):
+                    broken = root / "broken.xlsx"
+                    with ZipFile(broken, "w") as archive:
+                        for name, data in entries.items():
+                            if name == drawing:
+                                continue
+                            if name == "xl/worksheets/_rels/sheet1.xml.rels":
+                                relationships = ElementTree.fromstring(data)
+                                for relationship in relationships:
+                                    if relationship.get("Type", "").endswith("/vmlDrawing"):
+                                        relationship.set("Target", target)
+                                data = ElementTree.tostring(relationships)
+                            archive.writestr(name, data)
+                    with self.assertRaisesRegex(ValueError, "missing part.*commentsDrawing1.vml"):
+                        excel_updater.validate_workbook_relationships(broken)
+
+    def test_clean_import_keeps_valid_chart_and_external_hyperlink(self):
+        from openpyxl.chart import BarChart, Reference
+
+        with tempfile.TemporaryDirectory() as directory:
+            book = openpyxl.Workbook()
+            book.active.title = "Sheet1"
+            book.active.append([35, 60])
+            book.active["A1"].comment = Comment("Rate", "Test")
+            book.active["B1"].hyperlink = "https://www.discovercars.com/?a=1&b=2"
+            chart = BarChart()
+            chart.add_data(Reference(book.active, min_col=1, max_col=2, min_row=1))
+            book.active.add_chart(chart, "D5")
+            book.save(Path(directory) / "recommendations.xlsx")
+            imported = Path(directory) / "import.xlsx"
+            save_import_ready_workbook(book, "Sheet1", imported)
+            excel_updater.validate_workbook_relationships(imported)
+            result = openpyxl.load_workbook(imported)
+            self.assertEqual(len(result.active._charts), 1)
+            self.assertEqual(result.active["B1"].hyperlink.target, "https://www.discovercars.com/?a=1&b=2")
+            self.assertEqual(list(result.active.values)[0], (35, 60))
+            result.close()
+
+    def test_clean_import_after_recommendation_save_has_no_missing_drawing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book = openpyxl.Workbook()
+            sheet = book.active
+            sheet.title = "Sheet1"
+            sheet.merge_cells("A1:H1")
+            sheet["A1"] = "Rental rates for packages: INCLUSIVE POA"
+            sheet["J5"] = 60.25
+            sheet["J5"].fill = PatternFill("solid", fgColor="00FF00")
+            sheet["J5"].comment = Comment("Previous rate: 35 PLN", "Test")
+            sheet["A5"] = "CDMV"
+            sheet["A5"].hyperlink = "https://www.discovercars.com/"
+            book.create_sheet("Changed Positions")["O2"].comment = Comment("Change", "Test")
+            recommendations = root / "recommendations.xlsx"
+            book.save(recommendations)
+            original_recommendations = recommendations.read_bytes()
+            imported = root / "import.xlsx"
+
+            save_import_ready_workbook(book, "Sheet1", imported)
+
+            with ZipFile(imported) as archive:
+                names = set(archive.namelist())
+                for name in names:
+                    if not name.endswith(".rels"):
+                        continue
+                    for relationship in ElementTree.fromstring(archive.read(name)):
+                        if relationship.get("TargetMode") == "External":
+                            continue
+                        target = relationship.get("Target", "")
+                        resolved = (target.lstrip("/") if target.startswith("/") else
+                                    posixpath.normpath(posixpath.join(posixpath.dirname(posixpath.dirname(name)), target)))
+                        self.assertIn(resolved, names, f"{name}: dangling target {target}")
+                self.assertFalse(any("comments" in name.lower() or name.endswith(".vml") for name in names))
+                sheet_xml = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+                self.assertIsNone(sheet_xml.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}legacyDrawing"))
+            result = openpyxl.load_workbook(imported)
+            self.assertEqual(result.sheetnames, ["Sheet1"])
+            self.assertEqual(result.active["J5"].value, 60.25)
+            self.assertEqual(result.active["J5"].fill.patternType, "solid")
+            self.assertEqual(result.active["J5"].fill.fgColor.rgb, "0000FF00")
+            self.assertEqual(str(result.active.merged_cells), "A1:H1")
+            self.assertIsNone(result.active["J5"].comment)
+            self.assertEqual(result.active["A5"].hyperlink.target, "https://www.discovercars.com/")
+            result.close()
+            self.assertEqual(recommendations.read_bytes(), original_recommendations)
+            with ZipFile(recommendations) as archive:
+                self.assertIn("xl/drawings/commentsDrawing1.vml", archive.namelist())
 
 
 class LocationTypeFloorTests(unittest.TestCase):
