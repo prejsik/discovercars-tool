@@ -1,31 +1,122 @@
 {
   "pricing": {
     "locationTypeFloorsPlnDay": {
-      "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
+      "groups": [
+        "CDMV",
+        "CGAV",
+        "CWAV",
+        "CWMR",
+        "EDAV",
+        "EDMV"
+      ],
       "minDays": 1,
       "maxDays": 20,
-      "minimumRatesByKind": { "city": 60, "airport": 35 }
+      "minimumRatesByKind": {
+        "city": 60,
+        "airport": 30
+      }
     },
     "mandatoryGroupFloorsPlnDay": {
-      "*": [{"minDays": 1, "maxDays": 35, "minimumRatePlnDay": 110, "start_date": "2026-10-30", "end_date": "2026-11-01", "override_protected_dates": true}],
-      "PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}],
+      "*": [
+        {
+          "minDays": 1,
+          "maxDays": 35,
+          "minimumRatePlnDay": 110,
+          "start_date": "2026-10-30",
+          "end_date": "2026-11-01",
+          "override_protected_dates": true
+        }
+      ],
+      "PDAH": [
+        {
+          "minDays": 21,
+          "maxDays": 35,
+          "minimumRatePlnDay": 170
+        }
+      ],
       "FVMD": [
-        {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 1000, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
-        {"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 700, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
-        {"minDays": 3, "maxDays": 4, "minimumRatePlnDay": 600, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
-        {"minDays": 5, "maxDays": 7, "minimumRatePlnDay": 500, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
-        {"minDays": 8, "maxDays": 20, "minimumRatePlnDay": 500, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true},
-        {"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 400, "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": true}
+        {
+          "minDays": 1,
+          "maxDays": 1,
+          "minimumRatePlnDay": 1000,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        },
+        {
+          "minDays": 2,
+          "maxDays": 2,
+          "minimumRatePlnDay": 700,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        },
+        {
+          "minDays": 3,
+          "maxDays": 4,
+          "minimumRatePlnDay": 600,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        },
+        {
+          "minDays": 5,
+          "maxDays": 7,
+          "minimumRatePlnDay": 500,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        },
+        {
+          "minDays": 8,
+          "maxDays": 20,
+          "minimumRatePlnDay": 500,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        },
+        {
+          "minDays": 21,
+          "maxDays": 35,
+          "minimumRatePlnDay": 400,
+          "start_date": "2026-12-15",
+          "end_date": "2027-01-05",
+          "override_protected_dates": true
+        }
       ]
     },
     "mandatoryZoneFloorsPlnDay": {
       "SZLO": [
-        {"minDays": 1, "maxDays": 1, "minimumRatePlnDay": 300},
-        {"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 150},
-        {"minDays": 3, "maxDays": 4, "minimumRatePlnDay": 130},
-        {"minDays": 5, "maxDays": 7, "minimumRatePlnDay": 110},
-        {"minDays": 8, "maxDays": 20, "minimumRatePlnDay": 90},
-        {"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 90}
+        {
+          "minDays": 1,
+          "maxDays": 1,
+          "minimumRatePlnDay": 300
+        },
+        {
+          "minDays": 2,
+          "maxDays": 2,
+          "minimumRatePlnDay": 150
+        },
+        {
+          "minDays": 3,
+          "maxDays": 4,
+          "minimumRatePlnDay": 130
+        },
+        {
+          "minDays": 5,
+          "maxDays": 7,
+          "minimumRatePlnDay": 110
+        },
+        {
+          "minDays": 8,
+          "maxDays": 20,
+          "minimumRatePlnDay": 90
+        },
+        {
+          "minDays": 21,
+          "maxDays": 35,
+          "minimumRatePlnDay": 90
+        }
       ]
     },
     "pricingPolicy": {
@@ -43,29 +134,68 @@
       ],
       "normalFloorCapConflict": "preserve_baseline"
     },
-    "priorityTop1Rules": [{
-      "id": "all-locations-autumn-2026-short",
-      "locations": ["*"],
-      "zones": ["*"],
-      "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
-      "startDate": "2026-09-24",
-      "endDate": "2026-10-25",
-      "durationBands": [[2, 2], [3, 4]],
-      "transmission": "automatic",
-      "minimumRatePlnDay": 30,
-      "premiumReservePlnDay": 1
-    }, {
-      "id": "all-locations-autumn-2026-week",
-      "locations": ["*"],
-      "zones": ["*"],
-      "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"],
-      "startDate": "2026-09-24",
-      "endDate": "2026-10-25",
-      "durationBands": [[5, 7]],
-      "transmission": "automatic",
-      "minimumRatePlnDay": 40,
-      "premiumReservePlnDay": 1
-    }],
+    "priorityTop1Rules": [
+      {
+        "id": "all-locations-autumn-2026-short",
+        "locations": [
+          "*"
+        ],
+        "zones": [
+          "*"
+        ],
+        "groups": [
+          "CDMV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV"
+        ],
+        "startDate": "2026-09-24",
+        "endDate": "2026-10-25",
+        "durationBands": [
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "transmission": "automatic",
+        "minimumRatePlnDay": 30,
+        "premiumReservePlnDay": 1
+      },
+      {
+        "id": "all-locations-autumn-2026-week",
+        "locations": [
+          "*"
+        ],
+        "zones": [
+          "*"
+        ],
+        "groups": [
+          "CDMV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV"
+        ],
+        "startDate": "2026-09-24",
+        "endDate": "2026-10-25",
+        "durationBands": [
+          [
+            5,
+            7
+          ]
+        ],
+        "transmission": "automatic",
+        "minimumRatePlnDay": 40,
+        "premiumReservePlnDay": 1
+      }
+    ],
     "top1GapThresholdPlnDay": 10,
     "top1RaiseBufferPlnDay": 1,
     "top1UndercutThresholdPlnDay": 10,
