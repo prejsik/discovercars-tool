@@ -1265,9 +1265,84 @@ def get_mandatory_group_floor(
     return max(matches) if matches else None
 
 
+def get_mandatory_scoped_floors(config: dict[str, Any]) -> list[dict[str, Any]]:
+    if "_mandatory_scoped_floors" in config:
+        return config["_mandatory_scoped_floors"]
+    pricing = get_pricing_rules(config)
+    floors = pricing.get("mandatoryScopedFloorsPlnDay", [])
+    name = "mandatoryScopedFloorsPlnDay"
+    if not isinstance(floors, list):
+        raise ValueError(f"{name} must be an array.")
+    if not floors:
+        return []
+    groups = set(config.get("apply_groups", []) + config.get("excluded_groups", []))
+    groups.update((pricing.get("locationTypeFloorsPlnDay") or {}).get("groups", []))
+    groups.update((pricing.get("mandatoryGroupFloorsPlnDay") or {}).keys())
+    for rule in pricing.get("priorityTop1Rules", []) + (config.get("minimum_rates") or {}).get("scoped_overrides", []):
+        groups.update(rule.get("groups", []))
+    groups.update((config.get("group_price_parity") or {}).get("base_groups", []))
+    for field in ("group_rate_adjustments_pln_day", "excluded_group_highlights"):
+        groups.update((config.get(field) or {}).keys())
+    groups.update(((config.get("group_price_parity") or {}).get("premium_adjustments_pln_day") or {}).keys())
+    for values in (config.get("omitted_group_zones") or {}).values():
+        groups.update(values)
+    groups = {group for group in groups if isinstance(group, str) and re.fullmatch(r"[A-Z0-9]{4}", group)}
+    zones = {zone for values in (config.get("location_zones") or {}).values() for zone in values}
+    keys = {"groups", "zones", "startDate", "endDate", "minDays", "maxDays", "minimumRatePlnDay", "overrideProtected"}
+    bands = {(1, 1), (2, 2), (3, 4), (5, 7), (8, 20), (21, 35)}
+    for rule in floors:
+        if not isinstance(rule, dict) or set(rule) != keys:
+            raise ValueError(f"Invalid {name} fields.")
+        for field, known in (("groups", groups), ("zones", zones)):
+            scope = rule[field]
+            if (not isinstance(scope, list) or not scope
+                or any(not isinstance(item, str) or item not in known for item in scope)
+                or len(set(scope)) != len(scope)):
+                raise ValueError(f"Invalid {name} known {field} scope.")
+        start, end = (parse_date_value(rule[key]) for key in ("startDate", "endDate"))
+        if (start is None or end is None or start > end
+            or rule["startDate"] != start.isoformat() or rule["endDate"] != end.isoformat()
+            or any(type(rule[key]) not in {int, float} for key in ("minDays", "maxDays", "minimumRatePlnDay"))
+            or (rule["minDays"], rule["maxDays"]) not in bands
+            or not math.isfinite(rule["minimumRatePlnDay"]) or rule["minimumRatePlnDay"] <= 0
+            or type(rule["overrideProtected"]) is not bool):
+            raise ValueError(f"Invalid {name} dates, band, minimum or protection.")
+    periods = config.get("protected_rate_periods")
+    if not isinstance(periods, list) or any(
+        not isinstance(period, dict) or any(not isinstance(period.get(key), str)
+            or parse_date_value(period[key]) is None or parse_date_value(period[key]).isoformat() != period[key]
+            for key in ("start_date", "end_date")) for period in periods
+    ):
+        raise ValueError(f"{name} requires explicit valid protected_rate_periods.")
+    get_protected_rate_periods(config)
+    return floors
+
+
+def get_mandatory_scoped_floor(
+    zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
+) -> float | None:
+    floors = get_mandatory_scoped_floors(config)
+    if not floors:
+        return None
+    pickup = parse_date_value(pickup_date)
+    if pickup is None:
+        raise ValueError("mandatoryScopedFloorsPlnDay requires a valid pickup date.")
+    group, zone = normalize_code(group), normalize_code(zone)
+    if (group, zone) in get_omitted_group_zones(config):
+        return None
+    protected = date_is_rate_protected(pickup, get_protected_rate_periods(config))
+    matches = [float(rule["minimumRatePlnDay"]) for rule in floors
+               if group in rule["groups"] and zone in rule["zones"]
+               and min_days <= rule["maxDays"] and max_days >= rule["minDays"]
+               and rule["startDate"] <= pickup.isoformat() <= rule["endDate"]
+               and (not protected or rule["overrideProtected"] is True)]
+    return max(matches) if matches else None
+
+
 def get_mandatory_floor(
     zone: Any, group: Any, min_days: int, max_days: int, config: dict[str, Any], pickup_date: Any = None,
 ) -> tuple[float | None, str]:
+    scoped_minimum = get_mandatory_scoped_floor(zone, group, min_days, max_days, config, pickup_date)
     zone_minimum = get_mandatory_zone_floor(zone, min_days, max_days, config)
     if zone_minimum is not None and date_is_rate_protected(parse_date_value(pickup_date), get_protected_rate_periods(config)):
         zone_minimum = None
@@ -1275,6 +1350,8 @@ def get_mandatory_floor(
     if location_minimum is not None:
         zone_minimum = max(zone_minimum or 0, location_minimum)
     group_minimum = get_mandatory_group_floor(group, min_days, max_days, config, pickup_date)
+    if scoped_minimum is not None:
+        group_minimum = max(group_minimum or 0, scoped_minimum)
     if group_minimum is not None and (zone_minimum is None or group_minimum > zone_minimum):
         return group_minimum, "mandatory_group_floor"
     return zone_minimum, "mandatory_zone_floor"
@@ -1286,12 +1363,14 @@ def get_mandatory_correction_floor(
     minimum, recommendation_type = get_mandatory_floor(zone, group, min_days, max_days, config, pickup_date)
     location_minimum = get_location_type_floor(zone, group, min_days, max_days, config, pickup_date)
     # Reserve premium +1 for the new floor only; existing SZLO/holiday corrections are unchanged.
-    if (location_minimum is not None and minimum == location_minimum
+    if (location_minimum is not None
         and (get_mandatory_zone_floor(zone, min_days, max_days, config) or 0) < location_minimum
         and (get_mandatory_group_floor(group, min_days, max_days, config, pickup_date) or 0) < location_minimum):
         parity = get_group_price_parity(config)
         if parity:
-            minimum += max(0, parity[1].get(normalize_code(group), 0))
+            location_correction = location_minimum + max(0, parity[1].get(normalize_code(group), 0))
+            if location_correction > minimum:
+                minimum, recommendation_type = location_correction, "mandatory_zone_floor"
     return minimum, recommendation_type
 
 
@@ -1313,6 +1392,7 @@ def enforce_mandatory_floors(
     floors = get_mandatory_zone_floors(config)
     group_floors = get_mandatory_group_floors(config)
     location_floors = get_location_type_floors(config)
+    scoped_floors = get_mandatory_scoped_floors(config)
     columns = config["columns"]
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
     virtual_rates = {change["cell"]: change["new_rate"] for change in existing_changes}
@@ -1320,11 +1400,18 @@ def enforce_mandatory_floors(
     for row in range(int(config["data_start_row"]), ws.max_row + 1):
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
+        pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
+        scoped_bands = [rule for rule in scoped_floors if group in rule["groups"] and zone in rule["zones"]]
+        if scoped_bands and pickup is None:
+            raise ValueError(f"Missing pickup date for mandatoryScopedFloorsPlnDay: row {row}.")
+        scoped_bands = [rule for rule in scoped_bands
+                        if rule["startDate"] <= pickup.isoformat() <= rule["endDate"]
+                        and (rule["overrideProtected"] or not date_is_rate_protected(pickup, get_protected_rate_periods(config)))]
         has_location_floor = bool(location_floors and get_location_type_floor(
             zone, group, location_floors["minDays"], location_floors["maxDays"], config) is not None)
-        if zone not in floors and group not in group_floors and "*" not in group_floors and not has_location_floor:
+        if zone not in floors and group not in group_floors and "*" not in group_floors and not has_location_floor and not scoped_bands:
             continue
-        required_days = {day for band in floors.get(zone, []) + group_floors.get(group, []) + group_floors.get("*", [])
+        required_days = {day for band in floors.get(zone, []) + group_floors.get(group, []) + group_floors.get("*", []) + scoped_bands
                          for day in range(band["minDays"], band["maxDays"] + 1)}
         if has_location_floor:
             required_days.update(range(location_floors["minDays"], location_floors["maxDays"] + 1))
@@ -1569,6 +1656,13 @@ def get_floor_legend_text(config: dict[str, Any]) -> str:
         parts.append(f"Obowiazkowe minimum {zone}, bezterminowo dla wszystkich klas poza chronionymi datami: {amounts}. "
                      "Podnosimy tylko stawki ponizej minimum, takze w klasach wykluczonych; chronione daty zachowuja stawki bazowe, "
                      "bez wymagania ceny ze scrapera i poza jego zakresem; wyzsze ceny nie sa obnizane przez te korekte")
+    for rule in get_mandatory_scoped_floors(config):
+        parts.append("Obowiazkowe minimum wybranych klas " + ", ".join(rule["groups"])
+                     + "; strefy " + ", ".join(rule["zones"])
+                     + f"; pickup {rule['startDate']}-{rule['endDate']} wlacznie; duration {rule['minDays']}-{rule['maxDays']}: "
+                     + f"{format_rate_for_comment(rule['minimumRatePlnDay'])} PLN/dobe. "
+                     + ("Jawny wyjatek od ochrony dat. " if rule["overrideProtected"] else "Chronione daty bez zmian. ")
+                     + "Takze klasy wykluczone; tylko podnoszenie nizszych stawek. Wyzsze minima pozostaja; bez rozszerzania zakresu ani celu rankingowego.")
     global_min = parse_number(rules.get("global_min_pln_day"))
     if location_floors:
         parts.append("Ponizsze zwykle minima obowiazuja tylko poza zakresem nowego minimum typu lokalizacji; nie zastepuja reguly miasto/lotnisko")
@@ -2284,6 +2378,9 @@ def build_validation_rows(
                 and (final_rate is None or final_rate < minimum)):
                 mandatory_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
             group_minimum = get_mandatory_group_floor(group, *bands_by_col[col], config, pickup_start)
+            scoped_minimum = get_mandatory_scoped_floor(zone, group, *bands_by_col[col], config, pickup_start)
+            if scoped_minimum is not None:
+                group_minimum = max(group_minimum or 0, scoped_minimum)
             if group_minimum is not None and (final_rate is None or final_rate < group_minimum):
                 mandatory_group_floor_violations.append(f"row {row} {group}/{zone}/{get_column_letter(col)}")
             location_minimum = get_location_type_floor(zone, group, *bands_by_col[col], config, pickup_start)
@@ -3442,6 +3539,7 @@ def apply_updates(
               "_pricing_policy": get_pricing_policy(config),
               "_mandatory_zone_floors": get_mandatory_zone_floors(config),
               "_mandatory_group_floors": get_mandatory_group_floors(config),
+              "_mandatory_scoped_floors": get_mandatory_scoped_floors(config),
               "_location_type_floors": get_location_type_floors(config),
               "_location_type_allowed_groups": resolve_apply_groups(config, None)}
     baseline_confirmation = load_baseline_confirmation(config, input_workbook_sha256)

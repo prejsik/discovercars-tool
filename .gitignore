@@ -35,6 +35,8 @@
 
 !src/
 !src/**
+!rules-panel/
+!rules-panel/**
 !tests/
 !tests/**
 !tools/

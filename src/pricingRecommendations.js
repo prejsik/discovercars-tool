@@ -7,7 +7,9 @@ const {
 } = require("./brokerMarkupCalibration");
 const {
   DEFAULT_PRICING_RULES, resolveMandatoryZoneFloorPlnDay, validateMandatoryZoneFloorsPlnDay,
-  resolveLocationTypeFloorPlnDay, validateLocationTypeFloorsPlnDay
+  resolveLocationTypeFloorPlnDay, validateLocationTypeFloorsPlnDay,
+  resolveMandatoryScopedFloorPlnDay, validateMandatoryScopedFloorsPlnDay, prepareMandatoryScopedFloors,
+  resolveMandatoryGroupFloorPlnDay
 } = require("./pricingRules");
 const { buildLocationZones, loadLocationRegistry } = require("./locationRegistry");
 const { buildCurrentMarkupEvidence, hasMarkupConflict, keyOf: markupKey } = require("./currentBrokerMarkup");
@@ -189,9 +191,14 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   const locationTypeMinimum = Math.max(0, ...(locationZones?.[location] || [location]).map((zone) =>
     resolveLocationTypeFloorPlnDay(zoneKinds?.[zone], scenario.rental_days, options, scenario.group)
   ));
-  const mandatoryMinimum = Math.max(locationTypeMinimum, ...(locationZones?.[location] || [location]).map((zone) =>
-    resolveMandatoryZoneFloorPlnDay(zone, scenario.rental_days, options)
-  ));
+  const mandatoryMinimum = Math.max(locationTypeMinimum, ...(locationZones?.[location] || [location]).map((zone) => {
+    const pickup = scenario.pickup_date || scenario.start_date;
+    const periods = options.excelPolicy?.protected_rate_periods;
+    const scoped = resolveMandatoryScopedFloorPlnDay(zone, scenario.rental_days, options, scenario.group, pickup, periods);
+    // Keep the legacy recommendation path unchanged outside the new matrix scope.
+    const group = scoped > 0 ? resolveMandatoryGroupFloorPlnDay(scenario.group, scenario.rental_days, options, pickup, periods) : 0;
+    return Math.max(resolveMandatoryZoneFloorPlnDay(zone, scenario.rental_days, options), scoped, group);
+  }));
 
   const base = {
     ...(mandatoryMinimum > 0 ? { mandatory_minimum_rate_pln_day: mandatoryMinimum } : {}),
@@ -435,8 +442,11 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
   validateMandatoryZoneFloorsPlnDay(options.mandatoryZoneFloorsPlnDay);
   validateLocationTypeFloorsPlnDay(options.locationTypeFloorsPlnDay);
-  const needsRegistry = Object.keys(options.mandatoryZoneFloorsPlnDay || {}).length || options.locationTypeFloorsPlnDay;
+  validateMandatoryScopedFloorsPlnDay(options.mandatoryScopedFloorsPlnDay);
+  const needsRegistry = Object.keys(options.mandatoryZoneFloorsPlnDay || {}).length || options.locationTypeFloorsPlnDay
+    || options.mandatoryScopedFloorsPlnDay?.length;
   const registry = needsRegistry ? options.locationRegistry || loadLocationRegistry() : null;
+  if (options.mandatoryScopedFloorsPlnDay?.length) options.excelPolicy = prepareMandatoryScopedFloors(options, registry);
   if (options.locationTypeFloorsPlnDay && registry.locations.some((entry) => !["city", "airport"].includes(entry.kind))) {
     throw new Error("Location registry kind must be city or airport for locationTypeFloorsPlnDay.");
   }

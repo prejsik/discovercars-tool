@@ -1,0 +1,78 @@
+name: Rules Panel Preview
+run-name: Rules preview ${{ inputs.preview_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_id:
+        description: Opaque preview UUID
+        required: true
+        type: string
+      request:
+        description: Authenticated encrypted preview request
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted workflow source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Authenticate private request and source pins
+        id: validate
+        env:
+          PANEL_PREVIEW_KEY: ${{ secrets.PANEL_PREVIEW_KEY }}
+          PANEL_PREVIEW_REQUEST: ${{ inputs.request }}
+          PANEL_PREVIEW_ID: ${{ inputs.preview_id }}
+        run: node rules-panel/server/run-preview-job.mjs validate
+
+      - name: Checkout validated immutable source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.validate.outputs.source_revision }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install trusted regression-test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/preview-root-install.log" 2>&1
+          npm ci --prefix rules-panel --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/preview-panel-install.log" 2>&1
+          python -m pip install 'openpyxl>=3.1,<4' > "$RUNNER_TEMP/preview-python-install.log" 2>&1
+          npx playwright install --with-deps chromium > "$RUNNER_TEMP/preview-browser-install.log" 2>&1
+
+      - name: Compute and encrypt private impact preview
+        env:
+          PANEL_PREVIEW_KEY: ${{ secrets.PANEL_PREVIEW_KEY }}
+          PANEL_PREVIEW_REQUEST: ${{ inputs.request }}
+          PANEL_PREVIEW_ID: ${{ inputs.preview_id }}
+        run: node rules-panel/server/run-preview-job.mjs run
+
+      - name: Upload encrypted result only
+        uses: actions/upload-artifact@v4
+        with:
+          name: rules-panel-preview-${{ inputs.preview_id }}
+          path: ${{ runner.temp }}/rules-panel-preview/preview.enc
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0

@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "discovercars-rules-panel",
+  "account_id": "3c7ac86a92a7037dfd1fd49d72abebc9",
+  "main": "worker/entry.mjs",
+  "compatibility_date": "2026-10-15",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "PANEL_WRITES_ENABLED": "false",
+    "ACCESS_TEAM_DOMAIN": "https://shy-frost-2ba5.cloudflareaccess.com",
+    "ACCESS_AUD": "01d95ecdc70f66541c90806e75eb513e104f91d3bcc77cecde0b697816de5189"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "RULES_WORKSPACE", "class_name": "RulesWorkspace" }]
+  },
+  "migrations": [{ "tag": "rules-workspace-v1", "new_sqlite_classes": ["RulesWorkspace"] }],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "rules-panel-storage-test",
+  "main": "storage-worker.mjs",
+  "compatibility_date": "2026-10-15",
+  "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "StorageProbe" }] },
+  "migrations": [{ "tag": "test-v1", "new_sqlite_classes": ["StorageProbe"] }]
+}
