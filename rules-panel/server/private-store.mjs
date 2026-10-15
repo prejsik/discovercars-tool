@@ -16,8 +16,24 @@ export class PrivateWorkspaceStore {
   async status() {
     const baseline = (await this.snapshot()).baseline;
     const cached = await this.storage.get('operational-status');
-    if (cached?.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60000) return { ...cached, baseline };
-    const status = await readOperationalStatus(baseline);
+    if (cached?.schemaVersion === 2 && cached.baseline?.sha256 === baseline.sha256 && cached.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60000) return { ...cached, baseline };
+    const status = await readOperationalStatus(baseline, this.repository.fetcher, this.repository.latestRuns ? () => this.repository.latestRuns() : undefined,
+      this.repository.publishedStatistics ? async record => {
+        const old = await this.storage.get('report-statistics');
+        if (old?.runId === record.runId && old.importSha256 === record.files?.['rates-import-ready.xlsx']) return old;
+        const proof = await this.repository.publishedStatistics(record);
+        await this.storage.put('report-statistics', proof);
+        return proof;
+      } : undefined);
+    status.schemaVersion = 2;
+    for (const record of [status.report, status.excel].filter(Boolean)) {
+      record.baselineMatchesCurrent = record.baselineSha256 === baseline.sha256;
+      if (record.baselineMatchesCurrent) record.baselineFilename = baseline.filename;
+      else {
+        try { record.baselineFilename = (await this.repository.json('input/baseline-manifest.json', record.revision)).source_filename; }
+        catch { record.baselineFilename = null; }
+      }
+    }
     if (status.available) await this.storage.put('operational-status', status);
     return status;
   }
@@ -82,7 +98,7 @@ export class PrivateWorkspaceStore {
     const approvalId = crypto.randomUUID();
     const entry = { revision: record.draft.revision, at: record.approvedAt, actor: record.actor,
       action: 'approval_pending', approvalId, reason: record.draft.reason, sourceRevision: record.draft.sourceRevision,
-      changes: record.draft.changes, previewRevision: record.preview.revision };
+      changes: record.draft.changes };
     // Persist the identity before an external commit that may succeed despite a lost response.
     await this.storage.put({ [`approval:${approvalId}`]: entry, [auditKey(entry.at, approvalId)]: entry });
     const result = await this.repository.publish({ ...record, approvalId });

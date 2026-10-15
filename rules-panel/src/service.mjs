@@ -47,7 +47,11 @@ export function createService(fetcher = (...args) => fetch(...args)) {
       return request("/api/draft", { ...input, reason });
     },
     preview: draftRevision => request("/api/preview", { draftRevision }),
-    publish: (draftRevision, previewRevision) => request("/api/publish", { draftRevision, previewRevision }),
+    publish: (draftRevision) => request("/api/publish", { draftRevision }),
+    checkBaseline: input => request('/api/baseline/check', input),
+    publishBaseline: input => request('/api/baseline/publish', input),
+    checkReportBaseline: input => request('/api/report-baseline/check', input),
+    publishReportBaseline: input => request('/api/report-baseline/publish', input),
     rollback: (revision, expectedRevision) => request("/api/rollback", { revision, expectedRevision }),
   };
 }

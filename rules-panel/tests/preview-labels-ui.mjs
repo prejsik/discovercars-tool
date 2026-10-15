@@ -58,19 +58,17 @@ for (const mode of ["local", "hosted-preview"]) {
       );
       await page.goto(origin);
       await page.locator('[data-rule-id="location:city"]').waitFor();
-      const modeLabel = page.locator("main > .info-line");
+      const modeLabel = page.locator("main > .context-line");
       assert.match(
         await modeLabel.innerText(),
-        hosted ? /Podgląd online.*Stan zasad na/ : /Tryb lokalny.*Odczyt konfiguracji/,
+        hosted ? /Podgląd online.*Stan na/ : /Tryb lokalny.*Stan na/,
       );
       const timestamp = modeLabel.locator("time");
       assert.equal(await timestamp.isVisible(), true);
       assert.equal(await timestamp.getAttribute("datetime"), loadedAt);
       assert.match(await timestamp.innerText(), /15\.10\.2026.*11:30/);
-      assert.match(
-        await page.locator(".page-footer").innerText(),
-        /Szkic tylko w tej przeglądarce.*Publikacja niepodłączona/,
-      );
+      await page.getByRole('button', { name: 'Podgląd zmian', exact: true }).click();
+      assert.match(await page.locator('main').innerText(), /Publikacja niepodłączona.*Zmiany pozostają w szkicu tej przeglądarki/);
       assert.equal(
         await page.getByRole("button", { name: "Opublikuj", exact: true }).isDisabled(),
         true,
@@ -85,6 +83,7 @@ for (const mode of ["local", "hosted-preview"]) {
           /panel jest lokalny|wymaga.*logowania/i,
         );
       }
+      await page.getByRole('button', { name: 'Zasady cenowe', exact: true }).click();
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true,
@@ -96,9 +95,11 @@ for (const mode of ["local", "hosted-preview"]) {
       await page.getByRole("dialog").waitFor({ state: "hidden" });
       assert.equal(await timestamp.getAttribute("datetime"), loadedAt);
       assert.equal(await timestamp.isVisible(), true);
-      assert.match(await page.locator(".page-footer").innerText(), /Zapis szkicu:/);
+      assert.match(await page.locator('.draft-status').innerText(), /szkic tylko w tej przeglądarce.*nieopublikowane/);
+      assert.match(await page.locator('.draft-status').getAttribute('title'), /Zapisano:/);
 
       await page.getByRole("button", { name: "Źródła i publikacja", exact: true }).click();
+      await page.getByText('Konfiguracja techniczna', { exact: true }).click();
       const sources = await page.locator("main").innerText();
       assert.match(sources, hosted ? /Podgląd online/ : /Tryb lokalny/);
       assert.match(

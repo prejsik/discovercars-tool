@@ -1432,7 +1432,8 @@ runTest("Telegram success summary reports actual Excel changes instead of candid
     "",
     "Import: https://example.test/import.xlsx",
     "Rekomendacje: https://example.test/recommendations.xlsx",
-    "Raport cen: https://example.test/report.html"
+    "Raport cen: https://example.test/report.html",
+    "Panel: https://discovercars-rules-panel.bartek-prejs.workers.dev/?view=results"
   ].join("\n"));
   assert.doesNotMatch(message, /Sprawdzono|rolling|CZĘŚCIOWO GOTOWE|Ostrzeżenia:|Czas:/);
 });

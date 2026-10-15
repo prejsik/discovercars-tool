@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowRight,
-  ArrowUpRight,
-  Building2,
   CalendarDays,
   Check,
   CheckCheck,
@@ -19,7 +17,6 @@ import {
   LockKeyhole,
   MapPin,
   Pencil,
-  Plane,
   Plus,
   RotateCcw,
   Search,
@@ -27,16 +24,19 @@ import {
   SlidersHorizontal,
   Trash2,
   TriangleAlert,
+  Upload as UploadIcon,
   X,
 } from "lucide-react";
 import "@fontsource-variable/inter";
 import "./styles.css";
 import * as policy from "./policy.mjs";
 import { createService } from "./service.mjs";
-import { filterRules, locationOptions, publishBlocker } from "./editor.mjs";
+import { filterRules, groupRuleBands, locationOptions, publishBlocker } from "./editor.mjs";
 import { modeLabel } from "./display.mjs";
 import { BusinessEditor, ReasonField } from "./BusinessEditor.jsx";
-import { ImpactReview, OperationalStatus, SharedHistory } from "./WorkspaceViews.jsx";
+import { OperationalStatus, SharedHistory } from "./WorkspaceViews.jsx";
+import { BaselineView } from './BaselineView.jsx';
+import { ReportsView } from './ReportsView.jsx';
 import {
   createModel,
   buildRules,
@@ -87,19 +87,24 @@ const knownGroups = (model) =>
     ...new Set([...model.excel.apply_groups, ...model.excel.excluded_groups]),
   ].sort();
 const nav = [
+  ["results", "Ostatnie wyniki", Download],
   ["rules", "Zasady cenowe", SlidersHorizontal],
   ["groups", "Klasy pojazdów", Layers3],
   ["preview", "Sprawdź reguły", ClipboardCheck],
+  ["review", "Podgląd zmian", FileCheck2],
   ["history", "Historia szkicu", History],
+  ["baseline", "Plik bazowy", UploadIcon],
   ["sources", "Źródła i publikacja", GitBranch],
 ];
 const titles = {
+  results: "Ostatnie wyniki",
   rules: "Zasady cenowe",
   groups: "Klasy pojazdów",
   preview: "Sprawdź reguły",
   history: "Historia szkicu",
   sources: "Źródła i publikacja",
   review: "Podgląd zmian",
+  baseline: "Plik bazowy",
 };
 const period = (rule) =>
   rule.startDate || rule.endDate
@@ -121,16 +126,6 @@ const scopeText = (rule, model) =>
       : !rule.zones?.length || rule.zones.includes("*")
         ? "Wszystkie lokalizacje"
         : rule.zones.map(zone => model ? locationOptions(model).find(item => item.value === zone)?.label ?? zone : zone).join(", ");
-const iconFor = (rule) =>
-  rule.category === "protected"
-    ? ShieldCheck
-    : rule.kind === "airport"
-      ? Plane
-      : rule.category === "priority"
-        ? ArrowUpRight
-        : rule.kind === "city"
-          ? Building2
-          : CalendarDays;
 async function fetchSnapshot() {
   const response = await fetch("/policy-snapshot.json", { cache: "no-store" });
   if (!response.ok)
@@ -153,12 +148,11 @@ function App() {
   const pendingModelRef = useRef(null);
   const [clockTick, setClockTick] = useState(Date.now());
   const publicationBlocker = publishBlocker(workspaceData, clockTick);
-  const hostedPreview = snapshot?.capabilities?.mode === "hosted-preview";
   const [model, setModel] = useState(null);
   const [history, setHistory] = useState([]);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [view, setView] = useState("rules");
+  const [view, setView] = useState(() => window.location.hash === '#results' || new URLSearchParams(window.location.search).get('view') === 'results' ? 'results' : 'rules');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [rulePeriod, setRulePeriod] = useState("current");
@@ -202,21 +196,21 @@ function App() {
       ),
     [rules, originalRules],
   );
-  const locations = model ? locationList(model) : [];
 
   function acceptWorkspace(data) {
     if (!data.snapshot?.documents || !data.capabilities)
       throw new Error("Nieprawidłowa odpowiedź workspace. Zachowano szkic tej karty.");
     const source = createModel(data.snapshot.documents);
-    const sourceChanged = data.draft && ((data.draft.sourceRevision && data.draft.sourceRevision !== data.snapshot.source.revision) || (data.draft.sourceHash && data.draft.sourceHash !== data.snapshot.source.policyHash));
-    const restored = sourceChanged ? source : data.draft?.model ?? source;
+    const alreadyPublished = Boolean(data.draft && data.publication?.draftRevision === data.draft.revision && data.publication.policyMatchesCurrent === true);
+    const sourceChanged = !alreadyPublished && data.draft && ((data.draft.sourceRevision && data.draft.sourceRevision !== data.snapshot.source.revision) || (data.draft.sourceHash && data.draft.sourceHash !== data.snapshot.source.policyHash));
+    const restored = alreadyPublished || sourceChanged ? source : data.draft?.model ?? source;
     const checked = validateModel(restored, source);
     if (checked.errors.length) throw new Error(checked.errors.map(item => item.message).join(" "));
-    setWorkspaceData(data);
+    setWorkspaceData(alreadyPublished ? { ...data, draft: null } : data);
     setSnapshot(data.snapshot);
     setModel(restored);
     setHistory(data.history ?? []);
-    setSaved(data.draft?.savedAt ?? null);
+    setSaved(alreadyPublished ? null : data.draft?.savedAt ?? null);
     revisionRef.current = data.draft?.revision ?? null;
     setDraftConflict(false);
     setStale(sourceChanged ? data.draft : null);
@@ -234,21 +228,7 @@ function App() {
     } finally { actionRef.current = false; setBusy(false); }
   }
 
-  async function previewDraft() {
-    try {
-      await remoteAction(async () => {
-        const result = await service.preview(revisionRef.current);
-        if (result.queued) {
-          setWorkspaceData(current => ({ ...current, preview: { ...result, status: result.status ?? "queued" } }));
-          setNotice("Przeliczenie zlecone. Odśwież wynik po zakończeniu przebiegu.");
-        }
-        else { acceptWorkspace(result); setNotice("Przeliczono wpływ szkicu. Nie opublikowano zmian."); }
-      });
-    } catch { /* Visible action error retains the current draft. */ }
-  }
-
   async function publishDraft() {
-    const preview = workspaceData?.preview;
     const blocker = publishBlocker(workspaceData);
     if (blocker) {
       setActionError(blocker);
@@ -257,7 +237,7 @@ function App() {
     if (!window.confirm(`Opublikować szkic ${revisionRef.current} do zatwierdzonych plików konfiguracji w GitHub main? Nie oznacza to importu stawek do DiscoverCars.`)) return;
     try {
       await remoteAction(async () => {
-        const published = await service.publish(revisionRef.current, preview.revision);
+        const published = await service.publish(revisionRef.current);
         setNotice(`Opublikowano konfigurację: ${published.revision}. Import stawek nie został potwierdzony.`);
         acceptWorkspace(await service.workspace());
       });
@@ -528,102 +508,47 @@ function App() {
           {nav.map(([id, label, Icon]) => (
             <button
               key={id}
-              className={`nav-item ${view === id ? "active" : ""}`}
+              className={`nav-item ${view === id ? "active" : ""} ${id === "history" ? "nav-secondary" : ""}`}
               aria-current={view === id ? "page" : undefined}
               aria-label={label}
               onClick={() => go(id)}
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id === "rules" && (
-                <span className="nav-count">{rules.length}</span>
+              {id === "review" && changes.length > 0 && (
+                <span className="nav-count">{changes.length}</span>
               )}
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <span className="local-dot" />
-          <span>{remote ? "Szkic współdzielony" : hostedPreview ? "Podgląd online" : "Wersja lokalna"}</span>
-          <button
-            className="icon-button"
-            title="Źródła i stan publikacji"
-            aria-label="Źródła i stan publikacji"
-            onClick={() => go("sources")}
-          >
-            <CircleHelp size={18} />
-          </button>
-        </div>
       </aside>
       <div className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            DiscoverCars <ChevronRight size={14} />
-            <span>Kontrola zasad</span>
-          </div>
-          <div className="topbar-status">
-            <GitBranch size={15} />
-            <span>{snapshot.source.revision.slice(0, 7)}</span>
-            <span className="divider" />
-            <span className="local-label">{remote ? "Szkic współdzielony" : "Szkic w tej przeglądarce"}</span>
-          </div>
-        </header>
         <main id="main" ref={mainRef} tabIndex={-1}>
           <div className="page-heading">
             <div>
               <h1>{titles[view]}</h1>
-              <p>
-                {view === "rules"
-                  ? "Minima, okresy ochronne i cele cenowe."
-                  : view === "groups"
-                    ? "Dopuszczenie klas do rekomendacji rynkowych."
-                    : view === "preview"
-                      ? "Obowiązujące minima dla konkretnego najmu."
-                      : view === "review"
-                        ? "Porównanie szkicu z zasadami źródłowymi."
-                        : view === "history"
-                          ? remote ? "Zmiany w szkicu współdzielonym." : "Zmiany zapisane w tej przeglądarce."
-                          : "Konfiguracja projektu i stan połączeń."}
-              </p>
             </div>
             <div className="heading-actions">
-              <button className="button" onClick={() => go("review")}>
-                <FileCheck2 size={17} />
-                Podgląd zmian
-                {changes.length > 0 && (
-                  <span className="button-count">{changes.length}</span>
-                )}
-              </button>
-              <span className="disabled-wrapper" tabIndex={publicationBlocker ? 0 : undefined} title={publicationBlocker || "Publikacja konfiguracji do GitHub main, bez importu stawek."}>
+              {view === "rules" && <button className="button primary" disabled={blockedDraft || busy} onClick={() => setEditor({ isNew: true })}>
+                <Plus size={17} />Dodaj regułę
+              </button>}
+              {view === "review" && <span className="disabled-wrapper" tabIndex={publicationBlocker ? 0 : undefined} title={publicationBlocker || "Publikacja konfiguracji do GitHub main, bez importu stawek."}>
                 <button className="button primary" disabled={Boolean(publicationBlocker) || busy || blockedDraft || validation.errors.length > 0} onClick={publishDraft}>
                   <LockKeyhole size={16} />
                   Opublikuj
                 </button>
-              </span>
+              </span>}
             </div>
           </div>
-          <div className="info-line">
-            <History size={17} />
+          <div className="context-line">
             <span>
               <strong>{modeLabel(snapshot.capabilities?.mode)}</strong>
-              {hostedPreview ? " · Stan zasad na " : " · Odczyt konfiguracji: "}
+              {" · Stan na "}
               <time dateTime={snapshot.source.loadedAt}>
                 {snapshotTime(snapshot.source.loadedAt)}
               </time>
             </span>
-          </div>
-          <div className="status-strip">
-            <span>
-              <Check size={15} />
-              {locations.length} punktów ·{" "}
-              {locations.flatMap((item) => item.zones).length} kodów Excel
-            </span>
-            <span>{knownGroups(model).length} klas</span>
-            <span>PLN brutto / dobę</span>
-            <span className="status-strip-end">
-              {changes.length
-                ? `Zmienione pola: ${changes.length}`
-                : "Brak zmian w szkicu"}
-            </span>
+            {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{changes.length} zmian · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
           </div>
           {actionError && <div className="alert error" role="alert"><TriangleAlert size={18} /><div><p>{actionError}</p>{pendingModelRef.current && !draftConflict && <button className="text-button" onClick={() => downloadJson({ sourceHash: snapshot.source.policyHash, model: pendingModelRef.current }, "discovercars-niezapisany-szkic.json")}>Pobierz niezapisane zmiany</button>}{loadError && <button className="text-button" disabled={busy} onClick={refreshWorkspace}>Ponów odczyt</button>}</div></div>}
           {notice && (
@@ -750,126 +675,26 @@ function App() {
                   </select>
                 </div>
                 <div className="filter-control"><CalendarDays size={17} /><select aria-label="Okres reguł" value={rulePeriod} onChange={event => setRulePeriod(event.target.value)}><option value="current">Bieżące i nadchodzące</option><option value="expired">Zakończone</option><option value="all">Wszystkie okresy</option></select></div>
-                <button
-                  className="button primary"
-                  disabled={blockedDraft || busy}
-                  onClick={() => setEditor({ isNew: true })}
-                >
-                  <Plus size={17} />
-                  Dodaj regułę
-                </button>
               </div>
               <div className="table-caption">
-                <span>{filtered.length} reguł</span>
-                <span>
+                <span>Stawki brutto · PLN / dobę</span>
+                {changes.length > 0 && <span>
                   <span className="legend-dot" />
                   Zmiana w szkicu
-                </span>
+                </span>}
               </div>
-              <div className="rule-table">
-                <div className="table-head">
-                  <span>Reguła i zakres</span>
-                  <span>Minimum reguły</span>
-                  <span>Najem</span>
-                  <span>Daty startu</span>
-                  <span className="sr-only">Działania</span>
-                </div>
-                {filtered.map((rule) => {
-                  const Icon = iconFor(rule);
-                  const changed = changedIds.has(rule.id);
-                  const expired = rule.endDate && rule.endDate < today();
-                  return (
-                    <article
-                      className={`rule-row ${changed ? "changed" : ""}`}
-                      key={rule.id}
-                      data-rule-id={rule.id}
-                    >
-                      <div className="rule-primary">
-                        <span className={`rule-icon ${rule.category}`}>
-                          <Icon size={19} />
-                        </span>
-                        <div>
-                          <div className="rule-title">
-                            {rule.title}
-                            {changed && (
-                              <span className="draft-tag">Szkic</span>
-                            )}
-                          </div>
-                          <div className="rule-scope">{rule.zones?.length > 3 && !rule.zones.includes("*") ? <details className="scope-details"><summary>{rule.zones.length} lokalizacji</summary>{scopeText(rule, model)}</details> : scopeText(rule, model)}</div>
-                          <div className="rule-groups">{groupText(rule)}</div>
-                          {rule.overrideProtected && (
-                            <span className="exception-label">
-                              Wyjątek od ochrony dat
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="rate-cell" data-label="Minimum">
-                        {rule.amount === null || rule.amount === undefined ? (
-                          <span className="muted">Bez zmiany cen</span>
-                        ) : (
-                          <>
-                            <strong>{money(rule.amount)}</strong>
-                            <span> PLN / dobę</span>
-                            {rule.category === "priority" && (
-                              <small className="subordinate-floor">
-                                Nadrzędne:{" "}
-                                {money(
-                                  model.pricing.pricing.locationTypeFloorsPlnDay
-                                    .minimumRatesByKind.airport,
-                                )}
-                                /
-                                {money(
-                                  model.pricing.pricing.locationTypeFloorsPlnDay
-                                    .minimumRatesByKind.city,
-                                )}{" "}
-                                PLN
-                              </small>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <div className="duration-cell" data-label="Najem">
-                        {rule.minDays ? days(rule) : "Wszystkie długości"}
-                      </div>
-                      <div className="dates-cell" data-label="Daty startu">
-                        {period(rule)}
-                        <span
-                          className={`status-label ${expired ? "muted" : ""}`}
-                        >
-                          {expired
-                            ? "Okres zakończony"
-                            : rule.startDate && rule.startDate > today()
-                              ? "Nadchodzący okres"
-                              : rule.category === "legacy"
-                                ? "Reguła uzupełniająca"
-                                : rule.category === "priority"
-                                  ? "Podlega nadrzędnym minimom"
-                                  : "Obowiązuje"}
-                        </span>
-                      </div>
-                      <div className="row-action">
-                        <button
-                          className="icon-button"
-                          disabled={!rule.editable || blockedDraft || busy}
-                          aria-label={`Edytuj: ${rule.title}`}
-                          title={
-                            rule.editable
-                              ? "Edytuj regułę"
-                              : "Reguła tylko do odczytu"
-                          }
-                          onClick={() => setEditor({ rule })}
-                        >
-                          {rule.editable ? (
-                            <Pencil size={17} />
-                          ) : (
-                            <LockKeyhole size={16} />
-                          )}
-                        </button>
-                      </div>
-                    </article>
-                  );
+              <div className="rules-register">
+                {[["location", "Minima podstawowe"], ["mandatory", "Minima szczególne"], ["protected", "Chronione terminy"], ["priority", "Cel cenowy"]].map(([id, title]) => {
+                  const items = filtered.filter(rule => rule.category === id);
+                  return items.length > 0 && <section className="rule-section" aria-labelledby={`section-${id}`} key={id}>
+                    <h2 id={`section-${id}`}>{title}</h2>
+                    <RuleRows rules={items} model={model} changedIds={changedIds} blocked={blockedDraft || busy} expanded={Boolean(search) || category !== "all"} onEdit={rule => setEditor({ rule })} />
+                  </section>;
                 })}
+                {filtered.some(rule => rule.category === "legacy") && <details className="supplementary-rules" key={`${search}:${category}:${rulePeriod}`} open={Boolean(search) || category === "legacy"}>
+                  <summary>Reguły uzupełniające <span>{filtered.filter(rule => rule.category === "legacy").length}</span></summary>
+                  <RuleRows rules={filtered.filter(rule => rule.category === "legacy")} model={model} changedIds={changedIds} blocked={true} expanded={true} onEdit={rule => setEditor({ rule })} />
+                </details>}
                 {!filtered.length && (
                   <Empty
                     icon={Search}
@@ -888,16 +713,6 @@ function App() {
                     }
                   />
                 )}
-              </div>
-              <div className="footnote">
-                <ShieldCheck size={17} />
-                <span>
-                  Chronione terminy pozostają bez zmian, z wyjątkiem minimów
-                  obowiązkowych oznaczonych jako nadrzędne.
-                </span>
-                <button className="text-button" onClick={() => go("preview")}>
-                  Sprawdź konkretny najem <ArrowRight size={15} />
-                </button>
               </div>
             </>
           )}
@@ -924,7 +739,8 @@ function App() {
           {view === "preview" && <Preview model={model} rules={rules} />}
           {view === "review" && (
             <>
-            {remote && <ImpactReview workspace={workspaceData} model={model} busy={busy} blocked={blockedDraft} publicationBlocker={publicationBlocker} onPreview={previewDraft} onRefresh={refreshWorkspace} />}
+            {!remote && <p className="empty-copy">Publikacja niepodłączona. Zmiany pozostają w szkicu tej przeglądarki.</p>}
+            {remote && publicationBlocker && <p className="empty-copy">{publicationBlocker}</p>}
             <Review
               {...{
                 model,
@@ -982,18 +798,9 @@ function App() {
               )}
             </section>
           )}
-          {view === "sources" && <><OperationalStatus workspace={workspaceData} snapshot={snapshot} /><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></>}
-          <footer className="page-footer">
-            <span>
-              <LockKeyhole size={14} />
-              {remote ? `Szkic współdzielony · ${workspaceData.capabilities.publish ? "Publikacja konfiguracji dostępna" : "Publikacja nieaktywna"}` : "Szkic tylko w tej przeglądarce · Publikacja niepodłączona"}
-            </span>
-            <span>
-              {saved
-                ? `Zapis szkicu: ${new Date(saved).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`
-                : `${hostedPreview ? "Stan zasad na" : "Odczyt"}: ${snapshotTime(snapshot.source.loadedAt)}`}
-            </span>
-          </footer>
+          {view === 'results' && <ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} />}
+          {view === 'baseline' && <BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} />}
+          {view === "sources" && <><OperationalStatus workspace={workspaceData} snapshot={snapshot} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
         </main>
       </div>
       {editor?.isNew && <BusinessEditor model={model} remote={remote} supported={typeof policy.addFloorMatrix === "function"} onClose={() => setEditor(null)} onSave={async (fields, changeReason) => {
@@ -1040,6 +847,51 @@ function App() {
       )}
     </div>
   );
+}
+
+function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit }) {
+  const row = rule => <article className={`rule-row ${changedIds.has(rule.id) ? "changed" : ""}`} key={rule.id} data-rule-id={rule.id}>
+    <RuleCells rule={rule} model={model} changed={changedIds.has(rule.id)} />
+    <div className="row-action">
+      {rule.editable ? <button className="icon-button" disabled={blocked} aria-label={`Edytuj: ${rule.title}`} title="Edytuj regułę" onClick={() => onEdit(rule)}><Pencil size={17} /></button>
+        : <span className="readonly-icon" title="Reguła tylko do odczytu" aria-label="Reguła tylko do odczytu"><LockKeyhole size={16} /></span>}
+    </div>
+  </article>;
+  return <div className="rule-table">
+    <div className="table-head"><span>Reguła i zakres</span><span>Minimum / dobę</span><span>Najem</span><span>Daty startu</span><span className="sr-only">Działania</span></div>
+    {groupRuleBands(rules).map(family => family.length === 1 ? row(family[0]) : <details className="rule-family" key={`${family[0].id}:${expanded}`} open={expanded || family.some(rule => changedIds.has(rule.id))}>
+      <summary className={`rule-row ${family.some(rule => changedIds.has(rule.id)) ? "changed" : ""}`}>
+        <RuleCells rule={family[0]} family={family} model={model} changed={family.some(rule => changedIds.has(rule.id))} />
+        <ChevronRight className="family-chevron" size={18} />
+      </summary>
+      {family.map(row)}
+    </details>)}
+  </div>;
+}
+
+function RuleCells({ rule, family, model, changed }) {
+  const expired = rule.endDate && rule.endDate < today();
+  const amounts = (family ?? [rule]).map(item => item.amount).filter(Number.isFinite);
+  const minimum = Math.min(...amounts);
+  const maximum = Math.max(...amounts);
+  const amount = minimum === maximum ? money(minimum) : `${money(minimum)}–${money(maximum)}`;
+  return <>
+    <div className="rule-primary"><div>
+      <div className="rule-title">{family && rule.category === "priority" ? "Priorytet Top 1" : rule.title}{changed && <span className="draft-tag">Szkic</span>}</div>
+      <div className="rule-scope">{rule.zones?.length > 3 && !rule.zones.includes("*") ? family ? <span>{rule.zones.length} lokalizacji</span> : <details className="scope-details"><summary>{rule.zones.length} lokalizacji</summary>{scopeText(rule, model)}</details> : scopeText(rule, model)}</div>
+      <div className="rule-groups">{groupText(rule)}</div>
+      {rule.overrideProtected && <span className="exception-label">Wyjątek od ochrony dat</span>}
+    </div></div>
+    <div className="rate-cell" data-label="Minimum / dobę">
+      {amounts.length ? <><strong>{amount}</strong><span> PLN</span></> : <span className="muted">Bez zmiany cen</span>}
+      {rule.category === "priority" && <small className="subordinate-floor">Nadrzędne: lotnisko {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport)} · miasto {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city)} PLN</small>}
+    </div>
+    <div className="duration-cell" data-label="Najem">{family ? `Przedziały: ${family.length}` : rule.minDays ? days(rule) : "Wszystkie długości"}</div>
+    <div className="dates-cell" data-label="Daty startu">{period(rule)}
+      {expired && <span className="status-label muted">Okres zakończony</span>}
+      {!expired && rule.startDate > today() && <span className="status-label">Nadchodzący okres</span>}
+    </div>
+  </>;
 }
 
 function Empty({ icon: Icon, title, action }) {
@@ -1377,6 +1229,8 @@ function Review({
               ))}
             </div>
           )}
+          <details className="technical-details">
+          <summary>Eksport i przywracanie szkicu</summary>
           <div className="review-actions">
             <button
               className="button primary"
@@ -1393,11 +1247,9 @@ function Review({
           </div>
           <div className="info-line">
             <LockKeyhole size={18} />
-            <span>
-              Plik jest propozycją do wdrożenia, nie plikiem importowym
-              DiscoverCars. Zapis szkicu nie zmienia stawek ani harmonogramów.
-            </span>
+            <span>Propozycja JSON nie jest plikiem importowym DiscoverCars.</span>
           </div>
+          </details>
         </>
       )}
     </section>

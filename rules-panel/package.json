@@ -11,7 +11,7 @@
     "test:engine": "node tests/engine-compat.mjs",
     "test:worker": "node --test tests/worker.test.mjs && node tests/worker-runtime.mjs",
     "check:deploy": "npm run build && wrangler deploy --dry-run",
-    "test:ui": "node tests/ui.mjs && node tests/concurrency-ui.mjs && node tests/preview-labels-ui.mjs && node tests/director-ui.mjs",
+    "test:ui": "node tests/ui.mjs && node tests/concurrency-ui.mjs && node tests/preview-labels-ui.mjs && node tests/director-ui.mjs && node tests/simple-ui.mjs && node tests/baseline-ui.mjs && node tests/reports-ui.mjs && node tests/report-viewer-ui.mjs",
     "test:storage": "node tests/storage-runtime.mjs"
   },
   "dependencies": {
@@ -20,7 +20,8 @@
     "jose": "6.2.12",
     "lucide-react": "^0.468.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "saxes": "6.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.0",

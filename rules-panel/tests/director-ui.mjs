@@ -71,6 +71,7 @@ try {
   assert.equal(JSON.parse(await readFile(await download.path(), "utf8")).model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 77);
   await page.getByRole("button", { name: "Źródła i publikacja", exact: true }).click();
   await page.getByText("Import niepotwierdzony", { exact: true }).waitFor();
+  await page.locator('.operational-status > details > summary').click();
   await page.getByText("report-v1", { exact: true }).waitFor();
   workspace.status.baseline.approvedAt = "2026-10-13";
   workspace.status.report.startDates = Array.from({ length: 45 }, (_, index) => new Date(Date.UTC(2026, 9, 16 + index)).toISOString().slice(0, 10));
@@ -81,19 +82,17 @@ try {
   await page.getByRole("button", { name: "Źródła i publikacja", exact: true }).click();
   await page.getByText("16.10–29.11.2026", { exact: true }).waitFor();
   await page.getByText("2–14 dni", { exact: true }).waitFor();
+  await page.locator('.operational-status > details > summary').click();
   await page.getByText("excel-v2", { exact: true }).waitFor();
   assert.match(await page.locator(".operational-status").innerText(), /Zatwierdzenie: 13\.10\.2026\n/);
   assert.doesNotMatch(await page.locator("main").innerText(), /Stan wykonania nie jest podłączony do panelu/);
-  assert.equal(await page.locator('main > .info-line strong').innerText(), 'GitHub');
+  assert.equal(await page.locator('main > .context-line strong').innerText(), 'GitHub');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: fileURLToPath(new URL("status-desktop.png", output)) });
   workspace = { ...workspace, preview: { revision: "preview-a", draftRevision: "draft-a", sourceRevision: snapshot.source.revision, status: "success", testsSucceeded: true, completedAt: "2026-10-15T08:00:00Z", dataCollectedAt: "2026-10-15T07:00:00Z", impact: { changedRateCells: 12, increasedRateCells: 12, decreasedRateCells: 0, unchangedRateCells: 48, samples: [{ position: { zone: "GDLO", group: "CDMV", pickupDate: "2026-10-16", durationBand: "3-4", cell: "K5" }, beforeRate: 70, afterRate: 95, afterDecision: { reason: "Minimum reguły" } }] } } };
   await page.reload();
   await page.getByRole("button", { name: /Podgląd zmian/ }).click();
-  await page.getByText("Zmienione komórki stawek", { exact: true }).waitFor();
-  assert.equal(await page.locator(".impact-counts").getByText("12", { exact: true }).count(), 2);
-  assert.match(await page.locator(".impact-samples tbody").innerText(), /Gdańsk.*GDLO/);
-  assert.match(await page.locator(".impact-samples tbody").innerText(), /70[\s\S]*95/);
+  assert.equal(await page.locator('.impact-review').count(), 0);
   await page.screenshot({ path: fileURLToPath(new URL("review-desktop.png", output)) });
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 });
@@ -135,12 +134,8 @@ try {
   await page.getByRole("status").filter({ hasText: "Przygotowano szkic z wybranej wersji" }).waitFor();
   assert.equal(rollbackCalls, 1);
   assert.equal(publishCalls, 0);
-  await page.route("**/api/preview", route => { assert.deepEqual(route.request().postDataJSON(), { draftRevision: "draft-c" }); return route.fulfill({ json: { queued: true, draftRevision: "draft-c" } }); });
   await page.getByRole("button", { name: /Podgląd zmian/ }).click();
-  await page.getByRole("button", { name: "Przelicz wpływ szkicu" }).click();
-  await page.getByRole("status").filter({ hasText: "Przeliczenie zlecone" }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Przelicz wpływ szkicu" }).isDisabled(), true);
-  await page.getByText("W kolejce", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Przelicz wpływ szkicu" }).count(), 0);
   assert.deepEqual(errors, []);
   console.log("Director UI PASS: current rules, Polish multiselect, six bands, responsive editor, visible conflict, truthful operational status.");
 } finally { await browser.close(); }

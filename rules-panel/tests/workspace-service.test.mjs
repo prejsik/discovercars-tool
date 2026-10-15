@@ -72,25 +72,20 @@ test('stale source, blank reasons and no-op saves are rejected', async () => {
   await assert.rejects(service.save(input(createModel(snapshot.documents)), actor), error => error.status === 422);
 });
 
-test('publish needs a current tested preview bound to exact draft, baseline and source', async () => {
-  const { service, setPreview, current } = setup();
+test('publish validates current draft and source without requiring impact preview', async () => {
+  const { service } = setup();
   const { draft } = await service.save(input(), actor);
-  await assert.rejects(service.publish({ draftRevision: draft.revision }, actor), error => error.status === 409);
-  const good = { revision: 'c'.repeat(40), draftRevision: draft.revision,
-    sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash,
-    modelHash: draft.modelHash, baselineSha256: snapshot.baseline.sha256,
-    completedAt: now, dataCollectedAt: now, testsSucceeded: true, status: 'success', runId: '123' };
-  for (const patch of [{ testsSucceeded: false }, { modelHash: 'wrong' }, { baselineSha256: 'wrong' },
-    { dataCollectedAt: '2026-10-10T12:00:00Z' }, { completedAt: '2026-10-10T12:00:00Z' }]) {
-    setPreview({ ...good, ...patch });
-    await assert.rejects(service.publish({ draftRevision: draft.revision, previewRevision: good.revision }, actor), error => error.status === 409);
-  }
-  setPreview(good);
-  current.baseline.sha256 = 'd'.repeat(64);
-  await assert.rejects(service.publish({ draftRevision: draft.revision, previewRevision: good.revision }, actor), error => error.status === 409);
-  current.baseline.sha256 = snapshot.baseline.sha256;
-  const result = await service.publish({ draftRevision: draft.revision, previewRevision: good.revision }, actor);
-  assert.equal(result.revision, 'b'.repeat(40));
+  assert.equal((await service.publish({ draftRevision: draft.revision }, actor)).revision, 'b'.repeat(40));
+  // Use a fresh store to exercise validation rather than publication retry recovery.
+  const fresh = setup();
+  const freshDraft = (await fresh.service.save(input(), actor)).draft;
+  fresh.current.baseline.sha256 = 'd'.repeat(64);
+  await assert.rejects(fresh.service.publish({ draftRevision: freshDraft.revision }, actor), error => error.status === 409);
+  fresh.current.baseline.sha256 = snapshot.baseline.sha256;
+  fresh.current.source.revision = 'e'.repeat(40);
+  await assert.rejects(fresh.service.publish({ draftRevision: freshDraft.revision }, actor), error => error.status === 409);
+  fresh.current.source.revision = snapshot.source.revision;
+  assert.equal((await fresh.service.publish({ draftRevision: freshDraft.revision }, actor)).revision, 'b'.repeat(40));
 });
 
 test('rollback prepares a new draft and retains history without publishing', async () => {

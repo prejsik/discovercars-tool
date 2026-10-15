@@ -43,12 +43,14 @@ try {
     ),
     true,
   );
+  await page.getByRole('button', { name: 'Podgląd zmian', exact: true }).click();
   assert.equal(
     await page
       .getByRole("button", { name: "Opublikuj", exact: true })
       .isDisabled(),
     true,
   );
+  await page.getByRole('button', { name: 'Zasady cenowe', exact: true }).click();
   await page
     .locator('[data-rule-id="location:city"]')
     .getByRole("button")
@@ -76,6 +78,7 @@ try {
   await page.getByLabel("Lokalizacja", { exact: true }).selectOption("SZLO");
   assert.match(await page.locator(".result-primary").innerText(), /130 PLN/);
   await page.getByRole("button", { name: /Podgląd zmian/ }).click();
+  await page.getByText('Eksport i przywracanie szkicu', { exact: true }).click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Pobierz propozycję JSON" }).click(),
@@ -109,7 +112,8 @@ try {
     .getByRole("button", { name: "Klasy pojazdów", exact: true })
     .click();
   const toggle = page.getByRole("switch", { name: "Rekomendacje dla CDMV" });
-  await toggle.uncheck();
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Rekomendacje dla CDMV"]').checked === false);
   assert.equal(await toggle.isChecked(), false);
   await page
     .getByRole("button", { name: "Historia szkicu", exact: true })
@@ -130,6 +134,7 @@ try {
     .getByRole("button", { name: "Podgląd zmian", exact: false })
     .click();
   page.once("dialog", (dialog) => dialog.accept());
+  await page.getByText('Eksport i przywracanie szkicu', { exact: true }).click();
   await page.getByRole("button", { name: "Przywróć zasady źródłowe" }).click();
   await page
     .getByRole("button", { name: "Zasady cenowe", exact: true })

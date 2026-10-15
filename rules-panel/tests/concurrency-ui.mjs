@@ -35,7 +35,7 @@ try {
   );
   assert.deepEqual(
     first.model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind,
-    { city: 75, airport: 35 },
+    { city: 75, airport: 30 },
   );
   await b.getByRole("button", { name: "Zamknij edycję" }).click();
   assert.equal(

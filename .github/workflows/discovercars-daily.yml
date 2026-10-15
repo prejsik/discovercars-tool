@@ -866,6 +866,9 @@ jobs:
         run: |
           node -e "const fs=require('fs'); fs.mkdirSync('output',{recursive:true}); const read=(p)=>fs.existsSync(p)?JSON.parse(fs.readFileSync(p,'utf8')):{}; const quality=read('output/quality-alerts.json'); const excel=read('output/excel-rate-update-summary.json'); const sanity=read('output/mm-rate-sanity-check.json'); const workload=read('output/recommendation-workload.json'); const domVerification=read('output/dom-recommendation-verification-summary.json'); const scope=read('output/scrape-scope.json'); const manifest={excel_files:require('./src/publicationPolicy').workbookDigests('output'),source_started_at:new Date(Number(process.env.RUN_STARTED_EPOCH)*1000).toISOString(),run_id:process.env.GITHUB_RUN_ID,expected_scope:scope,generated_at:new Date().toISOString(),status:process.env.QUALITY_STATUS,run_type:process.env.RUN_TYPE,git_sha:process.env.GITHUB_SHA,locations:String(process.env.LOCATIONS||'').split(',').filter(Boolean),rolling_days:Number(process.env.ROLLING_DAYS)||null,start_dates:scope.start_dates||String(process.env.START_DATES||'').split(',').filter(Boolean),durations:String(process.env.DURATIONS||'').split(',').filter(Boolean).map(Number),baseline:excel.baseline_confirmation||null,recommendation_workload:workload,dom_verification:domVerification,sanity:{required:Boolean(quality.sanity_required),checked_count:Number(sanity.checked_count||0),warning_count:Number(sanity.warning_count||0),baseline_verified_count:Number(sanity.baseline_verified_count||0)},quality}; fs.writeFileSync('output/run-manifest.json',JSON.stringify(manifest,null,2)+'\n');"
 
+      - name: Bind report and Excel summary to the publication manifest
+        run: node src/reportEvidenceManifest.js output
+
       - name: Upload scraper results
         id: upload
         if: needs.scrape.outputs.should_run == 'true' && always()

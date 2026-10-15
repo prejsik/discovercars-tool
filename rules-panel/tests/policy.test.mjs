@@ -31,7 +31,7 @@ test('editing a cloned model and exported documents cannot mutate inputs or each
 test('actual documents build typed rows without replacing separate priority duration bands', () => {
   const rows = buildRules(model());
   assert.equal(rows.find((row) => row.id === 'location:city').amount, 60);
-  assert.equal(rows.find((row) => row.id === 'location:airport').amount, 35);
+  assert.equal(rows.find((row) => row.id === 'location:airport').amount, 30);
   assert.equal(rows.find((row) => row.id === 'group:PDAH:0').minDays, 21);
   assert.equal(rows.find((row) => row.id === 'zone:SZLO:2').amount, 130);
   assert.deepEqual(rows.filter((row) => row.id.startsWith('priority:0')).map((row) => [row.minDays, row.maxDays]), [[2, 2], [3, 4]]);
@@ -63,7 +63,7 @@ test('amount edits are immutable and preserve unknown config and rule fields', (
   assert.equal(value.pricing.pricing.mandatoryGroupFloorsPlnDay.PDAH[0].minimumRatePlnDay, 180);
   assert.equal(value.pricing.pricing.mandatoryGroupFloorsPlnDay.PDAH[0].note, 'keep');
   assert.deepEqual(toDocuments(value).pricing.custom, { untouched: [1, 2] });
-  assert.equal(buildRules(updateRule(value, 'location:city', { amount: 65 })).find((row) => row.id === 'location:airport').amount, 35);
+  assert.equal(buildRules(updateRule(value, 'location:city', { amount: 65 })).find((row) => row.id === 'location:airport').amount, 30);
 });
 
 test('mandatory group and protected period additions serialize into existing schema only', () => {
@@ -174,8 +174,8 @@ test('cross-group wildcard minima and protected period overlaps warn instead of 
 
 test('city and airport floors replace higher legacy and lower priority minima', () => {
   assert.equal(preview().floor, 60);
-  assert.equal(preview({ zone: 'KRLO' }).floor, 35);
-  assert.equal(preview({ zone: 'KRTI' }).floor, 35);
+  assert.equal(preview({ zone: 'KRLO' }).floor, 30);
+  assert.equal(preview({ zone: 'KRTI' }).floor, 30);
   assert.equal(preview({ duration: 8, pickupDate: '2026-07-15' }).floor, 60);
   assert.ok(preview().matchedRuleIds.includes('location:city'));
   assert.equal(preview().marketAllowed, true);

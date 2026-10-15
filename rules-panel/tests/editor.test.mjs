@@ -9,14 +9,18 @@ test("location choices show Polish labels with each Excel code", () => {
   ] } }).map(({ value, label }) => [value, label]), [["GDLO", "Gdańsk · Lotnisko (GDLO)"], ["WRDW", "Wrocław · Dworzec kolejowy (WRDW)"], ["WR2", "Wrocław · Dworzec kolejowy (WR2)"]]);
 });
 
-test("publication needs successful tested preview of exact draft/source with nonfuture fresh data", () => {
+test("publication requires a current saved draft, independent of impact preview", () => {
   const now = Date.parse("2026-10-15T10:00:00Z");
   const workspace = { capabilities: { publish: true }, snapshot: { source: { revision: "main-a", policyHash: "hash-a" }, baseline: { sha256: "base-a" } }, draft: { revision: "draft-a", modelHash: "model-a" }, preview: { revision: "preview-a", draftRevision: "draft-a", sourceRevision: "main-a", sourceHash: "hash-a", baselineSha256: "base-a", modelHash: "model-a", status: "success", testsSucceeded: true, completedAt: "2026-10-15T09:30:00Z", dataCollectedAt: "2026-10-15T08:00:00Z" } };
+  Object.assign(workspace.draft, { sourceRevision: 'main-a', sourceHash: 'hash-a', baselineSha256: 'base-a' });
   assert.equal(publishBlocker(workspace, now), "");
+  assert.equal(publishBlocker({ ...workspace, preview: null }), "");
   for (const patch of [{ draftRevision: "other" }, { sourceRevision: "other" }, { sourceHash: "other" }, { modelHash: "other" }, { baselineSha256: "other" }, { testsSucceeded: false }, { status: "running" }, { error: "failed" }, { completedAt: "2026-10-15T08:59:59Z" }, { dataCollectedAt: "2026-10-14T09:59:59Z" }, { dataCollectedAt: "2026-10-16T00:00:00Z" }]) {
-    assert.ok(publishBlocker({ ...workspace, preview: { ...workspace.preview, ...patch } }, now), JSON.stringify(patch));
+    assert.equal(publishBlocker({ ...workspace, preview: { ...workspace.preview, ...patch } }, now), "");
   }
   assert.ok(publishBlocker({ ...workspace, capabilities: { publish: false } }, now));
+  assert.ok(publishBlocker({ ...workspace, draft: null }));
+  assert.ok(publishBlocker({ ...workspace, draft: { ...workspace.draft, sourceRevision: 'other' } }));
 });
 
 test("default view omits expired rules but keeps today and future", () => {

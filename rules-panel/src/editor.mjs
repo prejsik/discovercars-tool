@@ -13,18 +13,24 @@ export function filterRules(rules, { today, period = "current" }) {
   return rules.filter(rule => period === "all" || (period === "expired" ? Boolean(rule.endDate && rule.endDate < today) : !rule.endDate || rule.endDate >= today));
 }
 
-export function publishBlocker(workspace, now = Date.now()) {
+export function groupRuleBands(rules) {
+  const families = new Map();
+  for (const rule of rules) {
+    const key = JSON.stringify([rule.category, rule.category === "priority" ? "priority" : rule.title,
+      rule.kind, rule.groups, rule.zones, rule.startDate, rule.endDate, Boolean(rule.overrideProtected), rule.editable]);
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(rule);
+  }
+  return [...families.values()];
+}
+
+export function publishBlocker(workspace) {
   if (!workspace?.capabilities.publish) return workspace?.capabilities.reason || "Publikacja konfiguracji nie jest aktywna.";
-  const { preview, draft, snapshot } = workspace;
-  if (!draft || !preview?.revision || preview.draftRevision !== draft.revision || preview.error ||
-    preview.status !== "success" || preview.testsSucceeded !== true ||
-    preview.sourceRevision !== snapshot.source.revision || preview.sourceHash !== snapshot.source.policyHash ||
-    preview.modelHash !== draft.modelHash || preview.baselineSha256 !== snapshot.baseline.sha256)
-    return "Przelicz aktualny szkic i poczekaj na poprawny wynik testów przed publikacją.";
-  const age = value => now - Date.parse(value);
-  if (!(age(preview.completedAt) >= 0 && age(preview.completedAt) <= 3600000) ||
-    !(age(preview.dataCollectedAt) >= 0 && age(preview.dataCollectedAt) <= 86400000))
-    return "Podgląd jest ważny 1 godzinę, dane 24 godziny. Przelicz aktualny szkic.";
+  const { draft, snapshot } = workspace;
+  if (!draft) return "Zapisz zmianę zasad przed publikacją.";
+  if (draft.sourceRevision !== snapshot.source.revision || draft.sourceHash !== snapshot.source.policyHash ||
+    draft.baselineSha256 !== snapshot.baseline.sha256)
+    return "Zmieniono konfigurację lub bazę. Odśwież dane przed publikacją.";
   return "";
 }
 

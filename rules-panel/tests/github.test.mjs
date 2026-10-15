@@ -4,6 +4,15 @@ import * as github from '../worker/github.mjs';
 import { readSnapshot } from '../server/snapshot.mjs';
 import { hashJson } from '../server/workspace-service.mjs';
 const snapshot = await readSnapshot();
+
+test('fetch is invoked without the repository as its receiver', async () => {
+  const repository = new github.GitHubRepository({}, { fetcher: async function () {
+    assert.equal(this, undefined);
+    return Response.json({ ok: true });
+  } });
+  repository.token = async () => 'test-token';
+  assert.deepEqual(await repository.request('/git/ref/heads/main'), { ok: true });
+});
 test('GitHub adapter publishes only two policy documents and an anonymous receipt atomically', async () => {
   assert.equal(typeof github.GitHubRepository, 'function');
   const calls = [];

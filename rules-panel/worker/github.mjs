@@ -2,37 +2,22 @@ import { SignJWT, importPKCS8 } from 'jose';
 import { unzipSync, strFromU8 } from 'fflate';
 import { hashJson, PanelError } from '../server/workspace-service.mjs';
 import { encryptEnvelope, decryptEnvelope } from '../server/preview-crypto.mjs';
+import { readLimited } from '../server/http.mjs';
+export { readLimited } from '../server/http.mjs';
+export { readOperationalStatus } from '../server/reports.mjs';
 
 export const REPOSITORY = 'prejsik/discovercars-tool';
 const API = `https://api.github.com/repos/${REPOSITORY}`;
-const PAGE = 'https://prejsik.github.io/discovercars-tool';
 const WORKFLOW = 'rules-panel-preview.yml';
 const PATHS = { pricing: 'pricing-rules.config.example.json', excel: 'excel-rate-update.config.example.json', locations: 'locations.config.json' };
-
-export async function readLimited(response, maximum = 2 * 1024 * 1024) {
-  if (Number(response.headers.get('content-length')) > maximum) throw new PanelError(502, 'Odpowiedz zrodla jest zbyt duza.');
-  const reader = response.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const parts = []; let size = 0;
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maximum) { await reader.cancel(); throw new PanelError(502, 'Odpowiedz zrodla jest zbyt duza.'); }
-      parts.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const result = new Uint8Array(size); let offset = 0;
-  for (const part of parts) { result.set(part, offset); offset += part.byteLength; }
-  return result;
-}
 
 export const githubConfigured = env => Boolean(env.GITHUB_APP_ID && env.GITHUB_INSTALLATION_ID && env.GITHUB_APP_PRIVATE_KEY && env.PANEL_PREVIEW_KEY);
 
 export class GitHubRepository {
   constructor(env, { api, fetcher = fetch } = {}) {
-    this.env = env; this.fetcher = fetcher;
+    this.env = env;
+    // Workers fetch must not receive the repository object as its receiver.
+    this.fetcher = (...args) => fetcher(...args);
     this.api = api ?? this.request.bind(this);
     this.reads = new Map();
   }
@@ -58,7 +43,7 @@ export class GitHubRepository {
 
   headers(token) { return { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'discovercars-rules-panel', 'X-GitHub-Api-Version': '2022-11-28' }; }
 
-  async request(path, { method = 'GET', body, optional = false, binary = false } = {}) {
+  async request(path, { method = 'GET', body, optional = false, binary = false, maximum = 2 * 1024 * 1024 } = {}) {
     if (!path.startsWith('/') || path.includes('..')) throw new PanelError(500, 'Niedozwolona sciezka GitHub.');
     const response = await this.fetcher(`${API}${path}`, { method, headers: this.headers(await this.token()),
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000), redirect: 'manual' });
@@ -68,13 +53,13 @@ export class GitHubRepository {
       if (url.protocol !== 'https:' || !/(?:\.blob\.core\.windows\.net|\.actions\.githubusercontent\.com|^objects\.githubusercontent\.com)$/.test(url.hostname)) throw new PanelError(502, 'Nieprawidlowy adres artefaktu.');
       const artifact = await this.fetcher(url, { signal: AbortSignal.timeout(20000), redirect: 'error' });
       if (!artifact.ok) throw new PanelError(502, 'Nie mozna odczytac wyniku testu.');
-      return readLimited(artifact);
+      return readLimited(artifact, maximum);
     }
     if ([409, 422].includes(response.status)) throw new PanelError(409, 'GitHub odrzucil zapis lub wystapil konflikt. Odswiez dane.');
     if (!response.ok) throw new PanelError(502, `GitHub nie odpowiedzial poprawnie (HTTP ${response.status}).`);
     if (response.status === 204) return null;
-    if (binary) return readLimited(response);
-    return JSON.parse(new TextDecoder().decode(await readLimited(response)));
+    if (binary) return readLimited(response, maximum);
+    return JSON.parse(new TextDecoder().decode(await readLimited(response, path.startsWith('/git/blobs/') || path.startsWith('/contents/input/') ? 16 * 1024 * 1024 : 2 * 1024 * 1024)));
   }
 
   async json(path, revision, optional = false) {
@@ -82,6 +67,74 @@ export class GitHubRepository {
     if (!result) return null;
     if (result.encoding !== 'base64' || result.type !== 'file') throw new PanelError(502, 'Nieprawidlowy dokument GitHub.');
     return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(result.content.replace(/\s/g, '')), c => c.charCodeAt(0))));
+  }
+
+  async baselineBytes(revision) {
+    const file = await this.api(`/contents/input/mm-cars-rental-rates-inclusive-fp.xlsx?ref=${revision}`);
+    const blob = file.content ? file : await this.api(`/git/blobs/${file.sha}`);
+    if (blob.encoding !== 'base64' || !blob.content) throw new PanelError(502, 'Nie mozna odczytac obecnej bazy.');
+    return Uint8Array.from(atob(blob.content.replace(/\s/g, '')), character => character.charCodeAt(0));
+  }
+
+  async latestRuns() {
+    const { workflow_runs = [] } = await this.api('/actions/workflows/discovercars-daily.yml/runs?per_page=30');
+    const runs = workflow_runs.filter(run => /^\d+$/.test(String(run.id))).map(run => ({
+      runId: String(run.id), status: run.status, conclusion: run.conclusion, title: run.display_title,
+      startedAt: run.run_started_at ?? run.created_at, createdAt: run.created_at,
+      url: `https://github.com/${REPOSITORY}/actions/runs/${run.id}`,
+    }));
+    if (runs[0]?.status === 'completed') {
+      const { jobs = [] } = await this.api(`/actions/runs/${runs[0].runId}/jobs?per_page=100`);
+      runs[0].skipped = runs[0].conclusion === 'success' && jobs.some(job => job.name === 'Freeze scope and collection plan' && job.conclusion === 'skipped');
+      const failed = jobs.find(job => job.conclusion === 'failure');
+      runs[0].failureStage = failed?.steps?.find(step => step.conclusion === 'failure')?.name ?? failed?.name ?? null;
+    }
+    return { latest: runs[0] ?? null, active: runs.filter(run => !['completed'].includes(run.status)) };
+  }
+
+  async reportEvidence(record, kind) {
+    const prefix = kind === 'excel' ? 'discovercars-excel-import-' : 'discovercars-results-';
+    const { artifacts = [] } = await this.api(`/actions/runs/${record.runId}/artifacts?per_page=100`);
+    const matches = artifacts.filter(item => new RegExp(`^${prefix}\\d+$`).test(item.name) && !item.expired);
+    const maximum = (kind === 'excel' ? 16 : 32) * 1024 * 1024;
+    if (matches.length !== 1 || matches[0].size_in_bytes > maximum) throw new PanelError(502, 'Brak dostepnego artefaktu dla tego uruchomienia.');
+    const archive = await this.api(`/actions/artifacts/${matches[0].id}/zip`, { binary: true, maximum });
+    const wanted = kind === 'excel' ? ['run-manifest.json', 'excel-rate-update-summary.json'] : ['run-manifest.json', 'report.html'];
+    const files = unzipSync(archive, { filter: file => wanted.includes(file.name) && file.originalSize <= 12 * 1024 * 1024 });
+    if (wanted.some(name => !files[name])) throw new PanelError(502, 'Niekompletny artefakt uruchomienia.');
+    const manifest = JSON.parse(strFromU8(files['run-manifest.json']));
+    if (String(manifest.run_id) !== record.runId || manifest.git_sha !== record.revision || manifest.baseline?.workbook_sha256 !== record.baselineSha256 ||
+      manifest.excel_files?.['rates-import-ready.xlsx'] !== record.files?.['rates-import-ready.xlsx'] || manifest.excel_files?.['rates-updated.xlsx'] !== record.files?.['rates-updated.xlsx']) throw new PanelError(409, 'Artefakt nie odpowiada wybranemu raportowi.');
+    return files;
+  }
+
+  async publishedStatistics(record) {
+    const files = await this.reportEvidence(record, 'excel');
+    const summary = JSON.parse(strFromU8(files['excel-rate-update-summary.json']));
+    if (summary.input_workbook_sha256 !== record.baselineSha256) throw new PanelError(409, 'Podsumowanie dotyczy innej bazy.');
+    return { runId: record.runId, importSha256: record.files['rates-import-ready.xlsx'], baselineSha256: record.baselineSha256, statistics: summary.change_statistics };
+  }
+
+  async reportHtml(record) {
+    return (await this.reportEvidence(record, 'report'))['report.html'];
+  }
+
+  async publishBaseline({ input, summary, snapshot, approvedAt }) {
+    const parent = await this.api(`/git/commits/${snapshot.source.revision}`);
+    const blob = await this.api('/git/blobs', { method: 'POST', body: { content: input.content, encoding: 'base64' } });
+    const manifest = { schema_version: 1, status: 'user_approved_baseline', approved_by: 'user', approved_at: approvedAt,
+      workbook_sha256: summary.sha256, source_filename: input.filename, confirmed: input.importConfirmed === true,
+      previous_baseline_sha256: snapshot.baseline.sha256,
+      source_baseline: { status: 'user_supplied', workbook_sha256: summary.sha256, source_filename: input.filename },
+      coverage: summary,
+      note: 'Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated.' };
+    const tree = await this.api('/git/trees', { method: 'POST', body: { base_tree: parent.tree.sha, tree: [
+      { path: 'input/mm-cars-rental-rates-inclusive-fp.xlsx', mode: '100644', type: 'blob', sha: blob.sha },
+      { path: 'input/baseline-manifest.json', mode: '100644', type: 'blob', content: `${JSON.stringify(manifest, null, 2)}\n` },
+    ] } });
+    const commit = await this.api('/git/commits', { method: 'POST', body: { message: 'Update director-approved pricing baseline', tree: tree.sha, parents: [snapshot.source.revision] } });
+    await this.api('/git/refs/heads/main', { method: 'PATCH', body: { sha: commit.sha, force: false } });
+    return { revision: commit.sha, sha256: summary.sha256, url: `https://github.com/${REPOSITORY}/commit/${commit.sha}` };
   }
 
   async snapshot() {
@@ -114,7 +167,7 @@ export class GitHubRepository {
   async publish({ draft, preview, approvedAt, approvalId }) {
     const parent = await this.api(`/git/commits/${draft.sourceRevision}`);
     const receipt = { schemaVersion: 1, approvalId, draftRevision: draft.revision, approvedAt, sourceRevision: draft.sourceRevision,
-      policyHash: await hashJson(draft.model), previewId: preview.previewId ?? preview.revision, runId: preview.runId };
+      policyHash: await hashJson(draft.model), validation: 'policy-and-source' };
     const tree = [{ path: PATHS.pricing, value: draft.model.pricing }, { path: PATHS.excel, value: draft.model.excel },
       { path: 'rules-panel-publication.json', value: receipt }].map(({ path, value }) => ({ path, mode: '100644', type: 'blob', content: `${JSON.stringify(value, null, 2)}\n` }));
     const newTree = await this.api('/git/trees', { method: 'POST', body: { base_tree: parent.tree.sha, tree } });
@@ -156,26 +209,5 @@ export class GitHubRepository {
     if (result.previewId !== pending.previewId || result.draftRevision !== pending.draftRevision || result.sourceRevision !== pending.sourceRevision
       || String(result.runId) !== String(run.id)) throw new PanelError(502, 'Wynik podgladu dotyczy innej wersji.');
     return { ...result, revision: pending.previewId, runUrl: state.runUrl };
-  }
-}
-
-export async function readOperationalStatus(baseline, fetcher = fetch) {
-  const read = async folder => {
-    const response = await fetcher(`${PAGE}/${folder}/run-manifest.json`, { cache: 'no-store', signal: AbortSignal.timeout(10000), redirect: 'error' });
-    if (!response.ok) throw new Error('No manifest');
-    const data = JSON.parse(new TextDecoder().decode(await readLimited(response, 4 * 1024 * 1024)));
-    if (!Number.isFinite(Date.parse(data.generated_at)) || !Number.isFinite(Date.parse(data.source_started_at))
-      || !/^\d+$/.test(String(data.run_id)) || !/^[a-f0-9]{40}$/.test(data.git_sha ?? '')) throw new Error('Invalid manifest');
-    return { generatedAt: data.generated_at, sourceStartedAt: data.source_started_at, revision: data.git_sha,
-      runId: String(data.run_id), startDates: data.start_dates ?? [], durations: data.durations ?? [], quality: data.status,
-      baselineSha256: data.baseline?.workbook_sha256, files: data.excel_files ?? null };
-  };
-  try {
-    const [report, excel] = await Promise.all([read('latest-full'), read('latest-excel')]);
-    return { available: true, checkedAt: new Date().toISOString(), report, excel, baseline: { ...baseline, importConfirmed: baseline.importConfirmed === true },
-      links: { report: `${PAGE}/latest-full/report.html`, import: `${PAGE}/latest-excel/rates-import-ready.xlsx`,
-        recommendations: `${PAGE}/latest-excel/rates-updated.xlsx`, run: `https://github.com/${REPOSITORY}/actions/runs/${report.runId}` } };
-  } catch {
-    return { available: false, baseline, error: 'Nie mozna potwierdzic stanu opublikowanych raportow. Nie wyswietlamy starych danych jako aktualnych.' };
   }
 }

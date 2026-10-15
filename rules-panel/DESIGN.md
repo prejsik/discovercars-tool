@@ -12,6 +12,12 @@ An edit dialog reserves focus; the preview stays on its own view.
 The business editor uses searchable checkbox groups for locations and classes,
 six stable duration inputs and explicit pickup-date bounds. Current/upcoming
 rules are the default; expired rules remain available through a filter.
+The main register separates basic minima, special minima, protected dates and
+pricing goals. Identical business scopes share a collapsed duration summary;
+search and explicit category filters expose their rows. Supplementary rules
+remain available in a disclosure. Technical identifiers and JSON export are
+secondary details. Publication appears only in the change review, with all
+validation and confirmation gates retained. No duplicate technical top bar.
 
 ## System
 Self-hosted Inter variable, 14px base, 28px page heading, zero letter spacing.

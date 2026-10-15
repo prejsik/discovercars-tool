@@ -40,5 +40,5 @@ test("publish and rollback have separate revision-bound payloads", async () => {
   const service = createService(async (url, options) => { calls.push([url, JSON.parse(options.body)]); return reply(url === "/api/publish" ? { revision: "main-b", url: "https://github.com/a/b/commit/main-b" } : workspace); });
   assert.equal((await service.publish("draft-a", "preview-a")).revision, "main-b");
   await service.rollback("history-a", "draft-a");
-  assert.deepEqual(calls, [["/api/publish", { draftRevision: "draft-a", previewRevision: "preview-a" }], ["/api/rollback", { revision: "history-a", expectedRevision: "draft-a" }]]);
+  assert.deepEqual(calls, [["/api/publish", { draftRevision: "draft-a" }], ["/api/rollback", { revision: "history-a", expectedRevision: "draft-a" }]]);
 });

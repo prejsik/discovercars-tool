@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { buildCompletionMessages, summarizeDomVerification, getPreparationFailureMessage } = require("./workflowQualityAlerts");
+const PANEL_URL = 'https://discovercars-rules-panel.bartek-prejs.workers.dev/?view=results';
 
 function safeReadJson(filePath) {
   try {
@@ -251,7 +252,8 @@ function buildTelegramSummary(options = {}) {
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
-      `GitHub Actions: ${env.RUN_URL || "brak linku"}`
+      `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
+      `Panel: ${PANEL_URL}`
     ].join("\n");
   }
 
@@ -277,7 +279,8 @@ function buildTelegramSummary(options = {}) {
       `Czas: ${timeLabel}`,
       "",
       `Raport: ${reportUrl}`,
-      `GitHub Actions: ${env.RUN_URL || "brak linku"}`
+      `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
+      `Panel: ${PANEL_URL}`
     ].join("\n");
   }
 
@@ -326,7 +329,8 @@ function buildTelegramSummary(options = {}) {
     "",
     `Import: ${excelUrl}`,
     `Rekomendacje: ${excelReportUrl}`,
-    `Raport cen: ${reportUrl}`
+    `Raport cen: ${reportUrl}`,
+    `Panel: ${PANEL_URL}`
   ];
   return lines.join("\n");
 }

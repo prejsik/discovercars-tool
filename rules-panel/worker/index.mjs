@@ -1,5 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { githubConfigured, readLimited, readOperationalStatus, REPOSITORY } from './github.mjs';
+import { GitHubRepository, githubConfigured, readLimited, readOperationalStatus, REPOSITORY } from './github.mjs';
+import { loadPublishedWorkbook, loadPublishedReport } from '../server/reports.mjs';
+import { protectedReportHtml } from '../server/report-viewer.mjs';
 
 const securityHeaders = {
   'Cache-Control': 'private, no-store',
@@ -63,7 +65,27 @@ export function createWorker({ resolveKeys } = {}) {
 
       const url = new URL(request.url);
       const connected = env.PANEL_WRITES_ENABLED === 'true' && githubConfigured(env) && Boolean(env.RULES_WORKSPACE);
-      const action = { '/api/workspace': 'workspace', '/api/draft': 'draft', '/api/preview': 'preview', '/api/publish': 'publish', '/api/rollback': 'rollback' }[url.pathname];
+      if (url.pathname === '/api/report/open') {
+        if (!['GET', 'HEAD'].includes(request.method)) return deny('Method not allowed.', 405);
+        if (!connected) return json({ error: 'Odczyt raportu wymaga aktywnej integracji GitHub.' }, 503);
+        try {
+          const bytes = await loadPublishedReport(url.searchParams.get('runId'), new GitHubRepository(env));
+          const response = secured(new Response(request.method === 'HEAD' ? null : protectedReportHtml(bytes), { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+          response.headers.set('Content-Security-Policy', "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+          return response;
+        } catch (error) { return json({ error: error.status ? error.message : 'Nie mozna otworzyc raportu. Odswiez wyniki.' }, error.status ?? 502); }
+      }
+      if (url.pathname === '/api/report/file') {
+        if (!['GET', 'HEAD'].includes(request.method)) return deny('Method not allowed.', 405);
+        try {
+          const file = await loadPublishedWorkbook({ kind: url.searchParams.get('kind'), runId: url.searchParams.get('runId'), sha256: url.searchParams.get('sha256') });
+          return secured(new Response(request.method === 'HEAD' ? null : file.bytes, { headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${file.filename}"`,
+          } }));
+        } catch (error) { return json({ error: error.status ? error.message : 'Nie mozna pobrac pliku. Odswiez wyniki.' }, error.status ?? 502); }
+      }
+      const action = { '/api/workspace': 'workspace', '/api/draft': 'draft', '/api/preview': 'preview', '/api/publish': 'publish', '/api/rollback': 'rollback', '/api/baseline/check': 'baselineCheck', '/api/baseline/publish': 'baselinePublish', '/api/report-baseline/check': 'reportBaselineCheck', '/api/report-baseline/publish': 'reportBaselinePublish' }[url.pathname];
       if (action) {
         if ((action === 'workspace' && !['GET', 'HEAD'].includes(request.method)) || (action !== 'workspace' && request.method !== 'POST')) return deny('Method not allowed.', 405);
         if (action !== 'workspace') {
@@ -82,7 +104,7 @@ export function createWorker({ resolveKeys } = {}) {
         let input = {};
         if (request.method === 'POST') {
           let bytes;
-          try { bytes = await readLimited(new Response(request.body, { headers: request.headers }), 256 * 1024); }
+          try { bytes = await readLimited(new Response(request.body, { headers: request.headers }), action.startsWith('baseline') ? 12 * 1024 * 1024 : 256 * 1024); }
           catch { return json({ error: 'Zadanie jest zbyt duze.' }, 413); }
           try { input = JSON.parse(new TextDecoder().decode(bytes)); }
           catch { return json({ error: 'Nieprawidlowy JSON.' }, 400); }
@@ -90,6 +112,7 @@ export function createWorker({ resolveKeys } = {}) {
         }
         try {
           const result = await env.RULES_WORKSPACE.getByName(REPOSITORY).handle(action, input, email);
+          if (result.diagnostic) console.error(JSON.stringify({ event: 'workspace_diagnostic', action, ...result.diagnostic }));
           return json(result.body, result.status, request.method === 'HEAD');
         } catch {
           console.error(JSON.stringify({ event: 'workspace_unavailable', action }));

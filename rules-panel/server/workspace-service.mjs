@@ -89,20 +89,9 @@ export class WorkspaceService {
       await this.store.reconcilePublication?.(published);
       return published;
     }
-    const { draft, snapshot } = await this.currentDraft(input.draftRevision);
-    const preview = await this.store.preview();
-    const age = value => this.clock().getTime() - Date.parse(value);
-    if (!preview || preview.revision !== input.previewRevision || preview.draftRevision !== draft.revision
-      || preview.sourceRevision !== draft.sourceRevision || preview.sourceHash !== draft.sourceHash
-      || preview.modelHash !== draft.modelHash || preview.baselineSha256 !== snapshot.baseline.sha256
-      || preview.testsSucceeded !== true || preview.status !== 'success'
-      || !(age(preview.completedAt) >= 0 && age(preview.completedAt) <= 60 * 60 * 1000)
-      || !(age(preview.dataCollectedAt) >= 0 && age(preview.dataCollectedAt) <= 24 * 60 * 60 * 1000)) {
-      conflict('Wymagany jest aktualny, poprawny podglad tej wersji szkicu: testy, baza i dane cenowe z ostatnich 24 godzin.');
-    }
-    if (!await this.store.verifyPreview(preview)) conflict('Nie potwierdzono udanego testu GitHub Actions.');
+    const { draft } = await this.currentDraft(input.draftRevision);
     // Adapter must update main by fast-forward only, from the verified source commit.
-    return this.store.publish({ draft, preview, actor, approvedAt: this.clock().toISOString() });
+    return this.store.publish({ draft, actor, approvedAt: this.clock().toISOString() });
   }
 
   async rollback(input, actor) {

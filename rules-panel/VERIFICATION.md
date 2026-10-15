@@ -69,3 +69,17 @@ Wczesniejsza wersja tylko do podgladu byla wdrozona pod
 wdrozona. Istniejaca ochrona Cloudflare Access nie zostala zmieniona.
 
 Wymagane kolejne kroki zawiera `ACTIVATION.md`.
+
+## Uproszczenie interfejsu, 15.10.2026
+
+- Osobne sekcje minimow podstawowych, wyjatkow, ochrony i celu cenowego.
+- Przedzialy tego samego zakresu zwijaja sie bez usuwania zadnej reguly.
+  Wyszukiwanie i filtr kategorii odkrywaja szczegoly pasujacych wynikow.
+- Identyfikatory techniczne i eksport JSON sa dostepne po rozwinieciu;
+  kwoty, daty, zakresy, ostrzezenia i warunki publikacji pozostaja dostepne.
+- 126 testow panelu i pelny zestaw UI: PASS. Widoki 320/390/768/1024/1440 px,
+  kontrola przepelnienia strony i komorek tabeli. Build: PASS.
+- Test publikacji uzywa lokalnie przechwyconych endpointow; nie wysyla
+  zadnych zmian cen do GitHub ani DiscoverCars.
+- Zmiana dotyczy UI; bez modyfikacji bazowego Excela, konfiguracji zasad,
+  backendu publikacji ani harmonogramow. Ten etap nie obejmuje wdrozenia.

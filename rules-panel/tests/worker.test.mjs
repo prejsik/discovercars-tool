@@ -45,7 +45,7 @@ test('deployment routes every asset through auth and disables preview URLs', asy
   assert.equal(config.assets.directory, './dist');
 });
 
-for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session']) {
+for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session', '/api/baseline/check', '/api/baseline/publish', '/api/report/file', '/api/report-baseline/check', '/api/report-baseline/publish']) {
   test(`anonymous request cannot read ${path}`, async () => {
     const { env, requests } = setup();
     const response = await worker.fetch(await request(path), env);
@@ -128,10 +128,11 @@ test('shared mutations require same-origin JSON and forward only signed actor', 
   });
   const jwt = await token({ email: emails[1] });
   const headers = { origin: 'https://panel.example.com', 'content-type': 'application/json', 'x-panel-request': '1' };
-  for (const patch of [{ origin: 'https://evil.example' }, { 'content-type': 'text/plain' }, { 'x-panel-request': '' }]) {
-    const response = await worker.fetch(await request('/api/draft', jwt, { method: 'POST', headers: { ...headers, ...patch }, body: '{}' }), env);
-    assert.equal(response.status, 403);
-  }
+  for (const path of ['/api/draft', '/api/baseline/check', '/api/baseline/publish', '/api/report-baseline/check', '/api/report-baseline/publish'])
+    for (const patch of [{ origin: 'https://evil.example' }, { 'content-type': 'text/plain' }, { 'x-panel-request': '' }]) {
+      const response = await worker.fetch(await request(path, jwt, { method: 'POST', headers: { ...headers, ...patch }, body: '{}' }), env);
+      assert.equal(response.status, 403);
+    }
   assert.equal(received.length, 0);
   const response = await worker.fetch(await request('/api/draft', jwt, { method: 'POST', headers, body: JSON.stringify({ actor: 'spoofed@example.com' }) }), env);
   assert.equal(response.status, 200);
