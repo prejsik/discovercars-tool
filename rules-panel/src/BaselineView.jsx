@@ -5,14 +5,14 @@ import { timestamp } from './display.mjs';
 export function BaselineView({ snapshot, service, enabled, onPublished }) {
   const [file, setFile] = useState(null);
   const [check, setCheck] = useState(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmed, setConfirmed] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [published, setPublished] = useState(null);
   const selection = useRef(0);
   const choose = async event => {
     const version = ++selection.current;
-    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(false);
+    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(true);
     const selected = event.target.files?.[0];
     if (!selected) return;
     if (!/\.xlsx$/i.test(selected.name) || selected.size > 8 * 1024 * 1024 || !selected.size) { setError('Wybierz plik .xlsx o rozmiarze do 8 MB.'); return; }

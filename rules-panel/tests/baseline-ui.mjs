@@ -32,12 +32,22 @@ try {
   await page.getByRole('button',{name:'Sprawdź plik',exact:true}).click();
   await page.getByText('Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.',{exact:true}).waitFor();
   assert.equal(checks,1); assert.equal(publications,0);
+  const confirmed=page.getByRole('checkbox',{name:'Ten plik jest już wgrany do DiscoverCars',exact:true});
+  assert.equal(await confirmed.isChecked(),true);
+  await confirmed.uncheck();
+  await page.getByRole('button',{name:'Sprawdź plik',exact:true}).click();
+  await page.getByText('Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.',{exact:true}).waitFor();
+  assert.equal(await confirmed.isChecked(),false);
+  await page.getByLabel('Nowy plik bazowy').setInputFiles([]);
+  await page.getByLabel('Nowy plik bazowy').setInputFiles(fileURLToPath(new URL('../../input/mm-cars-rental-rates-inclusive-fp.xlsx',import.meta.url)));
+  await page.getByRole('button',{name:'Sprawdź plik',exact:true}).click();
+  await page.getByText('Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.',{exact:true}).waitFor();
+  assert.equal(await confirmed.isChecked(),true);
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:960});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`baseline overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`baseline-${width}.png`,output))});
   }
-  await page.getByRole('checkbox',{name:'Ten plik jest już wgrany do DiscoverCars',exact:true}).check();
   page.once('dialog',dialog=>dialog.dismiss());
   await page.getByRole('button',{name:'Ustaw jako bazę',exact:true}).click();
   assert.equal(publications,0);

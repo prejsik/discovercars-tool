@@ -23,7 +23,8 @@ test('actual baseline preserves all hidden/filtered rows, classes, zones and has
   const snapshot = await readSnapshot();
   const summary = await inspectBaseline(await readFile(new URL('../../input/mm-cars-rental-rates-inclusive-fp.xlsx',import.meta.url)),snapshot.documents);
   assert.equal(summary.sha256,snapshot.baseline.sha256);
-  assert.equal(summary.rowCount,24877); assert.equal(summary.groups.length,11); assert.equal(summary.zones.length,26);
+  const manifest=JSON.parse(await readFile(new URL('../../input/baseline-manifest.json',import.meta.url),'utf8'));
+  assert.deepEqual(summary,manifest.coverage);
 });
 test('valid workbook produces scope and accepts unchanged complete coverage', async () => {
   const summary=await inspectBaseline(fixture(),documents);
