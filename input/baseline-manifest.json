@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-10-16T10:35:01.731Z",
-  "workbook_sha256": "6b2381cbcf3c737d9ab5a66ac7a075f0aa15297e70906c128f4849b59091feeb",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 16-Oct-26 (1).xlsx",
+  "approved_at": "2026-10-16T11:51:06.115Z",
+  "workbook_sha256": "86ad3d8bb99a868f5097dd17080d0b8652bc75bdb7196d18dbd95242ce217f6c",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 16-Oct-26 (2).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "3761c9d06fa9c7fb84d51726cbbe06b02c1e179c0da6c1c1ab545c39386965a2",
+  "previous_baseline_sha256": "6b2381cbcf3c737d9ab5a66ac7a075f0aa15297e70906c128f4849b59091feeb",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "6b2381cbcf3c737d9ab5a66ac7a075f0aa15297e70906c128f4849b59091feeb",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 16-Oct-26 (1).xlsx"
+    "workbook_sha256": "86ad3d8bb99a868f5097dd17080d0b8652bc75bdb7196d18dbd95242ce217f6c",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 16-Oct-26 (2).xlsx"
   },
   "coverage": {
-    "sha256": "6b2381cbcf3c737d9ab5a66ac7a075f0aa15297e70906c128f4849b59091feeb",
+    "sha256": "86ad3d8bb99a868f5097dd17080d0b8652bc75bdb7196d18dbd95242ce217f6c",
     "rowCount": 24902,
     "groups": [
       "CDMV",
@@ -312,7 +312,7 @@
       "SWAV/WRLO"
     ],
     "firstDate": "2026-10-16",
-    "lastDate": "2027-01-23"
+    "lastDate": "2028-01-23"
   },
   "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
