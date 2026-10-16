@@ -52,6 +52,20 @@ test('rejects missing workbook declarations and dangling drawing references',asy
   await assert.rejects(inspectBaseline(fixture(undefined,{'[Content_Types].xml':'<Types/>'}),documents),/deklaracji/);
   await assert.rejects(inspectBaseline(fixture(undefined,{'xl/worksheets/_rels/sheet1.xml.rels':'<Relationships><Relationship Target="../drawings/missing.xml"/></Relationships>'}),documents),/brakujacego/);
 });
+test('accepts workbook content type declared by extension Default',async()=>{
+  const types='<Types><Default Extension="xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>';
+  const summary=await inspectBaseline(fixture(undefined,{'[Content_Types].xml':types}),documents);
+  assert.equal(summary.rowCount,2);
+});
+test('accepts worksheet content type declared by extension Default',async()=>{
+  const types='<Types><Default Extension="xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>';
+  const summary=await inspectBaseline(fixture(undefined,{'[Content_Types].xml':types}),documents);
+  assert.equal(summary.rowCount,2);
+});
+test('explicit incorrect workbook Override takes precedence over valid Default',async()=>{
+  const types='<Types><Default Extension="xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>';
+  await assert.rejects(inspectBaseline(fixture(undefined,{'[Content_Types].xml':types}),documents),/deklaracji/);
+});
 test('numeric Excel dates require a date style readable by openpyxl',async()=>{
   const numeric=sheet=>sheet.replace('<c r="G5" t="inlineStr"><is><t>16-10-26</t></is></c>','<c r="G5" s="0"><v>46311</v></c>');
   await assert.rejects(inspectBaseline(fixture(numeric),documents),/G5/);

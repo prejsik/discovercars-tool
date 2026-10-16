@@ -58,14 +58,13 @@ export async function inspectBaseline(bytes, documents) {
     for (const data of Object.values(files)) xml(data);
   } catch (error) { if (error instanceof PanelError) throw error; fail('Plik XLSX jest uszkodzony. Otworz go w Excelu i zapisz ponownie.'); }
   for (const name of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels']) if (!files[name]) fail('Brakuje wymaganych czesci pliku XLSX.');
-  let workbookType = false; const sheetTypes = new Set();
+  const defaultTypes = new Map(); const overrideTypes = new Map();
   xml(files['[Content_Types].xml'], { opentag: node => {
-    if (node.local !== 'Override') return;
-    const part = attr(node, 'PartName'); const type = attr(node, 'ContentType');
-    if (part === '/xl/workbook.xml' && type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml') workbookType = true;
-    if (type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml') sheetTypes.add(part?.replace(/^\//, ''));
+    if (node.local === 'Default') defaultTypes.set(attr(node, 'Extension'), attr(node, 'ContentType'));
+    if (node.local === 'Override') overrideTypes.set(attr(node, 'PartName'), attr(node, 'ContentType'));
   } });
-  if (!workbookType) fail('Brak prawidlowej deklaracji skoroszytu XLSX.');
+  const contentType = part => overrideTypes.has(`/${part}`) ? overrideTypes.get(`/${part}`) : defaultTypes.get(part.slice(part.lastIndexOf('.') + 1));
+  if (contentType('xl/workbook.xml') !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml') fail('Brak prawidlowej deklaracji skoroszytu XLSX.');
   for (const [name, data] of Object.entries(files)) if (name.endsWith('.rels')) {
     const base = `https://xlsx.invalid/${name.slice(0, name.lastIndexOf('_rels/'))}`;
     xml(data, { opentag: node => {
@@ -88,7 +87,7 @@ export async function inspectBaseline(bytes, documents) {
     if (node.local === 'Relationship' && attr(node, 'Id') === sheetId && attr(node, 'TargetMode') !== 'External' && attr(node, 'Type') === 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet') target = attr(node, 'Target');
   } });
   const sheetPath = target?.startsWith('/') ? target.slice(1) : `xl/${target}`;
-  if (!files[sheetPath] || !sheetTypes.has(sheetPath)) fail('Nie mozna odczytac arkusza Sheet1.');
+  if (!files[sheetPath] || contentType(sheetPath) !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml') fail('Nie mozna odczytac arkusza Sheet1.');
   const formats = new Map(); const dateStyles = []; const stack = [];
   if (files['xl/styles.xml']) xml(files['xl/styles.xml'], {
     opentag: node => {
