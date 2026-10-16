@@ -104,7 +104,21 @@ test('new floors cover only the six approved classes and days 1-20', () => {
 });
 
 test('both production entrypoints load the shared permanent floor policy', () => {
-  assert.deepEqual(loadPricingRules().locationTypeFloorsPlnDay, floors);
+  assert.deepEqual(loadPricingRules().locationTypeFloorsPlnDay, {
+    ...floors, minimumRatesByKind: { city: 60, airport: 30 }
+  });
+});
+
+test('retired permanent minima are absent while dated minima remain unchanged', () => {
+  const excel = require('../excel-rate-update.config.example.json');
+  assert.deepEqual(excel.minimum_rates.scoped_overrides, []);
+  assert.deepEqual(excel.minimum_rates.zone_overrides_pln_day, {});
+  assert.deepEqual(excel.minimum_rates.bands, [
+    { start_date: '2026-07-01', end_date: '2026-08-30', min_days: 1, max_days: 7, min_pln_day: 70 },
+    { start_date: '2026-07-01', end_date: '2026-08-30', min_days: 8, max_days: 20, min_pln_day: 115 },
+    { start_date: '2026-07-01', end_date: '2026-08-30', min_days: 21, max_days: 35, min_pln_day: 100 },
+    { start_date: '2026-09-01', end_date: '2027-01-31', min_days: 1, max_days: 35, min_pln_day: 50 }
+  ]);
 });
 
 test('invalid minimum policy fails closed', () => {

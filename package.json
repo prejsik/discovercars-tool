@@ -17,7 +17,7 @@
     "test:report-ui": "node tests/run-report-ui-tests.js",
     "test:scoped-floors": "node --test tests/scoped-floor.test.js && python tests/run-scoped-floor-tests.py",
     "test:rules-panel": "node --test tests/impact-preview.test.mjs tests/impact-preview-job.test.mjs tests/impact-preview-workflow.test.mjs",
-    "test:excel": "python tests/run-fixed-markup-excel-tests.py && python tests/run-excel-rate-updater-tests.py && python tests/run-pricing-policy-tests.py && python tests/run-scoped-floor-tests.py",
+    "test:excel": "python tests/run-fixed-markup-excel-tests.py && python tests/run-excel-rate-updater-tests.py && python tests/run-pricing-policy-tests.py && python tests/run-scoped-floor-tests.py && python tests/run-cap-projection-tests.py",
     "test:all": "npm test && npm run test:report-ui && npm run test:excel && node --test tests/scoped-floor.test.js && npm run test:rules-panel",
     "build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File build-release.ps1"
   },

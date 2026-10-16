@@ -227,6 +227,13 @@ def main():
     example_config = load_config(ROOT / "excel-rate-update.config.example.json")
     # These fixtures explicitly exercise legacy scoped/seasonal rules; production floors are covered separately.
     example_config["_location_type_floors"] = {}
+    legacy_groups = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"]
+    example_config["minimum_rates"]["scoped_overrides"] = [
+        {"zones": ["*"], "groups": legacy_groups, "min_days": 8, "max_days": 20, "min_pln_day": 40},
+        {"zones": ["KRTI", "KRLO"], "groups": legacy_groups, "min_days": 2, "max_days": 2, "min_pln_day": 30},
+        {"zones": ["KRTI", "KRLO"], "groups": legacy_groups, "min_days": 3, "max_days": 4, "min_pln_day": 30},
+    ]
+    example_config["minimum_rates"]["zone_overrides_pln_day"] = {zone: 39 for zone in ("KRDW", "KRGA", "KRLO", "KRTI")}
     import runpy
     runpy.run_path(str(ROOT / "tests/run-priority-fallback-tests.py"))
     for zone in ("KRLO", "KRTI", "KRDW", "KRGA", "WALO"):
@@ -1756,6 +1763,7 @@ def main():
                     "benchmark_rate_pln_day": 151,
                     "mm_rate_pln_day": 90,
                     "data_quality_status": "ok",
+                    "target_rank": 1,
                 }]
             }),
             encoding="utf-8",
@@ -1783,6 +1791,8 @@ def main():
         assert_equal(city_cap_summary["city_top1_airport_cap_scope_count"], 1, "city cap scope count")
         assert_equal(city_cap_summary["city_top1_airport_cap_applied_count"], 4, "city cap applied count")
         assert_equal(city_cap_summary["city_top1_airport_cap_violation_count"], 0, "city cap violations")
+        assert_equal(city_cap_summary["city_top1_airport_cap_ignored_count"], 0, "compatible floor does not ignore airport cap")
+        assert_equal(city_cap_summary["city_top1_airport_cap_ignored_scopes"], [], "compatible cap has no ignored scopes")
         assert "max 130% ceny lotniskowej" in city_cap_ws["J5"].comment.text
         assert_equal(city_cap_workbook["Changed Positions"]["A10"].value, "Limit miasto vs lotnisko", "city cap legend")
         assert "maksymalnie 130%" in city_cap_workbook["Changed Positions"]["B10"].value
@@ -1860,6 +1870,7 @@ def main():
         conflict_source_book["Sheet1"]["J5"].comment = Comment("Original baseline note", "Baseline")
         conflict_source_book.save(conflict_source)
         conflict_source_book.close()
+        conflict_source_bytes = conflict_source.read_bytes()
         conflict_recommendations = tmpdir / "city-cap-conflict-recommendations.json"
         conflict_decisions = json.loads(city_cap_recommendations_path.read_text())["decisions"]
         conflict_decisions += [
@@ -1884,35 +1895,55 @@ def main():
             cli_groups=None,
             dry_run=False,
         )
-        assert_equal(conflict_summary["city_top1_airport_cap_conflict_count"], 1, "conflict counted per band, not per class")
-        assert_equal(conflict_summary["skipped_target_count"], 1, "conflict is a skipped recommendation")
-        conflict = conflict_summary["city_top1_airport_cap_conflicts"][0]
-        assert_equal(conflict["zone"], "WA1", "conflict location")
-        assert "131" in conflict["skip_reason"] and "130" in conflict["skip_reason"]
-        assert_equal(conflict_summary["city_top1_airport_cap_violation_count"], 0, "unchanged conflicts excluded from changed-rate validation")
+        assert_equal(conflict_summary["city_top1_airport_cap_conflict_count"], 0, "resolved cap is not a blocking conflict")
+        assert_equal(conflict_summary["city_top1_airport_cap_conflicts"], [], "resolved cap creates no conflict rows")
+        assert_equal(conflict_summary["skipped_target_count"], 0, "floor/cap conflict never skips an otherwise valid recommendation")
+        assert_equal(conflict_summary["city_top1_airport_cap_ignored_count"], 1, "ignored cap counted per band, not per class")
+        ignored_scope, = conflict_summary["city_top1_airport_cap_ignored_scopes"]
+        assert_equal((ignored_scope["zone"], ignored_scope["pickup_date"], ignored_scope["duration_band"]),
+                     ("WA1", "2026-09-15", "2"), "resolved cap identifies exact location/date/band")
+        assert_equal(ignored_scope["groups"], sorted(legacy_groups), "whole selected parity family ignores cap")
+        assert "131" in ignored_scope["reason"] and "130" in ignored_scope["reason"]
+        assert_equal(conflict_summary["city_top1_airport_cap_violation_count"], 0, "ignored caps are not violations")
+        for change in conflict_summary["changes"]:
+            ignored = change["duration_band"] == "2"
+            assert_equal(change["city_top1_airport_cap_ignored"], ignored, "cap override stays in conflicting duration band")
+            assert_equal(change["city_top1_airport_cap_active"], not ignored, "ignored cap is not active")
+            assert_equal(change["target_rank"], 1, "market rank retained after ignoring cap")
+            if ignored:
+                assert_equal(change["city_top1_airport_cap_ignored_reason"], ignored_scope["reason"], "change explains resolved cap")
+                assert_equal(change["city_top1_airport_cap_applied"], False, "ignored cap does not clamp market target")
         for path in (conflict_output, conflict_import):
             book = openpyxl.load_workbook(path)
             sheet = book["Sheet1"]
             assert_equal(sheet.max_row, 12, "all original rate rows preserved")
-            assert_equal(rgb(sheet["J5"]), "FFF2CC", "skipped cell keeps its baseline fill")
+            assert_not_equal(rgb(sheet["J5"]), "FFF2CC", "applied market change gets updated fill")
             if path == conflict_import:
                 assert_equal(sheet["J5"].comment, None, "import removes inherited and generated comments")
             else:
-                assert_equal(sheet["J5"].comment.text, "Original baseline note", "skipped cell has no misleading new recommendation comment")
+                assert "Nowa stawka: 150 PLN" in sheet["J5"].comment.text
+                assert "Limit oddzialu miejskiego" not in sheet["J5"].comment.text
+                assert_not_equal(sheet["J5"].comment.text, "Original baseline note", "active recommendation replaces stale baseline comment")
             for row_number, original in enumerate(conflict_rows, start=5):
-                assert_equal(sheet.cell(row_number, 10).value, original[9], "conflict preserves original rates despite unequal class prices")
+                expected_market = 151 if original[0] == "EDMV" else 150
+                expected = expected_market if original[3] == "WA1" else original[9]
+                assert_equal(sheet.cell(row_number, 10).value, expected, "ignored cap permits market target and restores parity")
                 expected = 141 if original[0] == "EDMV" else 140
                 if original[3] == "WA1":
                     assert_equal(sheet.cell(row_number, 11).value, expected, "unaffected duration band still updated")
+                else:
+                    assert_equal(sheet.cell(row_number, 11).value, original[10], "airport reference remains unchanged")
+                for col in (9, 12, 13, 14):
+                    assert_equal(sheet.cell(row_number, col).value, original[col - 1], "unrelated duration rates preserved")
             if path == conflict_import:
                 assert_equal(book.sheetnames, ["Sheet1"], "clean import contains only Sheet1")
             else:
                 review = book["Recommendations Review"]
-                assert any(
-                    review.cell(row, 2).value == "Sprawdz"
-                    and "131" in str(review.cell(row, 3).value)
-                    for row in range(2, review.max_row + 1)
-                ), "conflict visible in recommendations review"
+                records = [dict(zip(next(review.values), row)) for row in list(review.values)[1:]]
+                assert not any(row["Typ rekomendacji"] == "Konflikt floor i limitu lotniska" for row in records)
+                assert any("pominieto limit" in str(row["Uwagi kontroli"]).lower()
+                           and "131" in str(row["Powod"]) and "130" in str(row["Powod"])
+                           for row in records), "resolved cap explained on active recommendation review row"
             book.close()
         dry_conflict_summary = apply_updates(
             workbook_path=conflict_source,
@@ -1922,8 +1953,10 @@ def main():
             cli_groups=None,
             dry_run=True,
         )
-        assert_equal(dry_conflict_summary["city_top1_airport_cap_conflict_count"], 1, "dry-run also reports conflicts")
-        assert all(change["cell"][0] != "J" for change in dry_conflict_summary["changes"])
+        for field in ("changes", "change_statistics", "skipped_target_count", "city_top1_airport_cap_conflict_count",
+                      "city_top1_airport_cap_conflicts", "city_top1_airport_cap_ignored_count", "city_top1_airport_cap_ignored_scopes"):
+            assert_equal(dry_conflict_summary[field], conflict_summary[field], f"dry-run/export agree on {field}")
+        assert_equal(conflict_source.read_bytes(), conflict_source_bytes, "export and dry-run preserve source workbook bytes")
 
         premium_conflict_config = merge_config({
             "location_zones": {"Warsaw Train Station": ["WA1"]},
@@ -1942,10 +1975,16 @@ def main():
             cli_groups=None,
             dry_run=False,
         )
-        assert_equal(premium_conflict_summary["city_top1_airport_cap_conflict_count"], 1, "late premium class conflict detected before base classes are written")
+        assert_equal(premium_conflict_summary["city_top1_airport_cap_conflict_count"], 0, "premium-only conflict resolved before base classes are written")
+        assert_equal(premium_conflict_summary["city_top1_airport_cap_conflicts"], [], "premium-only conflict is not blocking")
+        assert_equal(premium_conflict_summary["skipped_target_count"], 0, "premium floor never skips parity family")
+        assert_equal(premium_conflict_summary["city_top1_airport_cap_ignored_count"], 1, "premium-only conflict resolves one band")
+        assert_equal(premium_conflict_summary["city_top1_airport_cap_ignored_scopes"][0]["groups"],
+                     sorted(legacy_groups), "premium-only conflict ignores cap across selected parity family")
         premium_conflict_book = openpyxl.load_workbook(premium_conflict_output)
         for row_number, original in enumerate(conflict_rows, start=5):
-            assert_equal(premium_conflict_book["Sheet1"].cell(row_number, 10).value, original[9], "premium-only conflict preserves the whole parity family")
+            expected = (151 if original[0] == "EDMV" else 150) if original[3] == "WA1" else original[9]
+            assert_equal(premium_conflict_book["Sheet1"].cell(row_number, 10).value, expected, "premium-only conflict keeps active market target across parity family")
         premium_conflict_book.close()
 
         selected_conflict_output = tmpdir / "city-cap-selected-no-conflict.xlsx"
@@ -1958,6 +1997,8 @@ def main():
             dry_run=False,
         )
         assert_equal(selected_conflict_summary["city_top1_airport_cap_conflict_count"], 0, "unselected premium class cannot block an allowed base-class change")
+        assert_equal(selected_conflict_summary["city_top1_airport_cap_ignored_count"], 0, "unselected conflict cannot disable selected base cap")
+        assert_equal(selected_conflict_summary["city_top1_airport_cap_ignored_scopes"], [], "unselected premium class is absent from resolved scopes")
         selected_conflict_book = openpyxl.load_workbook(selected_conflict_output)
         assert_equal(selected_conflict_book["Sheet1"]["J5"].value, 130, "selected base class respects airport cap")
         assert_equal(selected_conflict_book["Sheet1"]["J8"].value, 91, "unselected premium price preserved")
@@ -1968,18 +2009,21 @@ def main():
                                  "15-09-26", "15-09-26", 160, 90, 100, 100, 100, 120])
         independent_source = tmpdir / "city-cap-independent-class.xlsx"
         build_minimal_workbook(independent_source, independent_rows)
-        for conflict_group, expected_base, expected_premium, expected_independent in (
-            ("EDMV", 90, 91, 130),
-            ("MDMR", 130, 131, 90),
+        independent_source_bytes = independent_source.read_bytes()
+        for conflict_group, minimum, expected_base, expected_premium, expected_independent in (
+            ("EDMV", 131, 150, 151, 130),
+            ("EDMV", 161, 161, 162, 130),
+            ("MDMR", 131, 130, 131, 150),
+            ("MDMR", 161, 130, 131, 161),
         ):
-            independent_output = tmpdir / f"city-cap-independent-{conflict_group}.xlsx"
+            independent_output = tmpdir / f"city-cap-independent-{conflict_group}-{minimum}.xlsx"
             independent_config = merge_config({
                 "apply_groups": ["CDMV", "EDMV", "MDMR"],
                 "location_zones": {"Warsaw Train Station": ["WA1"]},
                 "city_zone_airport_zones": {"WA1": ["WALO"]},
                 "minimum_rates": {"scoped_overrides": [{
                     "zones": ["WA1"], "groups": [conflict_group],
-                    "min_days": 2, "max_days": 2, "min_pln_day": 131,
+                    "min_days": 2, "max_days": 2, "min_pln_day": minimum,
                 }]},
             })
             independent_summary = apply_updates(
@@ -1994,8 +2038,31 @@ def main():
             assert_equal(independent_book["Sheet1"]["J5"].value, expected_base, "parity family unaffected by an independent-class conflict")
             assert_equal(independent_book["Sheet1"]["J8"].value, expected_premium, "premium follows selected parity family only")
             assert_equal(independent_book["Sheet1"]["J13"].value, expected_independent, "independent class unaffected by a parity-family conflict")
-            assert_equal(independent_summary["city_top1_airport_cap_conflict_count"], 1, "independent class conflict counted")
+            assert_equal(independent_summary["city_top1_airport_cap_conflict_count"], 0, "resolved independent/parity cap never blocks")
+            assert_equal(independent_summary["city_top1_airport_cap_conflicts"], [], "resolved cap has no blocking conflict record")
+            assert_equal(independent_summary["skipped_target_count"], 0, "valid independent and parity targets remain active")
+            assert_equal(independent_summary["city_top1_airport_cap_ignored_count"], 1, "independent/parity override counted per band")
+            expected_ignored = ["CDMV", "EDMV"] if conflict_group == "EDMV" else ["MDMR"]
+            scope, = independent_summary["city_top1_airport_cap_ignored_scopes"]
+            assert_equal(scope["groups"], expected_ignored, "ignored groups contain only selected affected family or independent class")
+            assert scope["reason"]
+            for change in independent_summary["changes"]:
+                ignored = change["group"] in expected_ignored
+                assert_equal(change["city_top1_airport_cap_ignored"], ignored, "independent and parity cap decisions are separate")
+                assert_equal(change["city_top1_airport_cap_active"], not ignored, "nonconflicting classes keep active cap")
+                assert_equal(change["city_top1_airport_cap_applied"], not ignored, "nonconflicting classes remain clamped")
+                assert_equal(change["target_rank"], 1, "all selected class targets keep rank")
+                if ignored:
+                    assert_equal(change["city_top1_airport_cap_ignored_reason"], scope["reason"], "ignored class carries resolved reason")
+                else:
+                    assert_equal(change["city_top1_airport_cap_ignored_reason"], "", "clamped class does not claim a cap override")
             independent_book.close()
+            dry_independent = apply_updates(independent_source, city_cap_recommendations_path, None,
+                                            independent_config, cli_groups=None, dry_run=True)
+            for field in ("changes", "city_top1_airport_cap_ignored_count", "city_top1_airport_cap_ignored_scopes"):
+                assert_equal(dry_independent[field], independent_summary[field], f"independent/parity dry-run agrees on {field}")
+        assert_equal(independent_source.read_bytes(), independent_source_bytes, "independent class tests preserve source bytes")
+        assert_equal(conflict_source.read_bytes(), conflict_source_bytes, "premium and selection fixtures preserve source bytes")
 
         city_only_workbook_path = tmpdir / "city-cap-missing-airport.xlsx"
         build_minimal_workbook(city_only_workbook_path, city_cap_rows[:len(parity_groups)])

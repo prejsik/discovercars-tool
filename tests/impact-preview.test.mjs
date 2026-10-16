@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
 const { buildPricingRecommendations } = require("../src/pricingRecommendations.js");
 const adapter = await import("../rules-panel/server/impact-preview.mjs").catch(() => ({}));
-const now = new Date("2026-10-15T12:00:00Z");
+const now = new Date();
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const clone = (value) => structuredClone(value);
 
@@ -35,7 +35,7 @@ async function fixture(t, count = 1) {
   const offer = (provider, rate) => ({ provider_name: provider, total_price: rate * 2, rental_days: 2, currency: "PLN" });
   const view = { top_3: [offer("MM Cars Rental", 80), offer("Competitor", 100), offer("Other", 120)],
     mm_cars_rental: offer("MM Cars Rental", 80) };
-  const results = { generated_at: "2026-10-15T11:00:00Z", run_id: "source-123", locations: ["Test Airport"],
+  const results = { generated_at: new Date(now.getTime() - 3600000).toISOString(), run_id: "source-123", locations: ["Test Airport"],
     scenarios: dates.map((start_date, i) => ({ scenario_id: `s${i}`, start_date, rental_days: 2,
       top_3_plus_mm_by_location: { "Test Airport": view },
       source_validation_by_location: { "Test Airport": { status: "api_verified", reasons: [] } } })) };

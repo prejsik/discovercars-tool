@@ -46,7 +46,9 @@ class PricingPolicyTests(unittest.TestCase):
                 {"start_date": "2026-10-31", "end_date": "2026-11-01"},
                 {"start_date": "2026-12-15", "end_date": "2027-01-10"},
             ],
-            "minimum_rates": {"global_min_pln_day": 50, "bands": []},
+            "minimum_rates": {"global_min_pln_day": 50, "bands": [], "scoped_overrides": [
+                {"zones": ["*"], "groups": ALLOWED, "min_days": 8, "max_days": 20, "min_pln_day": 40},
+            ]},
             # Isolate legacy market/zone fixtures; group minima have dedicated tests below.
             "_mandatory_group_floors": {},
         })
@@ -689,29 +691,78 @@ class PricingPolicyTests(unittest.TestCase):
                 for group in ALLOWED:
                     self.assertEqual(prices[group, "WA1", "2026-10-01"], expected + (group in {"EDAV", "EDMV"}))
 
-    def test_normal_cap_floor_conflict_preserves_affected_baseline_and_exports_rest(self):
+    def test_normal_floor_conflict_ignores_only_affected_band_and_exports_market_target(self):
         config = merge_config({**self.config, "minimum_rates": {
             "global_min_pln_day": 50, "bands": [],
             "scoped_overrides": [{"zones": ["WA1"], "groups": ALLOWED,
                                   "min_days": 2, "max_days": 2, "min_pln_day": 53}],
         }})
-        summary, output, import_output = self.run_updates([self.decision(day) for day in (2, 3, 4)], config=config)
-        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 1)
+        source = self.workbook()
+        original = source.read_bytes()
+        summary, output, import_output = self.run_updates([self.decision(day) for day in (2, 3, 4)], source, config)
+        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_conflicts"], [])
+        self.assertEqual(summary["skipped_target_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 1)
+        scope, = summary["city_top1_airport_cap_ignored_scopes"]
+        self.assertEqual((scope["zone"], scope["pickup_date"], scope["duration_band"]), ("WA1", "2026-10-01", "2"))
+        self.assertEqual(scope["groups"], sorted(ALLOWED))
+        self.assertIn("53", scope["reason"])
+        self.assertIn("52", scope["reason"])
         self.assertEqual(summary["city_top1_airport_cap_violation_count"], 0)
+        for change in summary["changes"]:
+            ignored = change["duration_band"] == "2"
+            self.assertEqual(change["city_top1_airport_cap_ignored"], ignored)
+            self.assertEqual(change["city_top1_airport_cap_active"], not ignored)
+            self.assertEqual(change["city_top1_airport_cap_applied"], not ignored)
+            self.assertEqual(change["target_rank"], 1)
+            if ignored:
+                self.assertEqual(change["city_top1_airport_cap_ignored_reason"], scope["reason"])
         for path in (output, import_output):
             prices = self.rates(path, 10)
             remaining = self.rates(path, 11)
             for group in ALLOWED:
                 adjustment = group in {"EDAV", "EDMV"}
-                self.assertEqual(prices[group, "WA1", "2026-10-01"], 60 + adjustment)
+                self.assertEqual(prices[group, "WA1", "2026-10-01"], 70 + adjustment)
                 self.assertEqual(remaining[group, "WA1", "2026-10-01"], 52 + adjustment)
             book = openpyxl.load_workbook(path)
-            self.assertEqual(book["Sheet1"]["J5"].fill.fgColor.rgb[-6:], "FFF2CC")
+            self.assertNotEqual(book["Sheet1"]["J5"].fill.fgColor.rgb[-6:], "FFF2CC")
             if path == import_output:
                 self.assertIsNone(book["Sheet1"]["J5"].comment)
             else:
-                self.assertEqual(book["Sheet1"]["J5"].comment.text, "Baseline note")
+                self.assertIn("Nowa stawka: 70 PLN", book["Sheet1"]["J5"].comment.text)
+                self.assertNotIn("Limit oddzialu miejskiego", book["Sheet1"]["J5"].comment.text)
+                self.assertNotEqual(book["Sheet1"]["J5"].comment.text, "Baseline note")
             book.close()
+        preview = apply_updates(source, self.root / "recommendations.json", None, config, None, True)
+        for field in ("changes", "change_statistics", "skipped_target_count", "city_top1_airport_cap_ignored_count",
+                      "city_top1_airport_cap_ignored_scopes", "city_top1_airport_cap_conflict_count", "city_top1_airport_cap_conflicts"):
+            self.assertEqual(preview[field], summary[field], field)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_cap_ignored_count_counts_duration_bands_not_affected_classes(self):
+        config = merge_config({**self.config, "minimum_rates": {
+            "global_min_pln_day": 53, "bands": [], "scoped_overrides": [],
+        }})
+        source = self.workbook()
+        original = source.read_bytes()
+        summary, output, imported = self.run_updates([self.decision(day) for day in (2, 3, 4)], source, config)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 2)
+        scopes = summary["city_top1_airport_cap_ignored_scopes"]
+        self.assertEqual({scope["duration_band"] for scope in scopes}, {"2", "3-4"})
+        self.assertEqual(len(scopes), 2)
+        for scope in scopes:
+            self.assertEqual(scope["groups"], sorted(ALLOWED))
+            self.assertTrue(scope["reason"])
+        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_conflicts"], [])
+        self.assertEqual(summary["skipped_target_count"], 0)
+        for path in (output, imported):
+            for col in (10, 11):
+                prices = self.rates(path, col)
+                for group in ALLOWED:
+                    self.assertEqual(prices[group, "WA1", "2026-10-01"], 70 + (group in {"EDAV", "EDMV"}))
+        self.assertEqual(source.read_bytes(), original)
 
     def test_priority_expires_after_october_25_and_normal_cap_resumes(self):
         source = self.workbook(pickups=("2026-10-25", "2026-10-26"))
@@ -855,13 +906,28 @@ class PricingPolicyTests(unittest.TestCase):
         rules["pricing"]["pricingPolicy"] = {
             "precedence": ["protected_dates", "class_allowlist", "required_evidence", "city_airport_cap",
                            "priority_top1", "scoped_floor", "zone_floor", "seasonal_floor", "ranking_target", "premium_parity"],
-            "normalFloorCapConflict": "preserve_baseline",
+            "normalFloorCapConflict": "ignore_cap",
         }
         path = self.root / "invalid-hierarchy.json"
         path.write_text(json.dumps(rules), encoding="utf-8")
         config = {**self.config, "pricing_rules_file": str(path)}
         with self.assertRaisesRegex(ValueError, "pricingPolicy"):
             self.run_updates([self.decision(priority=True)], config=config)
+
+    def test_retired_baseline_preservation_and_unknown_conflict_modes_fail_closed(self):
+        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        source = self.workbook()
+        source_bytes = source.read_bytes()
+        for mode in ("preserve_baseline", "unknown", None):
+            rules = json.loads(json.dumps(original))
+            rules["pricing"]["pricingPolicy"]["normalFloorCapConflict"] = mode
+            path = self.root / "invalid-conflict-policy.json"
+            path.write_text(json.dumps(rules), encoding="utf-8")
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "pricingPolicy"):
+                self.run_updates([self.decision()], source, {**self.config, "pricing_rules_file": str(path)})
+            self.assertFalse((self.root / "review.xlsx").exists())
+            self.assertFalse((self.root / "import.xlsx").exists())
+            self.assertEqual(source.read_bytes(), source_bytes)
 
     def test_both_outputs_clear_inherited_and_generated_frozen_panes(self):
         source = self.workbook()
@@ -1036,7 +1102,7 @@ class LocationTypeFloorTests(unittest.TestCase):
 
     def test_production_rule_replaces_priority_scoped_and_seasonal_floors_at_endpoints(self):
         for pickup in ("2026-07-01", "2026-10-25", "2026-10-26", "2028-02-10"):
-            for zone, minimum in (("WA1", 60), ("WR2", 60), ("WALO", 35), ("KRTI", 35)):
+            for zone, minimum in (("WA1", 60), ("WR2", 60), ("WALO", 30), ("KRTI", 30)):
                 for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20)):
                     for group in ALLOWED:
                         target = self.decision(low, pickup, priority=True)
@@ -1067,7 +1133,7 @@ class LocationTypeFloorTests(unittest.TestCase):
                             if group == "PDAH" and index == 5:
                                 minimum = max(minimum, 170)
                             if group in ALLOWED and index < 5 and zone != "SZLO":
-                                minimum = (60 if location["kind"] == "city" else 35) + (group in {"EDAV", "EDMV"})
+                                minimum = (60 if location["kind"] == "city" else 30) + (group in {"EDAV", "EDMV"})
                             rates.append(max(old, minimum))
                         expected[group, zone, pickup] = rates
         book.save(source)
@@ -1085,7 +1151,7 @@ class LocationTypeFloorTests(unittest.TestCase):
                 self.assertTrue(all(cell.comment is None for row in book["Sheet1"] for cell in row))
             else:
                 legend = " ".join(str(c.value or "") for row in book["Changed Positions"] for c in row)
-                for text in ("60 PLN", "35 PLN", "1-20", "typ", "zastepuje", "bez celu rankingowego"):
+                for text in ("60 PLN", "30 PLN", "1-20", "typ", "zastepuje", "bez celu rankingowego"):
                     self.assertIn(text, legend)
             book.close()
         self.assertEqual(source.read_bytes(), original)
@@ -1121,7 +1187,7 @@ class LocationTypeFloorTests(unittest.TestCase):
                     old = 10 + (group in {"EDAV", "EDMV"})
                     expected = old
                     if not protected and group in ALLOWED and col < 14:
-                        expected = (60 if zone == "WA1" else 35) + (group in {"EDAV", "EDMV"})
+                        expected = (60 if zone == "WA1" else 30) + (group in {"EDAV", "EDMV"})
                     if group == "PDAH" and col == 14 and not protected:
                         expected = 170
                     if "2026-10-30" <= pickup <= "2026-11-01":
@@ -1151,7 +1217,7 @@ class LocationTypeFloorTests(unittest.TestCase):
         path.write_text(json.dumps({"location_registry_file": "registry.json",
                                     "pricing_rules_file": self.config["pricing_rules_file"]}), encoding="utf-8")
         config = load_config(path)
-        for zone, expected in (("WR2", 60), ("KRTI", 35), ("NOT_AN_AIRPORT", 35), ("UNKNOWN_AIRPORT", None)):
+        for zone, expected in (("WR2", 60), ("KRTI", 30), ("NOT_AN_AIRPORT", 30), ("UNKNOWN_AIRPORT", None)):
             self.assertEqual(get_mandatory_floor(zone, "CDMV", 1, 1, config, "2026-10-13")[0], expected)
 
     def test_invalid_new_rule_fails_closed_before_outputs_are_saved(self):
@@ -1177,21 +1243,37 @@ class LocationTypeFloorTests(unittest.TestCase):
         summary = apply_updates(source, recommendations, None, self.config, "CDMV", True)
         self.assertEqual({change["group"] for change in summary["changes"] if change["duration_max_days"] <= 20}, set(ALLOWED))
 
-    def test_post_priority_city_cap_conflict_skips_market_but_exports_mandatory_floor(self):
-        source = self.workbook(pickups=("2026-10-26",), city_rate=32, airport_rate=35)
+    def test_post_priority_city_floor_conflict_ignores_cap_and_applies_market_target(self):
+        source = self.workbook(pickups=("2026-10-26",), city_rate=32, airport_rate=30)
         original = source.read_bytes()
         summary, output, imported = self.run_updates([
-            self.decision(pickup="2026-10-26", suggested=80, mm_rank=2)
+            self.decision(pickup="2026-10-26", suggested=79, mm_rank=2)
         ], source)
-        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 1)
+        self.assertEqual(self.rates(output, 10)["CDMV", "WA1", "2026-10-26"], 79)
+        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_conflicts"], [])
+        self.assertEqual(summary["skipped_target_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 1)
+        scope, = summary["city_top1_airport_cap_ignored_scopes"]
+        self.assertEqual((scope["zone"], scope["pickup_date"], scope["duration_band"]), ("WA1", "2026-10-26", "2"))
+        self.assertEqual(scope["groups"], sorted(ALLOWED))
+        self.assertIn("60", scope["reason"])
+        self.assertIn("39", scope["reason"])
         self.assertEqual(summary["city_top1_airport_cap_violation_count"], 0)
         self.assertFalse(any(row["status"] == "FAIL" for row in summary["validation"]))
-        self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+        market_changes = [change for change in summary["changes"] if change["zone"] == "WA1" and change["duration_band"] == "2"]
+        self.assertEqual({change["group"] for change in market_changes}, set(ALLOWED))
+        for change in market_changes:
+            self.assertEqual(change["target_rank"], 1)
+            self.assertTrue(change["city_top1_airport_cap_ignored"])
+            self.assertFalse(change["city_top1_airport_cap_active"])
+            self.assertFalse(change["city_top1_airport_cap_applied"])
+            self.assertEqual(change["city_top1_airport_cap_ignored_reason"], scope["reason"])
         for path in (output, imported):
             prices = self.rates(path, 10)
             for group in ALLOWED:
-                self.assertEqual(prices[group, "WA1", "2026-10-26"], 60 + (group in {"EDAV", "EDMV"}))
-                self.assertEqual(prices[group, "WALO", "2026-10-26"], 35 + (group in {"EDAV", "EDMV"}))
+                self.assertEqual(prices[group, "WA1", "2026-10-26"], 79 + (group in {"EDAV", "EDMV"}))
+                self.assertEqual(prices[group, "WALO", "2026-10-26"], 30 + (group in {"EDAV", "EDMV"}))
             for group in FROZEN:
                 self.assertEqual(prices[group, "WA1", "2026-10-26"], 32)
         self.assertEqual(source.read_bytes(), original)
@@ -1199,15 +1281,100 @@ class LocationTypeFloorTests(unittest.TestCase):
         rows = list(book["Recommendations Review"].values)
         headers = rows[0]
         records = [dict(zip(headers, row)) for row in rows[1:]]
-        conflict = next(row for row in records if row["Typ rekomendacji"] == "Konflikt floor i limitu lotniska")
-        self.assertIn("45.5", conflict["Uwagi kontroli"])
-        self.assertIn("obowiazkowe minimum", conflict["Uwagi kontroli"])
-        self.assertNotIn("bez zmian", conflict["Cel zmiany"])
-        self.assertFalse(conflict["Prognoza na stronie"])
-        for row in records:
-            if row is not conflict:
-                self.assertIn("bez celu rankingowego", row["Uwagi kontroli"])
+        self.assertFalse(any(row["Typ rekomendacji"] == "Konflikt floor i limitu lotniska" for row in records))
+        market_rows = [row for row in records if "pominieto limit" in str(row["Uwagi kontroli"]).lower()]
+        self.assertTrue(market_rows)
+        for row in market_rows:
+            self.assertIn("obowiazujace minimum", row["Uwagi kontroli"].lower())
+            self.assertIn("60", row["Powod"])
+            self.assertIn("39", row["Powod"])
+            self.assertTrue(row["Prognoza na stronie"])
         book.close()
+        preview = apply_updates(source, self.root / "recommendations.json", None, self.config, None, True)
+        for field in ("changes", "change_statistics", "skipped_target_count", "city_top1_airport_cap_ignored_count",
+                      "city_top1_airport_cap_ignored_scopes", "city_top1_airport_cap_conflict_count", "city_top1_airport_cap_conflicts"):
+            self.assertEqual(preview[field], summary[field], field)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_post_priority_city_floor_compatible_cap_still_clamps_market_target(self):
+        source = self.workbook(pickups=("2026-10-26",), city_rate=70, airport_rate=50)
+        original = source.read_bytes()
+        summary, output, imported = self.run_updates([self.decision(pickup="2026-10-26", suggested=79, mm_rank=2)], source)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 0)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_scopes"], [])
+        self.assertEqual(summary["city_top1_airport_cap_applied_count"], len(ALLOWED))
+        self.assertEqual(summary["city_top1_airport_cap_conflict_count"], 0)
+        self.assertEqual(summary["skipped_target_count"], 0)
+        for change in summary["changes"]:
+            if change["group"] not in ALLOWED:
+                continue
+            self.assertTrue(change["city_top1_airport_cap_active"])
+            self.assertTrue(change["city_top1_airport_cap_applied"])
+            self.assertFalse(change["city_top1_airport_cap_ignored"])
+            self.assertEqual(change["target_rank"], 1)
+        for path in (output, imported):
+            prices = self.rates(path, 10)
+            for group in ALLOWED:
+                self.assertEqual(prices[group, "WA1", "2026-10-26"], 65 + (group in {"EDAV", "EDMV"}))
+                self.assertEqual(prices[group, "WALO", "2026-10-26"], 50 + (group in {"EDAV", "EDMV"}))
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_ignored_city_cap_still_enforces_floor_for_low_market_recommendation(self):
+        source = self.workbook(pickups=("2026-10-26",), city_rate=70, airport_rate=30)
+        original = source.read_bytes()
+        summary, output, imported = self.run_updates([
+            self.decision(pickup="2026-10-26", suggested=25, action="decrease", mm_rank=2)
+        ], source)
+        self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 1)
+        self.assertEqual(summary["skipped_target_count"], 0)
+        for path in (output, imported):
+            prices = self.rates(path, 10)
+            for group in ALLOWED:
+                self.assertEqual(prices[group, "WA1", "2026-10-26"], 60 + (group in {"EDAV", "EDMV"}))
+        for change in summary["changes"]:
+            if change["group"] in ALLOWED:
+                self.assertEqual(change["target_rank"], 1)
+                self.assertTrue(change["city_top1_airport_cap_ignored"])
+                self.assertFalse(change["city_top1_airport_cap_active"])
+                self.assertFalse(change["target_achievable"])
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_cap_ignore_does_not_bypass_evidence_or_protected_dates(self):
+        for extra in ({"incomplete_band": True}, {"data_quality_status": "missing_mm_rate"}, {"pickup": "2027-01-10"}):
+            with self.subTest(extra=extra):
+                source = self.workbook(pickups=("2026-10-26", "2027-01-10"), city_rate=70, airport_rate=30)
+                original = source.read_bytes()
+                before = {column: self.rates(source, column) for column in (10, 11, 13)}
+                decision = self.decision(pickup="2026-10-26", suggested=79)
+                if "pickup" in extra:
+                    decision = self.decision(pickup=extra["pickup"], suggested=79)
+                else:
+                    decision.update(extra)
+                decisions = ([self.decision(day, pickup="2026-10-26", suggested=79) for day in range(8, 14)]
+                             if extra.get("incomplete_band") else [decision])
+                summary, output, imported = self.run_updates(decisions, source)
+                self.assertEqual(summary["city_top1_airport_cap_ignored_count"], 0)
+                self.assertEqual(summary["city_top1_airport_cap_ignored_scopes"], [])
+                self.assertTrue(all(change["target_rank"] == "" for change in summary["changes"]))
+                for path in (output, imported):
+                    for column in (10, 11, 13):
+                        self.assertEqual(self.rates(path, column), before[column])
+                self.assertEqual(source.read_bytes(), original)
+
+    def test_cap_ignore_intersects_allowlist_and_never_updates_excluded_classes(self):
+        source = self.workbook(pickups=("2026-10-26",), city_rate=70, airport_rate=30)
+        original = source.read_bytes()
+        before = self.rates(source, 10)
+        config = {**self.config, "apply_groups": ["CDMV", "PDAH"]}
+        summary, output, imported = self.run_updates([self.decision(pickup="2026-10-26", suggested=79)], source, config)
+        scope, = summary["city_top1_airport_cap_ignored_scopes"]
+        self.assertEqual(scope["groups"], ["CDMV"])
+        self.assertEqual(summary["skipped_target_count"], 0)
+        for path in (output, imported):
+            prices = self.rates(path, 10)
+            for key, rate in before.items():
+                self.assertEqual(prices[key], 79 if key == ("CDMV", "WA1", "2026-10-26") else rate)
+        self.assertEqual(source.read_bytes(), original)
 
     def test_actual_js_rank_fail_hold_still_corrects_python_output(self):
         node = shutil.which("node")
@@ -1274,7 +1441,7 @@ class LocationTypeFloorTests(unittest.TestCase):
         rows = list(book['Changed Positions'].values)
         text = next(str(row[1]) for row in rows if row[0] == 'Przebicie top1')
         self.assertIn('miasto 60 PLN', text)
-        self.assertIn('lotnisko 35 PLN', text)
+        self.assertIn('lotnisko 30 PLN', text)
         self.assertNotIn('floor 30 PLN', text)
         self.assertNotIn('floor 40 PLN', text)
         book.close()

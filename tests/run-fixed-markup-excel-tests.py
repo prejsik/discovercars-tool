@@ -116,7 +116,7 @@ def main():
             else:
                 assert change['target_achievable']
             if change['duration_band']=='8-20':
-                assert change['minimum_rate_pln_day']==35
+                assert change['minimum_rate_pln_day']==30
                 assert change['covered_duration_days']==list(range(8,15))
                 assert change['missing_duration_days']==list(range(15,21))
                 assert not change['duration_band_coverage_complete']
@@ -187,7 +187,7 @@ def main():
         assert not unsafe_targets and skipped, 'Long-band evidence exception cannot bypass data quality checks'
         for zone in ('WALO','KRLO','KRTI','GDLO','KA1'):
             for group in active:
-                minimum = 60 if zone == 'KA1' else 35
+                minimum = 60 if zone == 'KA1' else 30
                 assert get_minimum_rate({**target,'zone':zone,'group':group},config)[0]==minimum
                 assert calculate_target_base_rate({**target,'zone':zone,'group':group,'suggested_rate_pln_day':20},100,config)[0]==minimum
         floor_recommendations=folder / 'floor-recommendations.json'
@@ -204,7 +204,7 @@ def main():
             assert all(row[i].value==150 for i in [8,9,10,11])
             assert row[13].value==(170 if row[0].value=='PDAH' else 150)
             if row[6].value.date()==date(2026,11,3) and row[0].value in active:
-                assert row[12].value==(36 if row[0].value in {'EDAV','EDMV'} else 35), 'Saved workbook respects location-type floor and parity'
+                assert row[12].value==(31 if row[0].value in {'EDAV','EDMV'} else 30), 'Saved workbook respects location-type floor and parity'
             else:
                 assert row[12].value==(50 if row[6].value.date()==date(2026,10,1) else 150)
         floor_book.close()
@@ -234,7 +234,7 @@ def main():
     assert evaluate_target_constraints(target,70)['target_achievable']
     assert not evaluate_target_constraints(target,71)['target_achievable']
     assert format_broker_markup(premium)=='39 PLN/doba (staly)'
-    print('PASS fixed markup Excel: allowed groups, city60/airport35 with 8-14 evidence, incomplete evidence safety, long-band raises/decreases, exclusions, protected dates and baseline preserved')
+    print('PASS fixed markup Excel: allowed groups, city60/airport30 with 8-14 evidence, incomplete evidence safety, long-band raises/decreases, exclusions, protected dates and baseline preserved')
 
 
 if __name__=='__main__':

@@ -246,13 +246,13 @@ test('normal protected dates and long durations cannot authorize market changes'
   assert.equal(preview({ group: 'CFAV' }).marketAllowed, false);
 });
 
-test('legacy fallback retains scoped then zone then seasonal precedence, not maximum of every floor', () => {
+test('legacy fallback uses dated minima after timeless scoped and zone overrides are removed', () => {
   const value = model();
   delete value.pricing.pricing.locationTypeFloorsPlnDay;
   value.pricing.pricing.priorityTop1Rules = [];
-  assert.equal(preview({ zone: 'KRLO' }, value).floor, 30);
-  assert.equal(preview({ zone: 'KRDW' }, value).floor, 39);
-  assert.equal(preview({ duration: 8, pickupDate: '2026-07-15' }, value).floor, 40);
+  assert.equal(preview({ zone: 'KRLO' }, value).floor, 50);
+  assert.equal(preview({ zone: 'KRDW' }, value).floor, 50);
+  assert.equal(preview({ duration: 8, pickupDate: '2026-07-15' }, value).floor, 115);
   assert.equal(preview({ duration: 1, pickupDate: '2026-07-15' }, value).floor, 70);
   assert.equal(preview({ duration: 1, pickupDate: '2026-10-15' }, value).floor, 50);
 });
@@ -352,6 +352,48 @@ test('preview rejects malformed policy precedence rather than silently using its
   value.pricing.pricing.pricingPolicy.precedence.reverse();
   assert.ok(validateModel(value).errors.some((item) => /kolejność|hierarch|polityk/i.test(item.message)));
   assert.equal(preview({}, value).floor, null);
+});
+
+test('ignore_cap policy permits floor editing and preview without changing the pricing document shape', () => {
+  for (const wrapped of [true, false]) {
+    const original = createModel({ ...documents, pricing: wrapped ? documents.pricing : documents.pricing.pricing });
+    const pricing = wrapped ? original.pricing.pricing : original.pricing;
+    pricing.pricingPolicy.normalFloorCapConflict = 'ignore_cap';
+    const value = updateRule(original, 'location:city', { amount: 75 });
+    assert.deepEqual(validateModel(value, original).errors, []);
+    const exported = toDocuments(value).pricing;
+    assert.equal(Object.hasOwn(exported, 'pricing'), wrapped);
+    assert.equal((wrapped ? exported.pricing : exported).pricingPolicy.normalFloorCapConflict, 'ignore_cap');
+    assert.equal(preview({}, value).floor, 75);
+    assert.equal(preview({}, value).marketAllowed, true);
+    assert.equal(preview({ pickupDate: '2027-01-10' }, value).marketAllowed, false);
+    assert.equal(preview({ group: 'CFAV' }, value).marketAllowed, false);
+    assert.equal(preview({ zone: 'SZLO', group: 'FVMD' }, value).omitted, true);
+    assert.ok(preview({}, value).limitations.some((text) => /dowod/i.test(text)));
+  }
+});
+
+test('omitted conflict field or pricing policy retains ignore_cap preview behavior without rewriting documents', () => {
+  const explicit = model();
+  explicit.pricing.pricing.pricingPolicy.normalFloorCapConflict = 'ignore_cap';
+  for (const omitPolicy of [false, true]) {
+    const value = createModel(explicit);
+    if (omitPolicy) delete value.pricing.pricing.pricingPolicy;
+    else delete value.pricing.pricing.pricingPolicy.normalFloorCapConflict;
+    assert.deepEqual(validateModel(value).errors, []);
+    assert.deepEqual(preview({}, value), preview({}, explicit));
+    assert.deepEqual(toDocuments(value).pricing, value.pricing);
+  }
+});
+
+test('retired and unknown conflict policies fail validation and block preview', () => {
+  for (const conflict of ['preserve_baseline', 'cap_floor', 'IGNORE_CAP', '', false, 0, {}, []]) {
+    const value = model();
+    value.pricing.pricing.pricingPolicy.normalFloorCapConflict = conflict;
+    assert.ok(validateModel(value).errors.some((item) => item.path === 'pricing.pricing.pricingPolicy'), JSON.stringify(conflict));
+    assert.equal(preview({}, value).floor, null);
+    assert.equal(preview({}, value).marketAllowed, false);
+  }
 });
 
 test('full-row editor patches accept unchanged display fields but never replace identity or scope', () => {

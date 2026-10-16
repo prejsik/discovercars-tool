@@ -328,8 +328,8 @@ export function validateModel(model, originalModel = model) {
   }
   const policy = pricing.pricingPolicy;
   if (policy != null && (!object(policy) || !same(policy.precedence ?? POLICY_PRECEDENCE, POLICY_PRECEDENCE)
-    || (policy.normalFloorCapConflict ?? 'preserve_baseline') !== 'preserve_baseline')) {
-    error(`${root}.pricingPolicy`, 'Kolejność reguł i ochrona stawki bazowej przy konflikcie minimum z limitem muszą zachować zatwierdzoną hierarchię');
+    || (policy.normalFloorCapConflict ?? 'ignore_cap') !== 'ignore_cap')) {
+    error(`${root}.pricingPolicy`, 'Kolejność reguł musi zachować zatwierdzoną hierarchię; konflikt minimum z limitem wymaga pominięcia limitu');
   }
   const scope = (list, path, available, wildcard = false, nonempty = true) => {
     if (!Array.isArray(list) || (nonempty && !list.length) || new Set(list).size !== list.length

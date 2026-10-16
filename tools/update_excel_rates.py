@@ -90,9 +90,7 @@ DEFAULT_CONFIG = {
     "pricing_rules_file": "pricing-rules.config.example.json",
     "minimum_rates": {
         "global_min_pln_day": 0,
-        "scoped_overrides": [
-            {"zones": ["*"], "groups": ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"], "min_days": 8, "max_days": 20, "min_pln_day": 40},
-        ],
+        "scoped_overrides": [],
         "bands": [
             {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 1, "max_days": 7, "min_pln_day": 70},
             {"start_date": "2026-07-01", "end_date": "2026-08-30", "min_days": 8, "max_days": 20, "min_pln_day": 115},
@@ -167,10 +165,10 @@ def get_pricing_policy(config: dict[str, Any]) -> dict[str, Any]:
     if policy is None:
         policy = get_pricing_rules(config).get("pricingPolicy") or {}
     precedence = policy.get("precedence", list(PRICING_POLICY_PRECEDENCE))
-    conflict = policy.get("normalFloorCapConflict", "preserve_baseline")
+    conflict = policy.get("normalFloorCapConflict", "ignore_cap")
     # Reordering approved business rules needs a separate business decision.
-    if precedence != list(PRICING_POLICY_PRECEDENCE) or conflict != "preserve_baseline":
-        raise ValueError("pricingPolicy must preserve the approved hierarchy and normal floor/cap baseline protection.")
+    if precedence != list(PRICING_POLICY_PRECEDENCE) or conflict != "ignore_cap":
+        raise ValueError("pricingPolicy must preserve the approved hierarchy and ignore the cap when it conflicts with a floor.")
     return {"precedence": precedence, "normalFloorCapConflict": conflict}
 
 
@@ -961,6 +959,8 @@ def get_recommendation_fill(change: dict[str, Any], config: dict[str, Any]) -> P
 
 
 def append_city_top1_airport_cap_reason(change: dict[str, Any], reason: str) -> str:
+    if change.get("city_top1_airport_cap_ignored"):
+        return f"{reason} {change['city_top1_airport_cap_ignored_reason']}".strip()
     if not change.get("city_top1_airport_cap_active"):
         return reason
     multiplier = parse_number(change.get("city_top1_airport_max_multiplier")) or 1.3
@@ -1811,10 +1811,10 @@ def get_city_top1_airport_cap_legend_text(config: dict[str, Any]) -> str:
         "grupy i przedzialu duration moze wynosic maksymalnie "
         f"{format_percent_for_comment(multiplier * 100)} stawki odpowiadajacego lotniska. "
         "Aktywny priorytet Top1 jest nadrzedny i zastepuje ten limit. "
-        "Lotniska nie sa ograniczane ta regula. Jesli limit jest nizszy od floor, zachowujemy "
-        "stawki bazowe powiazanych klas w tej lokalizacji, dacie i przedziale duration; "
-        "konflikt trafia do kontroli bez blokowania pozostalych rekomendacji. "
-        "Obowiazkowe minimum nadal podnosi nizsze stawki, bez celu rankingowego i bez stosowania sprzecznego limitu."
+        "Lotniska nie sa ograniczane ta regula. Jesli limit jest nizszy od floor, pomijamy limit "
+        "dla dotknietych klas i ich powiazanych klas parytetu w tej lokalizacji, dacie i przedziale duration. "
+        "Rekomendacja rynkowa pozostaje aktywna z zachowaniem minimum, ochrony dat i kontroli danych. "
+        "Pominiecie limitu jest opisane w rekomendacjach i nie oznacza zablokowania zmiany."
     )
 
 
@@ -1845,7 +1845,7 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
                       "Nie wygasa z priorytetem Top1; wyzsze minima obowiazkowe pozostaja nadrzedne. ")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
-    ) + ". Zwykly konflikt floor/cap: zachowaj dotkniete stawki bazowe i eksportuj pozostale rekomendacje."
+    ) + ". Konflikt floor/cap: pomin sprzeczny limit miasta, zachowaj minimum i realizuj rekomendacje."
 
 
 def get_required_missing_duration_days(change: dict[str, Any]) -> list[int]:
@@ -1895,6 +1895,8 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
     if any(change.get("city_top1_airport_cap_applied") for change in changes):
         multiplier = parse_number(changes[0].get("city_top1_airport_max_multiplier")) or 1.3
         notes.append(f"limit oddzialu miejskiego do {format_percent_for_comment(multiplier * 100)} stawki lotniskowej")
+    if any(change.get("city_top1_airport_cap_ignored") for change in changes):
+        notes.append("pominieto limit miasta wzgledem lotniska: obowiazujace minimum ma pierwszenstwo")
     if any(parse_number(change.get("group_adjustment_pln_day")) for change in changes):
         notes.append("korekta grup premium")
     if any(parse_number(change.get("broker_markup_amount_pln_day")) is not None or parse_number(change.get("broker_markup_multiplier")) not in (None, 1) for change in changes):
@@ -2165,7 +2167,6 @@ def write_recommendations_review_sheet(
     source_ws: Any,
     config: dict[str, Any],
     changes: list[dict[str, Any]],
-    price_conflicts: list[dict[str, Any]] | None = None,
 ) -> None:
     sheet_name = str(config.get("recommendations_review_sheet") or "").strip()
     if not sheet_name:
@@ -2230,22 +2231,6 @@ def write_recommendations_review_sheet(
             change.get("scenario_id", ""),
             ", ".join(item.get("cell", "") for item in grouped_changes),
         ])
-
-    for conflict in price_conflicts or []:
-        values = {
-            "Status": "Sprawdz",
-            "Uwagi kontroli": conflict["skip_reason"],
-            "Lokalizacja": conflict.get("location", conflict["zone"]),
-            "Strefa": conflict["zone"],
-            "Grupy": ", ".join(conflict["groups"]),
-            "Data odbioru": conflict["pickup_date"],
-            "Przedzial duration": conflict["duration_band"],
-            "Typ rekomendacji": "Konflikt floor i limitu lotniska",
-            "Cel zmiany": ("Pominieto cel rankingowy; obowiazkowe minimum ma pierwszenstwo"
-                           if conflict.get("mandatory_minimum_active") else "Stawki bazowe pozostawione bez zmian"),
-            "Powod": conflict["skip_reason"],
-        }
-        rows.append([values.get(header, "") for header in headers])
 
     widths = {
         "Akceptacja?": 12,
@@ -2859,6 +2844,7 @@ def build_city_top1_airport_rate_caps(
     ws: Any,
     config: dict[str, Any],
     targets: dict[str, dict[date, list[dict[str, Any]]]],
+    allowed_groups: set[str] | None = None,
 ) -> tuple[dict[tuple[str, date, int], dict[str, Any]], list[dict[str, Any]]]:
     cap_rule = get_city_top1_airport_cap(config)
     city_zone_airport_zones = {
@@ -2870,6 +2856,7 @@ def build_city_top1_airport_rate_caps(
         return {}, []
 
     multiplier, recommendation_types = cap_rule
+    allowed_groups = resolve_apply_groups(config, None) if allowed_groups is None else allowed_groups
     columns = config["columns"]
     data_start_row = int(config["data_start_row"])
     group_col = int(columns["group"])
@@ -2941,6 +2928,11 @@ def build_city_top1_airport_rate_caps(
                             current_rate = parse_number(ws.cell(airport_rows[reference_group], rate_col).value)
                             current_base = None if current_rate is None else current_rate - reference_adjustment
                             projected_base, _, _, _ = calculate_target_base_rate({**airport_target, "group": reference_group}, current_base, config)
+                            family_minimum = max((get_minimum_rate(
+                                {**target_for_group(airport_target, group), "group": group}, config)[0]
+                                for group in candidate_groups & allowed_groups
+                                if group in airport_rows and not group_is_excluded(group, config)), default=0) if parity else 0
+                            projected_base = max(projected_base, family_minimum)
                             for group in candidate_groups:
                                 if group in airport_rows:
                                     projected_rates[group] = projected_base + get_group_rate_adjustment(group, config)
@@ -2949,7 +2941,10 @@ def build_city_top1_airport_rate_caps(
                             row = airport_rows.get(group)
                             rate = parse_number(ws.cell(row, rate_col).value) if row is not None else None
                             if rate is not None:
-                                projected_rates[group] = rate
+                                minimum, _ = get_mandatory_correction_floor(
+                                    airport_zone, group, city_target["duration_min_days"],
+                                    city_target["duration_max_days"], config, target_date)
+                                projected_rates[group] = max(rate, minimum or 0)
 
                     base_cap_candidates = [
                         rate * multiplier - get_group_rate_adjustment(group, config)
@@ -2987,7 +2982,7 @@ def find_city_top1_airport_cap_violations(
     config: dict[str, Any],
     caps: dict[tuple[str, date, int], dict[str, Any]],
     allowed_groups: set[str] | None = None,
-    preserved_cells: set[tuple[str, date, int, str]] | None = None,
+    ignored_cap_cells: set[tuple[str, date, int, str]] | None = None,
 ) -> list[str]:
     if not caps:
         return []
@@ -3008,7 +3003,7 @@ def find_city_top1_airport_cap_violations(
         if not group_is_allowed(group, allowed_groups) or not zone or pickup_date is None or group_is_excluded(group, config):
             continue
         for rate_col, cap_info in caps_by_zone_date.get((zone, pickup_date), []):
-            if preserved_cells and (zone, pickup_date, rate_col, group) in preserved_cells:
+            if ignored_cap_cells and (zone, pickup_date, rate_col, group) in ignored_cap_cells:
                 continue
             rate = parse_number(ws.cell(row, rate_col).value)
             maximum_rate = float(cap_info["base_rate_cap_pln_day"]) + get_group_rate_adjustment(group, config)
@@ -3575,7 +3570,7 @@ def apply_updates(
             else set()
         )
         targets, accepted_target_count, filtered_unaccepted_target_count = filter_targets_by_acceptance(targets, accepted_keys)
-    city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(ws, config, targets)
+    city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(ws, config, targets, allowed_groups)
     if missing_airport_references:
         details = "; ".join(
             f"{item['city_zone']}/{item['pickup_date']} {item['duration_band']} -> "
@@ -3598,9 +3593,10 @@ def apply_updates(
     city_top1_airport_cap_applied_count = 0
     protected_periods = get_protected_rate_periods(config)
 
-    # Check all classes before writing any rates, so parity cannot alter a skipped band.
-    city_cap_conflicts: dict[tuple[str, date, int], dict[str, Any]] = {}
-    preserved_rate_cells: set[tuple[str, date, int, str]] = set()
+    # Resolve caps for the whole parity family before writing individual class rates.
+    ignored_city_caps: dict[tuple[str, date, int], dict[str, Any]] = {}
+    ignored_cap_cells: set[tuple[str, date, int, str]] = set()
+    parity_minimum_rates: dict[tuple[str, date, int], float] = {}
     parity = get_group_price_parity(config)
     parity_groups = (set(parity[0]) | set(parity[1])) & allowed_groups if parity else set()
     for row in range(data_start_row, ws.max_row + 1):
@@ -3612,8 +3608,6 @@ def apply_updates(
         for original_target in targets.get(zone, {}).get(pickup_date, []):
             key = (zone, pickup_date, int(original_target["rate_col"]))
             cap_info = city_top1_airport_caps.get(key)
-            if cap_info is None:
-                continue
             target = target_for_group(original_target, group)
             priority = priority_top1_applies(target, group, config)
             if (target.get("priority_rule_id") and not priority) or (group_is_excluded(group, config) and not priority):
@@ -3622,34 +3616,30 @@ def apply_updates(
             adjustment = get_group_rate_adjustment(group, config)
             current_base = None if old_rate is None else old_rate - adjustment
             _, _, minimum_rate, _ = calculate_target_base_rate({**target, "group": group}, current_base, config)
+            if group in parity_groups:
+                parity_minimum_rates[key] = max(parity_minimum_rates.get(key, 0), minimum_rate)
+            if cap_info is None:
+                continue
             base_cap = float(cap_info["base_rate_cap_pln_day"])
             if minimum_rate <= base_cap + 0.001:
                 continue
-            if config["_pricing_policy"]["normalFloorCapConflict"] != "preserve_baseline":
-                raise ValueError("Unsupported normal floor/cap conflict policy.")
-            preserved_groups = parity_groups if group in parity_groups else {group}
-            preserved_rate_cells.update((*key, preserved_group) for preserved_group in preserved_groups)
-            if group in parity_groups:
-                group_price_parity_scope.discard(key)
-            mandatory_minimum, _ = get_mandatory_floor(
-                zone, group, target["duration_min_days"], target["duration_max_days"], config, pickup_date)
-            city_cap_conflicts.setdefault(key, {
+            affected_groups = parity_groups if group in parity_groups else {group}
+            ignored_cap_cells.update((*key, affected_group) for affected_group in affected_groups)
+            ignored = ignored_city_caps.setdefault(key, {
                 "zone": zone,
                 "location": target.get("location", zone),
                 "pickup_date": pickup_date.isoformat(),
                 "duration_band": target["duration_band"],
                 "groups": [],
-                "mandatory_minimum_active": mandatory_minimum is not None,
-                "skip_reason": (
+                "reason": (
                     f"{group}/{zone}/{pickup_date.isoformat()} duration {target['duration_band']}: "
                     f"floor {format_rate_for_comment(minimum_rate + adjustment)} PLN/doba > "
                     f"limit miasta wzgledem lotniska {format_rate_for_comment(base_cap + adjustment)} PLN/doba. "
-                    + ("Pominieto rekomendacje rynkowa; obowiazkowe minimum ma pierwszenstwo, "
-                       "tylko nizsze stawki zostana podniesione; wymagana kontrola."
-                       if mandatory_minimum is not None else "Zachowano stawki bazowe; wymagana kontrola.")
+                    "Pominieto limit miasta wzgledem lotniska; obowiazujace minimum ma pierwszenstwo. "
+                    "Rekomendacja pozostaje aktywna z zachowaniem minimum."
                 ),
             })
-    skipped_targets.extend(city_cap_conflicts.values())
+            ignored["groups"] = sorted(set(ignored["groups"]) | affected_groups)
 
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True):
@@ -3691,11 +3681,8 @@ def apply_updates(
                 continue
             if group_is_excluded(group, config) and not priority:
                 continue
-            conflict = city_cap_conflicts.get((zone, pickup_start, int(target["rate_col"])))
-            if conflict is not None and (zone, pickup_start, int(target["rate_col"]), normalize_code(group)) in preserved_rate_cells:
-                if normalize_code(group) not in conflict["groups"]:
-                    conflict["groups"].append(normalize_code(group))
-                continue
+            cap_key = (zone, pickup_start, int(target["rate_col"]))
+            cap_ignored = (*cap_key, normalize_code(group)) in ignored_cap_cells
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
             group_adjustment = get_group_rate_adjustment(group, config)
@@ -3705,26 +3692,29 @@ def apply_updates(
                 current_base_equivalent,
                 config,
             )
+            family_minimum = parity_minimum_rates.get(cap_key, 0) if normalize_code(group) in parity_groups else 0
+            if family_minimum > minimum_rate:
+                minimum_rate = family_minimum
+                base_rate = max(base_rate, family_minimum)
+                minimum_reason = "Minimum powiazanych klas parytetu ma pierwszenstwo."
             uncapped_base_rate = base_rate
             cap_info = city_top1_airport_caps.get((zone, target["target_date"], int(target["rate_col"])))
-            city_airport_cap_active = cap_info is not None
+            city_airport_cap_active = cap_info is not None and not cap_ignored
             city_airport_cap_applied = False
-            city_airport_cap_conflict = False
             city_airport_max_rate = None
             airport_reference_rate = None
             if cap_info is not None:
                 base_rate_cap = float(cap_info["base_rate_cap_pln_day"])
                 city_airport_max_rate = round(base_rate_cap + group_adjustment, 2)
                 airport_reference_rate = (cap_info.get("airport_rates_by_group") or {}).get(normalize_code(group))
-                if minimum_rate > base_rate_cap + 0.001:
-                    city_airport_cap_conflict = True
+                if not cap_ignored and minimum_rate > base_rate_cap + 0.001:
                     raise ValueError(
-                        "City Top1 airport cap conflicts with the configured price floor; no workbook changes were saved. "
+                        "Unresolved city Top1 airport cap/floor conflict; no workbook changes were saved. "
                         f"{normalize_code(group)}/{zone}/{target['target_date'].isoformat()} "
                         f"{target['duration_band']}: floor {format_rate_for_comment(minimum_rate)} > "
                         f"cap {format_rate_for_comment(base_rate_cap)}."
                     )
-                if base_rate > base_rate_cap:
+                if not cap_ignored and base_rate > base_rate_cap:
                     base_rate = base_rate_cap
                     city_airport_cap_applied = True
                     city_top1_airport_cap_applied_count += 1
@@ -3773,7 +3763,9 @@ def apply_updates(
                 "group_adjustment_pln_day": group_adjustment,
                 "city_top1_airport_cap_active": city_airport_cap_active,
                 "city_top1_airport_cap_applied": city_airport_cap_applied,
-                "city_top1_airport_cap_conflict": city_airport_cap_conflict,
+                "city_top1_airport_cap_conflict": False,
+                "city_top1_airport_cap_ignored": cap_ignored,
+                "city_top1_airport_cap_ignored_reason": ignored_city_caps[cap_key]["reason"] if cap_ignored else "",
                 "city_top1_airport_max_multiplier": cap_info.get("max_multiplier") if cap_info else None,
                 "city_top1_airport_max_rate": city_airport_max_rate,
                 "airport_reference_zone": cap_info.get("airport_zone", "") if cap_info else "",
@@ -3856,7 +3848,7 @@ def apply_updates(
     city_top1_airport_cap_violations = (
         [] if dry_run else find_city_top1_airport_cap_violations(
             ws, config,
-            city_top1_airport_caps, allowed_groups, preserved_rate_cells,
+            city_top1_airport_caps, allowed_groups, ignored_cap_cells,
         )
     )
     if city_top1_airport_cap_violations:
@@ -3870,7 +3862,7 @@ def apply_updates(
             raise ValueError("Output path is required unless --dry-run is used.")
         validate_import_row_limit(ws, config)
         write_changed_positions_sheet(workbook, ws, config, changes)
-        write_recommendations_review_sheet(workbook, ws, config, changes, list(city_cap_conflicts.values()))
+        write_recommendations_review_sheet(workbook, ws, config, changes)
         write_validation_sheet(
             workbook,
             ws,
@@ -3920,8 +3912,10 @@ def apply_updates(
         "city_top1_airport_cap_scope_count": len(city_top1_airport_caps),
         "city_top1_airport_cap_applied_count": city_top1_airport_cap_applied_count,
         "city_top1_airport_cap_violation_count": len(city_top1_airport_cap_violations),
-        "city_top1_airport_cap_conflict_count": len(city_cap_conflicts),
-        "city_top1_airport_cap_conflicts": list(city_cap_conflicts.values()),
+        "city_top1_airport_cap_conflict_count": 0,
+        "city_top1_airport_cap_conflicts": [],
+        "city_top1_airport_cap_ignored_count": len(ignored_city_caps),
+        "city_top1_airport_cap_ignored_scopes": list(ignored_city_caps.values()),
         "excluded_group_highlight_count": excluded_group_highlight_count,
         "normalized_pickup_end_count": normalized_pickup_end_count,
         "synced_booking_end_count": synced_booking_end_count,

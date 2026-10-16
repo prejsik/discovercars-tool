@@ -93,64 +93,8 @@
   "pricing_rules_file": "pricing-rules.config.example.json",
   "minimum_rates": {
     "global_min_pln_day": 0,
-    "scoped_overrides": [
-      {
-        "zones": [
-          "*"
-        ],
-        "groups": [
-          "CDMV",
-          "CGAV",
-          "CWAV",
-          "CWMR",
-          "EDAV",
-          "EDMV"
-        ],
-        "min_days": 8,
-        "max_days": 20,
-        "min_pln_day": 40
-      },
-      {
-        "zones": [
-          "KRTI",
-          "KRLO"
-        ],
-        "groups": [
-          "CDMV",
-          "CGAV",
-          "CWAV",
-          "CWMR",
-          "EDAV",
-          "EDMV"
-        ],
-        "min_days": 2,
-        "max_days": 2,
-        "min_pln_day": 30
-      },
-      {
-        "zones": [
-          "KRTI",
-          "KRLO"
-        ],
-        "groups": [
-          "CDMV",
-          "CGAV",
-          "CWAV",
-          "CWMR",
-          "EDAV",
-          "EDMV"
-        ],
-        "min_days": 3,
-        "max_days": 4,
-        "min_pln_day": 30
-      }
-    ],
-    "zone_overrides_pln_day": {
-      "KRDW": 39,
-      "KRGA": 39,
-      "KRLO": 39,
-      "KRTI": 39
-    },
+    "scoped_overrides": [],
+    "zone_overrides_pln_day": {},
     "bands": [
       {
         "start_date": "2026-07-01",
