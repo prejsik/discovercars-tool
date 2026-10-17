@@ -1383,6 +1383,82 @@ runTest("Telegram summary keeps durations and elapsed time compact", () => {
   assert.equal(formatDuration(15120), "4 h 12 min");
 });
 
+runTest("Telegram uses Polish local time and source readings for the first fourteen pickup days", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", RUN_STARTED_EPOCH: String(Date.parse("2026-10-16T23:10:00Z") / 1000),
+      PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    nowEpoch: Date.parse("2026-10-17T06:00:00Z") / 1000,
+    expectedScope: { start_dates: ["2026-10-18", "2026-10-31", "2026-11-01"] },
+    results: { generated_at: "2026-10-17T05:59:00Z", scenarios: [
+      { start_date: "2026-11-01", generated_at: "2026-10-17T00:00:00Z",
+        results: [{ location: "Warsaw", total_price: 200 }] },
+      { start_date: "2026-10-31", generated_at: "2026-10-17T05:00:00Z",
+        source_generated_at_by_location: { Warsaw: "2026-10-17T01:30:00Z", Krakow: "2026-10-17T02:30:00Z" },
+        top_3_by_location: { Warsaw: [{ total_price: 200 }], Krakow: [{ total_price: 190 }] } },
+      { start_date: "2026-10-18", generated_at: "2026-10-17T03:45:00Z",
+        results: [{ location: "Warsaw", total_price: 200 }] }
+    ] },
+    qualityAlerts: { status: "success" }
+  });
+  assert.match(message, /Start procesu: 17\.10\.2026, 01:10 \(czas polski\)/);
+  assert.match(message, /Odczyty cen \(starty 18\.10\.2026, 31\.10\.2026\): 17\.10\.2026, 03:30 – 17\.10\.2026, 05:45/);
+  assert.doesNotMatch(message, /01:30|07:00|07:59/);
+});
+
+runTest("Telegram never substitutes publication time or failed searches for price reading times", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel" },
+    nowEpoch: Date.parse("2026-10-17T06:00:00Z") / 1000,
+    results: { generated_at: "2026-10-17T05:59:00Z", scenarios: [
+      { start_date: "2026-10-18", generated_at: "2026-10-17T01:00:00Z", results: [], errors: [{ location: "Warsaw" }] },
+      { start_date: "2026-10-19", results: [{ location: "Warsaw", total_price: 200 }] }
+    ] },
+    qualityAlerts: { status: "success" }
+  });
+  assert.match(message, /Start procesu: brak danych/);
+  assert.match(message, /Odczyty cen \(starty 18–19\.10\.2026\): brak danych/);
+  assert.doesNotMatch(message, /03:00|07:59|1970|Invalid Date/);
+});
+
+runTest("Telegram source time ranges cross midnight and the Polish winter time change", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "failure", RUN_STARTED_EPOCH: String(Date.parse("2026-10-24T21:00:00Z") / 1000) },
+    nowEpoch: Date.parse("2026-10-25T06:00:00Z") / 1000,
+    results: { scenarios: [
+      { start_date: "2026-10-25", generated_at: "2026-10-24T21:30:00Z", results: [{ location: "Warsaw", total_price: 200 }] },
+      { start_date: "2026-10-26", generated_at: "2026-10-25T04:10:00Z", results: [{ location: "Warsaw", total_price: 200 }] }
+    ] }
+  });
+  assert.match(message, /Start procesu: 24\.10\.2026, 23:00 \(czas polski\)/);
+  assert.match(message, /Odczyty cen \(starty 25–26\.10\.2026\): 24\.10\.2026, 23:30 – 25\.10\.2026, 05:10/);
+});
+
+runTest("Telegram does not replace an invalid location timestamp with a newer scenario timestamp", () => {
+  const message = buildTelegramSummary({
+    env: { QUALITY_STATUS: "success", PAGE_URL: "report", EXCEL_ARTIFACT_URL: "excel", RUN_STARTED_EPOCH: "invalid" },
+    nowEpoch: Date.parse("2026-10-17T06:00:00Z") / 1000,
+    results: { scenarios: [{ start_date: "2026-10-18", generated_at: "2026-10-17T03:00:00Z",
+      source_generated_at_by_location: { Warsaw: "invalid", Krakow: "2026-10-17T07:00:00Z", Gdansk: "2026-10-17T02:00:00Z" },
+      results: [{ location: "Warsaw", total_price: 200 }, { location: "Krakow", total_price: 200 }, { location: "Gdansk", total_price: 200 }] }] },
+    qualityAlerts: { status: "success" }
+  });
+  assert.match(message, /Start procesu: brak danych/);
+  assert.match(message, /Odczyty cen \(starty 18\.10\.2026\): 17\.10\.2026, 04:00 \(część odczytów bez czasu\)/);
+  assert.doesNotMatch(message, /05:00|09:00|Invalid Date/);
+});
+
+runTest("Telegram still reports a collection failure when the price payload is malformed", () => {
+  const options = { env: { QUALITY_STATUS: "failure" },
+    results: { scenarios: [{ start_date: "2026-10-18", results: [null],
+      top_3_by_location: { Warsaw: {} },
+      top_3_plus_mm_by_location: { Warsaw: { top_3: {} } },
+      offer_views_by_location: { Warsaw: { automatic: { top_3: {} } } } }] } };
+  let message;
+  assert.doesNotThrow(() => { message = buildTelegramSummary(options); });
+  assert.match(message, /^DiscoverCars \| BŁĄD/);
+  assert.match(message, /Odczyty cen \(starty 18\.10\.2026\): brak danych/);
+});
+
 runTest("Telegram success summary reports actual Excel changes instead of candidate counts", () => {
   const message = buildTelegramSummary({
     env: {
@@ -1422,6 +1498,8 @@ runTest("Telegram success summary reports actual Excel changes instead of candid
   assert.equal(message, [
     "DiscoverCars",
     "",
+    "Start procesu: 01.01.1970, 01:16 (czas polski)",
+    "Odczyty cen (starty 04–05.10.2026): brak danych",
     "Daty startu: 04–05.10.2026",
     "Czas trwania: 2–14 dni",
     "Dane cenowe uzyskano dla 637/650 sprawdzeń (98%).",

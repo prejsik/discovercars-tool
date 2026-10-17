@@ -98,7 +98,7 @@ function formatIsoDate(isoDate) {
   return `${day}.${month}.${year}`;
 }
 
-function startDatesLabel(options, env) {
+function listStartDates(options, env) {
   const sources = [
     options.expectedScope?.start_dates,
     options.results?.collection_scope?.start_dates,
@@ -115,6 +115,11 @@ function startDatesLabel(options, env) {
       && new Date(date).toISOString().slice(0, 10) === date))].sort();
     if (dates.length) break;
   }
+  return dates;
+}
+
+function startDatesLabel(options, env) {
+  const dates = listStartDates(options, env);
   if (!dates.length) return "brak danych";
   if (dates.length === 1) return formatIsoDate(dates[0]);
   const contiguous = dates.every((date, index) => !index || Date.parse(date) - Date.parse(dates[index - 1]) === 86400000);
@@ -126,6 +131,55 @@ function startDatesLabel(options, env) {
   const firstLabel = first.slice(0, 7) === last.slice(0, 7) ? first.slice(8)
     : first.slice(0, 4) === last.slice(0, 4) ? `${first.slice(8)}.${first.slice(5, 7)}` : formatIsoDate(first);
   return `${firstLabel}–${formatIsoDate(last)}`;
+}
+
+function formatPolishDateTime(milliseconds) {
+  return new Intl.DateTimeFormat("pl-PL", {
+    timeZone: "Europe/Warsaw", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).format(new Date(milliseconds));
+}
+
+function priceReadingsLabel(options, env, nowEpoch) {
+  const dates = listStartDates(options, env);
+  if (!dates.length) return "Odczyty cen (najbliższe 14 dni): brak danych";
+  const lastDay = Date.parse(dates[0]) + 13 * 86400000;
+  const nearDates = dates.filter((date) => Date.parse(date) <= lastDay);
+  const label = `Odczyty cen (starty ${startDatesLabel({ expectedScope: { start_dates: nearDates } }, {})})`;
+  const scenarios = Array.isArray(options.results?.scenarios) ? options.results.scenarios
+    : options.results ? [options.results] : [];
+  const timestamps = [];
+  let missingTime = false;
+  const offerList = (value) => Array.isArray(value) ? value : [];
+  const hasPrice = (offer) => offer && Number.isFinite(Number(offer.total_price)) && Number(offer.total_price) > 0;
+  for (const scenario of scenarios) {
+    const date = String(scenario?.start_date || scenario?.pickup_date || "").slice(0, 10);
+    if (!nearDates.includes(date)) continue;
+    const pricedLocations = new Set();
+    const addOffers = (location, offers) => {
+      if (location && offers.some(hasPrice)) pricedLocations.add(location);
+    };
+    for (const offer of offerList(scenario.results)) addOffers(offer?.location, [offer]);
+    for (const [location, offers] of Object.entries(scenario.top_3_by_location || {})) addOffers(location, offerList(offers));
+    for (const [location, entry] of Object.entries(scenario.top_3_plus_mm_by_location || {})) {
+      addOffers(location, [...offerList(entry?.top_3), entry?.mm_cars_rental]);
+    }
+    for (const [location, views] of Object.entries(scenario.offer_views_by_location || {})) {
+      for (const view of Object.values(views || {})) addOffers(location, [...offerList(view?.top_3), view?.mm_cars_rental]);
+    }
+    for (const location of pricedLocations) {
+      // A merge/report timestamp is not evidence that prices were read again.
+      const sourceTime = Object.hasOwn(scenario.source_generated_at_by_location || {}, location)
+        ? scenario.source_generated_at_by_location[location] : scenario.generated_at;
+      const time = typeof sourceTime === "string" && sourceTime.trim() ? Date.parse(sourceTime) : NaN;
+      if (Number.isFinite(time) && time <= nowEpoch * 1000) timestamps.push(time);
+      else missingTime = true;
+    }
+  }
+  if (!timestamps.length) return `${label}: brak danych`;
+  const first = formatPolishDateTime(Math.min(...timestamps));
+  const last = formatPolishDateTime(Math.max(...timestamps));
+  return `${label}: ${first === last ? first : `${first} – ${last}`}${missingTime ? " (część odczytów bez czasu)" : ""}`;
 }
 
 function nonNegativeCount(value) {
@@ -208,6 +262,10 @@ function buildTelegramSummary(options = {}) {
   const nowEpoch = Number(options.nowEpoch ?? Math.floor(Date.now() / 1000));
   const startedEpoch = Number(env.RUN_STARTED_EPOCH);
   const runSeconds = Number.isFinite(startedEpoch) && startedEpoch > 0 ? Math.max(0, nowEpoch - startedEpoch) : NaN;
+  const freshnessLines = [
+    `Start procesu: ${Number.isFinite(runSeconds) ? `${formatPolishDateTime(startedEpoch * 1000)} (czas polski)` : "brak danych"}`,
+    priceReadingsLabel(options, env, nowEpoch)
+  ];
   const reportUrl = env.PAGE_URL || env.ARTIFACT_URL || "brak linku";
   const excelUrl = env.PAGES_EXCEL_URL || env.EXCEL_ARTIFACT_URL || "niedostępny";
   const excelReportUrl = env.PAGES_EXCEL_REPORT_URL || env.EXCEL_ARTIFACT_URL || "niedostępny";
@@ -242,6 +300,7 @@ function buildTelegramSummary(options = {}) {
     return [
       `DiscoverCars | ${statusLabel}`,
       "",
+      ...freshnessLines,
       "Excel nie został opublikowany.",
       `Powód: ${reason}`,
       `Zakres: ${rangeLabel(env)}`,
@@ -270,6 +329,7 @@ function buildTelegramSummary(options = {}) {
     return [
       `DiscoverCars | ${statusLabel}`,
       "",
+      ...freshnessLines,
       `Powód: ${reason}.`,
       `Zakres: ${rangeLabel(env)}`,
       ...completionMessages,
@@ -300,6 +360,7 @@ function buildTelegramSummary(options = {}) {
   const lines = [
     "DiscoverCars",
     "",
+    ...freshnessLines,
     `Daty startu: ${startDatesLabel(options, env)}`,
     `Czas trwania: ${summarizeNumberList(durations, "–")} dni`,
     priceCoverageLabel(quality),
