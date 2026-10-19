@@ -1354,7 +1354,11 @@ function Sources({ snapshot, model, remote, capabilities }) {
         </div>
         <div>
           <dt>Zakres pliku importowego</dt>
-          <dd>{model.excel.pickup_date_expansion.rolling_days} dni</dd>
+          <dd>
+            {model.excel.pickup_date_expansion.mode === "source_ranges"
+              ? "Wszystkie okresy z pliku bazowego"
+              : `${model.excel.pickup_date_expansion.rolling_days} dni`}
+          </dd>
         </div>
         <div>
           <dt>Narzut brokera</dt>

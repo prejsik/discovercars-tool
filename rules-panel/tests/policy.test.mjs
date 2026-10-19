@@ -28,6 +28,35 @@ test('editing a cloned model and exported documents cannot mutate inputs or each
   assert.deepEqual(documents.locations.locations[0].zones, ['BYLO']);
 });
 
+test('source range configuration survives a rule edit and JSON document roundtrip without rolling defaults', () => {
+  const original = model();
+  original.excel.pickup_date_expansion = { enabled: true, mode: 'source_ranges', time_zone: 'Europe/Warsaw' };
+  assert.deepEqual(validateModel(original, original).errors, []);
+  const edited = updateRule(original, 'location:city', { amount: 65 });
+  const exported = JSON.parse(JSON.stringify(toDocuments(edited)));
+  const restored = createModel({ ...exported, locations: original.locations });
+  assert.deepEqual(validateModel(restored, original).errors, []);
+  assert.deepEqual(exported.excel.pickup_date_expansion, {
+    enabled: true, mode: 'source_ranges', time_zone: 'Europe/Warsaw',
+  });
+  assert.equal(restored.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 65);
+  assert.equal(original.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 60);
+});
+
+test('source range settings remain immutable when bypassing rule edit handlers', () => {
+  const original = model();
+  original.excel.pickup_date_expansion = { enabled: true, mode: 'source_ranges', time_zone: 'Europe/Warsaw' };
+  for (const change of [
+    (value) => { delete value.excel.pickup_date_expansion.mode; },
+    (value) => { value.excel.pickup_date_expansion.rolling_days = 100; },
+    (value) => { value.excel.pickup_date_expansion.time_zone = 'UTC'; },
+  ]) {
+    const value = createModel(original);
+    change(value);
+    assert.ok(validateModel(value, original).errors.some((item) => item.path === 'model'));
+  }
+});
+
 test('actual documents build typed rows without replacing separate priority duration bands', () => {
   const rows = buildRules(model());
   assert.equal(rows.find((row) => row.id === 'location:city').amount, 60);

@@ -26,7 +26,7 @@ Complete raw evidence is used only where replay agrees with final economic decis
 
 The existing DOM verifier's 12-hour freshness limit is unchanged. General source/publication freshness is bounded at 24 hours. Proposed raw and DOM replay receive the matching in-memory `excelPolicy`, so changed date protection or omissions cannot fall back to an older disk configuration.
 
-Configuration is not rewritten for the simulation except to redirect input dependencies to their pinned temporary copies. The current configuration uses a 100-day rolling horizon and `max_import_rows: null`; future requests use their actual configuration. The engine's configured limits, class permissions, protected dates, parity and frozen markup remain authoritative. Technical input-size/time bounds are resource guards, not business rules.
+Configuration is not rewritten for the simulation except to redirect input dependencies to their pinned temporary copies. The current configuration uses `pickup_date_expansion.mode: "source_ranges"` and `max_import_rows: null`, preserving all baseline pickup-date ranges in both Excel outputs without a 100-day cutoff. Ranges split only at scraper recommendation dates and mandatory-floor/protected-date boundaries; other ranges remain compact. Market changes apply only to dates present in scraper recommendations. The scraper schedule remains unchanged at 45 days overnight and 20 days during the day; future requests use their actual configuration. The engine's configured limits, class permissions, protected dates, parity and frozen markup remain authoritative. Technical input-size/time bounds are resource guards, not business rules.
 
 ## Completed Envelope
 

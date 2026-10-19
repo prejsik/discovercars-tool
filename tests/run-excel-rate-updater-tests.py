@@ -189,7 +189,133 @@ def expected_approved_floor_rates(group, zone, pickup_date, rates):
     return expected
 
 
+def test_preserved_source_ranges():
+    with tempfile.TemporaryDirectory() as directory:
+        directory = Path(directory)
+        source = directory / "source.xlsx"
+        recommendations = directory / "recommendations.json"
+        pricing = directory / "pricing.json"
+        pricing.write_text(json.dumps({"pricing": {}}), encoding="utf-8")
+        config = merge_config({
+            "baseline_manifest_file": "", "pricing_rules_file": str(pricing),
+            "location_zones": {"Fixture Airport": ["WALO"]},
+            "apply_groups": ["CDMV"], "excluded_groups": ["CFAV", "FVMD"],
+            "city_top1_airport_cap": {"enabled": False},
+            "group_price_parity": {"enabled": False},
+            "minimum_rates": {"global_min_pln_day": 0, "bands": []},
+            "normalize_pickup_end_to_start": False,
+            "pickup_date_expansion": {"enabled": True, "mode": "source_ranges"},
+        })
+        rows = [
+            ["CDMV", None, None, "WALO", "01-01-26", "21-12-27", "01-10-26", "21-12-27", *([150] * 6)],
+            ["CFAV", None, None, "WALO", "01-01-26", "21-12-27", "01-10-26", "21-12-27", *([250] * 6)],
+            ["CDMV", None, None, "WALO", "01-01-26", "01-02-28", "01-01-28", "01-02-28", *([260] * 6)],
+        ]
+        build_minimal_workbook(source, rows)
+        original_bytes = source.read_bytes()
+
+        def run(dates, name):
+            recommendations.write_text(json.dumps({"recommendations": [{
+                "action": "decrease", "recommendation_type": "top1_undercut",
+                "location": "Fixture Airport", "start_date": value, "rental_days": 2,
+                "suggested_rate_pln_day": 100, "benchmark_rate_pln_day": 101,
+                "data_quality_status": "ok",
+            } for value in dates]}), encoding="utf-8")
+            report, import_file = directory / f"{name}-report.xlsx", directory / f"{name}-import.xlsx"
+            summary = apply_updates(source, recommendations, report, config, None, False, import_output_path=import_file)
+            snapshots = []
+            for file in (report, import_file):
+                book = openpyxl.load_workbook(file)
+                ws = book["Sheet1"]
+                snapshots.append(list(ws.iter_rows(min_row=5, values_only=True)))
+                assert_equal(ws.freeze_panes, None, "source-range exports do not freeze panes")
+                assert all(row["status"] != "FAIL" for row in summary["validation"]), summary["validation"]
+                book.close()
+            assert_equal(snapshots[0], snapshots[1], "both Excel outputs preserve the same complete tariff")
+            assert_equal(source.read_bytes(), original_bytes, "source workbook is never overwritten")
+            return summary, snapshots[0]
+
+        summary, output = run(["2026-10-19", "2026-10-21"], "near-dates")
+        for group, rate in (("CDMV", 150), ("CFAV", 250)):
+            for day in (date(2026, 10, 1), date(2026, 10, 18), date(2026, 10, 19),
+                        date(2026, 10, 20), date(2026, 10, 21), date(2027, 12, 21)):
+                matching = [row for row in output if row[0] == group
+                            and parse_date_value(row[6]) <= day <= parse_date_value(row[7])]
+                assert_equal(len(matching), 1, f"source interval coverage for {group}/{day}")
+                expected = 100 if group == "CDMV" and day.isoformat() in {"2026-10-19", "2026-10-21"} else rate
+                assert_equal(matching[0][9], expected, f"only scraped start dates change {group}/{day}")
+                assert_equal(tuple(matching[0][10:14]), (rate,) * 4, "other duration rates are preserved")
+        assert_equal(max(parse_date_value(row[7]) for row in output), date(2028, 2, 1), "no hard-coded future horizon")
+        assert not any(parse_date_value(row[6]) <= date(2027, 12, 25) <= parse_date_value(row[7]) for row in output)
+        assert len(output) < 20, "future ranges must not become hundreds of daily rows"
+        assert_equal(summary["recommendation_date_scope"]["date_count"], 2, "actual scrape dates govern market changes")
+
+        empty_summary, empty_output = run([], "empty")
+        assert_equal([tuple(row) for row in empty_output], [tuple(row) for row in rows], "empty scrape preserves every source interval")
+        assert_equal(empty_summary["change_count"], 0, "no market changes without scraped dates")
+        _, sparse_output = run(["2026-10-19", "2027-12-20"], "sparse")
+        assert len(sparse_output) < 20, "sparse evidence does not expand the unobserved year"
+        gap_summary, gap_output = run(["2027-12-25"], "gap")
+        assert_equal(gap_summary["change_count"], 0, "market evidence cannot invent a missing source interval")
+        assert_equal([tuple(row) for row in gap_output], [tuple(row) for row in rows], "source gaps remain unchanged")
+
+        pricing.write_text(json.dumps({"pricing": {"mandatoryGroupFloorsPlnDay": {"FVMD": [{
+            "minDays": 2, "maxDays": 2, "minimumRatePlnDay": 700,
+            "start_date": "2026-12-15", "end_date": "2027-01-05", "override_protected_dates": True,
+        }]}}}), encoding="utf-8")
+        config["protected_rate_periods"] = [{"start_date": "2026-12-15", "end_date": "2027-01-10"}]
+        rows[:] = [["FVMD", None, None, "WALO", "01-01-26", "01-02-27", "01-12-26", "01-02-27", *([150] * 6)]]
+        build_minimal_workbook(source, rows)
+        original_bytes = source.read_bytes()
+        holiday_summary, holiday_output = run([], "holiday")
+        for day, expected in ((date(2026, 12, 14), 150), (date(2026, 12, 15), 700),
+                              (date(2027, 1, 5), 700), (date(2027, 1, 6), 150), (date(2027, 2, 1), 150)):
+            matching = [row for row in holiday_output if parse_date_value(row[6]) <= day <= parse_date_value(row[7])]
+            assert_equal(len(matching), 1, f"holiday boundary coverage for {day}")
+            assert_equal(matching[0][9], expected, f"dated floor cannot spill over to {day}")
+        assert_equal(holiday_summary["mandatory_group_floor_date_scope"], {
+            "start_date": "2026-12-15", "end_date": "2027-01-05", "date_count": 22,
+        }, "floor audit includes the entire corrected interval")
+        assert len(holiday_output) < 10, "holiday rules split only their boundaries"
+
+        pricing.write_text(json.dumps({"pricing": {}}), encoding="utf-8")
+        config["protected_rate_periods"] = [{"start_date": "2026-10-31", "end_date": "2026-11-01"}]
+        rows[:] = [["CDMV", None, None, "WALO", "01-01-26", "03-11-26", "25-10-26", "03-11-26", *([150] * 6)]]
+        build_minimal_workbook(source, rows)
+        original_bytes = source.read_bytes()
+        _, protected_output = run(["2026-10-30", "2026-10-31", "2026-11-02"], "protected")
+        for day, expected in ((date(2026, 10, 30), 100), (date(2026, 10, 31), 150),
+                              (date(2026, 11, 1), 150), (date(2026, 11, 2), 100)):
+            matching = [row for row in protected_output if parse_date_value(row[6]) <= day <= parse_date_value(row[7])]
+            assert_equal(len(matching), 1, f"protected market coverage for {day}")
+            assert_equal(matching[0][9], expected, f"market changes respect protected interval at {day}")
+
+        pricing.write_text(json.dumps({"pricing": {"mandatoryZoneFloorsPlnDay": {"SZLO": [
+            {"minDays": low, "maxDays": high, "minimumRatePlnDay": rate}
+            for low, high, rate in ((1, 1, 300), (2, 2, 150), (3, 4, 130), (5, 7, 110), (8, 20, 90), (21, 35, 90))
+        ]}}}), encoding="utf-8")
+        config.update(protected_rate_periods=[], apply_groups=["CDMV", "CGAV"])
+        rows[:] = [[group, None, None, "SZLO", "01-01-26", end, "21-03-27", end, *([10] * 6)]
+                   for group, end in (("CDMV", "21-12-27"), ("CGAV", "21-11-27"))]
+        build_minimal_workbook(source, rows)
+        original_bytes = source.read_bytes()
+        run([], "different-ends")
+        book = openpyxl.load_workbook(directory / "different-ends-report.xlsx")
+        changed = [row for row in book["Changed Positions"].iter_rows(values_only=True) if row[3] == "SZLO"]
+        assert_equal(len(changed), 12, "audit must not merge different pickup range ends across classes")
+        expected_ends = {"CDMV": date(2027, 12, 21), "CGAV": date(2027, 11, 21)}
+        for row in changed:
+            assert_equal(parse_date_value(row[7]), expected_ends[row[0]], "Changed Positions preserves each class period")
+        review = list(book["Recommendations Review"].values)
+        end_column = review[0].index("Koniec okresu odbioru")
+        for row in review[1:]:
+            assert_equal(parse_date_value(row[end_column]), expected_ends[row[5]], "review exposes the actual range end")
+        book.close()
+    print("Source range preservation, scoped market changes and holiday boundaries passed.")
+
+
 def main():
+    test_preserved_source_ranges()
     for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
         try:
             merge_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
@@ -2112,8 +2238,10 @@ def main():
         real_before = openpyxl.load_workbook(real_workbook_path)
         real_ws = real_before["Sheet1"]
         before_snapshot = header_rows_snapshot(real_ws)
-        expected_pickup_start = datetime.now(ZoneInfo("Europe/Warsaw")).date()
-        expected_pickup_end = expected_pickup_start + timedelta(days=99)
+        expected_pickup_start = min(parse_date_value(real_ws.cell(row, 7).value)
+                                    for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
+        expected_pickup_end = max(parse_date_value(real_ws.cell(row, 8).value)
+                                  for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
         frozen_source_rates = {}
         unmapped_source_rates = {}
@@ -2128,7 +2256,7 @@ def main():
                 unmapped_source_rates.setdefault((group, zone), []).append((
                     pickup_date, end_date, tuple(real_ws.cell(row, col).value for col in range(9, 15)),
                 ))
-            if group in frozen_groups and pickup_date and expected_pickup_start <= pickup_date <= expected_pickup_end:
+            if group in frozen_groups and pickup_date:
                 frozen_source_rates[(group, zone, pickup_date)] = tuple(
                     real_ws.cell(row, col).value for col in range(9, 15)
                 )
@@ -2141,14 +2269,9 @@ def main():
         real_before.close()
         expected_unmapped_rows = Counter()
         for (group, zone), source_rates in unmapped_source_rates.items():
-            for offset in range(100):
-                pickup_date = expected_pickup_start + timedelta(days=offset)
-                matching_rates = [rates for low, high, rates in source_rates if low <= pickup_date <= high]
-                if not matching_rates:
-                    matching_rates = [max(enumerate(source_rates), key=lambda item: (item[1][0], item[0]))[1][2]]
-                for rates in matching_rates:
-                    expected_rates = expected_approved_floor_rates(group, zone, pickup_date, rates)
-                    expected_unmapped_rows[(group, zone, pickup_date, expected_rates)] += 1
+            for pickup_date, pickup_end, rates in source_rates:
+                expected_rates = expected_approved_floor_rates(group, zone, pickup_date, rates)
+                expected_unmapped_rows[(group, zone, pickup_date, pickup_end, expected_rates)] += 1
         real_pickup_date, real_old_rate = real_target
         real_recommendations_path.write_text(
             json.dumps(
@@ -2208,6 +2331,7 @@ def main():
             baseline_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
             baseline_real_ws = baseline_real_workbook["Sheet1"]
             pickup_dates = []
+            pickup_ends = []
             frozen_output_rates = {}
             unmapped_output_rows = Counter()
             for values in baseline_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
@@ -2216,17 +2340,18 @@ def main():
                 pickup_date = parse_date_value(values[6])
                 if pickup_date is not None:
                     pickup_dates.append(pickup_date)
+                    pickup_ends.append(parse_date_value(values[7]))
                 if group in frozen_groups and pickup_date is not None:
                     frozen_output_rates[(group, zone, pickup_date)] = tuple(values[8:14])
                 if zone in unmapped_source_zones:
-                    unmapped_output_rows[(group, zone, pickup_date, tuple(values[8:14]))] += 1
+                    unmapped_output_rows[(group, zone, pickup_date, parse_date_value(values[7]), tuple(values[8:14]))] += 1
             baseline_real_workbook.close()
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
-                         "all unmapped baseline classes, zones, 100 pickup dates and row multiplicities retained; only approved minima change rates")
+                         "all unmapped baseline classes, zones, full pickup intervals and row multiplicities retained; only approved minima change rates")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
             assert_equal(baseline_real_ws.max_row, baseline_real_summary["import_row_count"], "all generated rows exported")
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
-            assert_equal(max(pickup_dates), expected_pickup_end, "real workbook pickup end")
+            assert_equal(max(pickup_ends), expected_pickup_end, "real workbook retains the entire future pickup range")
             for key, expected_rates in frozen_source_rates.items():
                 expected_rates = expected_approved_floor_rates(*key, expected_rates)
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")

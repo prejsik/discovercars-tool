@@ -81,10 +81,7 @@
   "normalize_pickup_end_to_start": false,
   "pickup_date_expansion": {
     "enabled": true,
-    "start_date": "today",
-    "rolling_days": 100,
-    "drop_rows_before_start_date": true,
-    "drop_rows_after_end_date": true,
+    "mode": "source_ranges",
     "time_zone": "Europe/Warsaw"
   },
   "changed_positions_sheet": "Changed Positions",

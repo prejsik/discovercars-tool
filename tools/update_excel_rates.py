@@ -10,7 +10,7 @@ import json
 import math
 import posixpath
 import re
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from copy import copy
 from datetime import date, datetime, timedelta
@@ -548,12 +548,29 @@ def get_recommendation_scope_dates(recommendations: list[dict[str, Any]]) -> set
     return dates
 
 
+def build_change_date_scope(changes: list[dict[str, Any]]) -> dict[str, Any]:
+    intervals = sorted((parse_date_value(change["pickup_date"]),
+                        parse_date_value(change.get("pickup_end_date") or change["pickup_date"]))
+                       for change in changes)
+    merged: list[tuple[date, date]] = []
+    for start, end in intervals:
+        if merged and (start - merged[-1][1]).days <= 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return {
+        "start_date": merged[0][0].isoformat() if merged else None,
+        "end_date": merged[-1][1].isoformat() if merged else None,
+        "date_count": sum((end - start).days + 1 for start, end in merged),
+    }
+
+
 def filter_recommendations_to_pickup_date_range(
     recommendations: list[dict[str, Any]],
     config: dict[str, Any],
     expansion_summary: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], int]:
-    if not expansion_summary.get("enabled"):
+    if not expansion_summary.get("enabled") or expansion_summary.get("mode") == "source_ranges":
         return recommendations, 0
 
     settings = config.get("pickup_date_expansion") or {}
@@ -1441,6 +1458,7 @@ def enforce_mandatory_floors(
                            + "; bez celu rankingowego."),
                 "location": (config.get("zone_location_labels") or {}).get(zone, zone),
                 "zone": zone, "group": group, "pickup_date": pickup.isoformat(),
+                "pickup_end_date": (parse_date_value(ws.cell(row, int(columns["pickup_end_date"])).value) or pickup).isoformat(),
                 "duration_band": label, "duration_min_days": low, "duration_max_days": high,
                 "cell": cell.coordinate, "old_rate": old_rate, "new_rate": minimum,
                 "delta": round(minimum - old_rate, 2), "minimum_rate_pln_day": minimum,
@@ -1572,6 +1590,7 @@ def get_changed_positions_group_key(change: dict[str, Any]) -> tuple[Any, ...]:
         change.get("location"),
         change.get("zone"),
         change.get("pickup_date"),
+        change.get("pickup_end_date") or change.get("pickup_date"),
         change.get("duration_band"),
         change.get("benchmark_provider"),
         change.get("benchmark_rate"),
@@ -2198,6 +2217,7 @@ def write_recommendations_review_sheet(
         "Powod",
         "ID scenariusza",
         "Komorki Excel",
+        "Koniec okresu odbioru",
     ]
     rows: list[list[Any]] = []
     for grouped_changes in group_changes_for_changed_positions(changes):
@@ -2230,6 +2250,7 @@ def write_recommendations_review_sheet(
             format_for_changed_positions(get_recommendation_reason_pl(change)),
             change.get("scenario_id", ""),
             ", ".join(item.get("cell", "") for item in grouped_changes),
+            change.get("pickup_end_date") or change.get("pickup_date", ""),
         ])
 
     widths = {
@@ -2241,6 +2262,7 @@ def write_recommendations_review_sheet(
         "Narzut brokera": 16,
         "Powod": 76,
         "Komorki Excel": 26,
+        "Koniec okresu odbioru": 22,
         "Top1": 30,
         "Top2": 30,
         "Top3": 30,
@@ -2343,7 +2365,9 @@ def build_validation_rows(
             if booking_end != pickup_end:
                 booking_mismatch.append(f"row {row}: {group}/{zone}")
 
-        if pickup_start != pickup_end:
+        source_ranges = (config.get("pickup_date_expansion") or {}).get("mode") == "source_ranges"
+        if (source_ranges and (pickup_start is None or pickup_end is None or pickup_start > pickup_end)
+            or not source_ranges and pickup_start != pickup_end):
             pickup_mismatch.append(f"row {row}: {group}/{zone}")
 
         if group and zone and pickup_start is not None:
@@ -2464,7 +2488,8 @@ def build_validation_rows(
         ["Odtworzone Group + Zone po ekspansji dat", "INFO", len(restored_group_zones), first_items(restored_group_zones)],
         ["Pominiete rekomendacje", get_validation_status(len(skipped_targets), warning=True), len(skipped_targets), first_items([str(item.get("skip_reason", "")) for item in skipped_targets])],
         ["Booking end date = Pickup end date", get_validation_status(len(booking_mismatch)), len(booking_mismatch), first_items(booking_mismatch)],
-        ["Pickup end date = Pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
+        ["Poprawne przedzialy Pickup start/end date" if (config.get("pickup_date_expansion") or {}).get("mode") == "source_ranges"
+         else "Pickup end date = Pickup start date", get_validation_status(len(pickup_mismatch)), len(pickup_mismatch), first_items(pickup_mismatch)],
         ["Duplikaty Group + Zone + Pickup date", get_validation_status(len(duplicates), warning=True), len(duplicates), first_items(duplicates)],
         ["Puste stawki w kolumnach duration", get_validation_status(len(missing_rates)), len(missing_rates), first_items(missing_rates)],
         ["Zmienione stawki ponizej floor cenowego", get_validation_status(len(below_floor_changes)), len(below_floor_changes), first_items(below_floor_changes)],
@@ -3107,10 +3132,76 @@ def remove_omitted_group_zone_rows(ws: Any, config: dict[str, Any]) -> dict[str,
     return {"removed_row_count": len(removed)}
 
 
-def expand_pickup_date_rows(ws: Any, config: dict[str, Any]) -> dict[str, Any]:
+def preserve_pickup_date_ranges(ws: Any, config: dict[str, Any], recommendation_dates: set[date]) -> dict[str, Any]:
+    # Isolate market dates and rule boundaries without expanding the unobserved future into daily rows.
+    boundaries = set(recommendation_dates)
+    boundaries.update(day + timedelta(days=1) for day in recommendation_dates if day < date.max)
+    periods = get_protected_rate_periods(config)
+    periods += [(parse_date_value(band["start_date"]), parse_date_value(band["end_date"]))
+                for bands in get_mandatory_group_floors(config).values() for band in bands if band.get("start_date")]
+    periods += [(parse_date_value(rule["startDate"]), parse_date_value(rule["endDate"]))
+                for rule in get_mandatory_scoped_floors(config)]
+    for start, end in periods:
+        boundaries.add(start)
+        if end < date.max:
+            boundaries.add(end + timedelta(days=1))
+    ordered_boundaries = sorted(boundaries)
+    columns = config["columns"]
+    start_col, end_col = int(columns["pickup_start_date"]), int(columns["pickup_end_date"])
+    data_start = int(config["data_start_row"])
+    max_col = ws.max_column
+    output = []
+    pairs = set()
+    source_count = 0
+    for row in range(data_start, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, int(columns["group"])).value)
+        zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
+        start = parse_date_value(ws.cell(row, start_col).value)
+        end = parse_date_value(ws.cell(row, end_col).value)
+        if not group and not zone and start is None:
+            continue
+        if not group or not zone or start is None or end is None or start > end:
+            raise ValueError(f"Invalid source pickup range in row {row}; Sheet1 was not modified.")
+        snapshot = snapshot_row(ws, row, max_col)
+        pairs.add((group, zone))
+        source_count += 1
+        cuts = ordered_boundaries[bisect_right(ordered_boundaries, start):bisect_right(ordered_boundaries, end)]
+        starts = [start, *cuts]
+        ends = [day - timedelta(days=1) for day in cuts] + [end]
+        output.extend((snapshot, low, high) for low, high in zip(starts, ends))
+    if not output:
+        raise ValueError("No valid source pickup ranges; Sheet1 was not modified.")
+    if ws.max_row >= data_start:
+        ws.delete_rows(data_start, ws.max_row - data_start + 1)
+    for row, (snapshot, start, end) in enumerate(output, data_start):
+        write_row_snapshot(ws, row, snapshot)
+        for column, day in ((start_col, start), (end_col, end)):
+            template = snapshot["cells"][column - 1]["value"]
+            ws.cell(row, column).value = format_pickup_date_like_template(day, template)
+    return {
+        "enabled": True, "mode": "source_ranges",
+        "start_date": min(start for _, start, _ in output).isoformat(),
+        "end_date": max(end for _, _, end in output).isoformat(),
+        "source_row_count": source_count, "expanded_row_count": len(output), "output_row_count": len(output),
+        "split_row_count": len(output) - source_count,
+        "preserved_out_of_range_row_count": sum(start != end or start not in recommendation_dates for _, start, end in output),
+        "dropped_before_start_row_count": 0, "dropped_after_end_row_count": 0, "appended_horizon_row_count": 0,
+        "source_groups": sorted({group for group, _ in pairs}),
+        "expanded_groups": sorted({group for group, _ in pairs}),
+        "source_group_zones": sorted(f"{group}/{zone}" for group, zone in pairs),
+        "missing_source_groups_after_expansion": [], "missing_source_group_zones_after_expansion": [],
+        "restored_group_zone_count": 0, "restored_group_zones": [],
+    }
+
+
+def expand_pickup_date_rows(ws: Any, config: dict[str, Any], recommendation_dates: set[date] | None = None) -> dict[str, Any]:
     settings = config.get("pickup_date_expansion") or {}
     if not settings.get("enabled"):
         return {"enabled": False, "source_row_count": 0, "expanded_row_count": 0}
+    if settings.get("mode") == "source_ranges":
+        return preserve_pickup_date_ranges(ws, config, recommendation_dates or set())
+    if settings.get("mode") not in (None, "window"):
+        raise ValueError("Unknown pickup_date_expansion.mode; Sheet1 was not modified.")
 
     time_zone = str(settings.get("time_zone") or "Europe/Warsaw")
     start_date = resolve_config_date(settings.get("start_date", "today"), time_zone)
@@ -3549,7 +3640,7 @@ def apply_updates(
 
     zone_seed_summary = seed_missing_zones(ws, config)
     omitted_group_zone_summary = remove_omitted_group_zone_rows(ws, config)
-    expansion_summary = expand_pickup_date_rows(ws, config)
+    expansion_summary = expand_pickup_date_rows(ws, config, get_recommendation_scope_dates(recommendations))
     recommendations, recommendation_out_of_pickup_range_count = filter_recommendations_to_pickup_date_range(
         recommendations,
         config,
@@ -3642,7 +3733,7 @@ def apply_updates(
             ignored["groups"] = sorted(set(ignored["groups"]) | affected_groups)
 
     for row in range(data_start_row, ws.max_row + 1):
-        if config.get("normalize_pickup_end_to_start", True):
+        if config.get("normalize_pickup_end_to_start", True) and expansion_summary.get("mode") != "source_ranges":
             if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
                 normalized_pickup_end_count += 1
         if maybe_sync_booking_end_to_pickup_end(ws, row, columns, dry_run):
@@ -3822,8 +3913,8 @@ def apply_updates(
     changes.extend(mandatory_floor_changes)
     mandatory_zone_floor_changes = [change for change in mandatory_floor_changes if change["recommendation_type"] == "mandatory_zone_floor"]
     mandatory_group_floor_changes = [change for change in mandatory_floor_changes if change["recommendation_type"] == "mandatory_group_floor"]
-    mandatory_zone_floor_dates = {parse_date_value(change["pickup_date"]) for change in mandatory_zone_floor_changes}
-    mandatory_group_floor_dates = {parse_date_value(change["pickup_date"]) for change in mandatory_group_floor_changes}
+    mandatory_zone_floor_date_scope = build_change_date_scope(mandatory_zone_floor_changes)
+    mandatory_group_floor_date_scope = build_change_date_scope(mandatory_group_floor_changes)
     changes_outside_recommendation_scope = sorted({
         str(change.get("pickup_date") or "")
         for change in changes
@@ -3891,18 +3982,10 @@ def apply_updates(
         },
         "mandatory_zone_floor_change_count": len(mandatory_zone_floor_changes),
         "mandatory_zone_floor_zones": sorted({change["zone"] for change in mandatory_zone_floor_changes}),
-        "mandatory_zone_floor_date_scope": {
-            "start_date": min(mandatory_zone_floor_dates).isoformat() if mandatory_zone_floor_dates else None,
-            "end_date": max(mandatory_zone_floor_dates).isoformat() if mandatory_zone_floor_dates else None,
-            "date_count": len(mandatory_zone_floor_dates),
-        },
+        "mandatory_zone_floor_date_scope": mandatory_zone_floor_date_scope,
         "mandatory_group_floor_change_count": len(mandatory_group_floor_changes),
         "mandatory_group_floor_groups": sorted({change["group"] for change in mandatory_group_floor_changes}),
-        "mandatory_group_floor_date_scope": {
-            "start_date": min(mandatory_group_floor_dates).isoformat() if mandatory_group_floor_dates else None,
-            "end_date": max(mandatory_group_floor_dates).isoformat() if mandatory_group_floor_dates else None,
-            "date_count": len(mandatory_group_floor_dates),
-        },
+        "mandatory_group_floor_date_scope": mandatory_group_floor_date_scope,
         "recommendation_out_of_pickup_range_count": recommendation_out_of_pickup_range_count,
         "dry_run": dry_run,
         "change_count": len(changes),

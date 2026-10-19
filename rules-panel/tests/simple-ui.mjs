@@ -52,6 +52,28 @@ try {
   await page.getByText('Konfiguracja techniczna', { exact: true }).click();
   await page.getByText('pricing-rules.config.example.json', { exact: true }).waitFor();
   const snapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
+  for (const [expansion, expected, mode] of [
+    [{ enabled: true, rolling_days: 100, time_zone: 'Europe/Warsaw' }, '100 dni', 'rolling'],
+    [{ enabled: true, mode: 'source_ranges', time_zone: 'Europe/Warsaw' }, 'Wszystkie okresy z pliku bazowego', 'source-ranges'],
+  ]) {
+    const sourceSnapshot = structuredClone(snapshot);
+    sourceSnapshot.documents.excel.pickup_date_expansion = expansion;
+    await page.route('**/policy-snapshot.json', route => route.fulfill({ json: sourceSnapshot }));
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 960 });
+      await page.reload();
+      await page.getByRole('button', { name: 'Źródła i publikacja', exact: true }).click();
+      await page.getByText('Konfiguracja techniczna', { exact: true }).click();
+      const horizon = page.locator('.source-list > div').filter({
+        has: page.getByText('Zakres pliku importowego', { exact: true }),
+      }).locator('dd');
+      assert.equal(await horizon.innerText(), expected, `${mode} horizon ${width}`);
+      assert.equal(await horizon.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true, `${mode} horizon overflow ${width}`);
+      await horizon.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: fileURLToPath(new URL(`sources-${mode}-${width}.png`, output)) });
+    }
+    await page.unroute('**/policy-snapshot.json');
+  }
   const model = structuredClone(snapshot.documents);
   model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city += 1;
   const workspace = { snapshot, history: [], status: {}, capabilities: { sharedDraft: true, preview: true, publish: true },

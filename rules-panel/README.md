@@ -40,8 +40,13 @@ bazowego, harmonogramu ani dowolnych kluczy konfiguracji. Nowa macierz minimow
 korzysta z `mandatoryScopedFloorsPlnDay`; zgodnosc liczenia sprawdzaja testy
 JS i Python. Istniejace obowiazkowe minima i wykluczenia sa zachowane.
 
-Zakres Excela pozostaje zgodny z konfiguracja produkcyjna: 100 dni, bez
-przywracania dawnego limitu liczby wierszy. Podglad nie zmienia tej konfiguracji.
+Zakres Excela pozostaje zgodny z konfiguracja produkcyjna: tryb `source_ranges`
+zachowuje wszystkie bazowe okresy odbioru w obu plikach Excel, bez limitu 100 dni.
+Zakresy sa dzielone tylko dla dat obecnych w rekomendacjach scrapera oraz na
+granicach obowiazkowych minimow i ochrony dat; pozostale pozostaja zwarte.
+Zmiany rynkowe obejmuja tylko daty obecne w rekomendacjach. Harmonogram scrapera
+pozostaje bez zmian: 45 dni w nocy i 20 dni w dzien. Limit liczby wierszy pozostaje
+wylaczony (`max_import_rows: null`). Podglad nie zmienia tej konfiguracji.
 Zapis zasad nie oznacza zaimportowania nowych cen u brokera.
 
 ## Prywatnosc i publikacja
