@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-10-19T07:46:16.057Z",
-  "workbook_sha256": "be5da4d17a5388ddcadca1e4bed33293b2cf775c88d07681b425372e5546b737",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 19-Oct-26.xlsx",
+  "approved_at": "2026-10-20T08:00:49.378Z",
+  "workbook_sha256": "4b7c80be80d4fc42fe94783b5970a3bd659cb06451b11d2dc45897db9093e092",
+  "source_filename": "rates-import-ready (3).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "ef6559617de5b4a590b6765fabab0b3d56ef0edca6df7d8cae821e1cf1472412",
+  "previous_baseline_sha256": "be5da4d17a5388ddcadca1e4bed33293b2cf775c88d07681b425372e5546b737",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "be5da4d17a5388ddcadca1e4bed33293b2cf775c88d07681b425372e5546b737",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 19-Oct-26.xlsx"
+    "workbook_sha256": "4b7c80be80d4fc42fe94783b5970a3bd659cb06451b11d2dc45897db9093e092",
+    "source_filename": "rates-import-ready (3).xlsx"
   },
   "coverage": {
-    "sha256": "be5da4d17a5388ddcadca1e4bed33293b2cf775c88d07681b425372e5546b737",
+    "sha256": "4b7c80be80d4fc42fe94783b5970a3bd659cb06451b11d2dc45897db9093e092",
     "rowCount": 24897,
     "groups": [
       "CDMV",
