@@ -71,6 +71,26 @@ Publikacja wymaga zgodnosci HEAD, konfiguracji, bazy, szkicu oraz potwierdzonego
 workflow. Dziennik zamiaru zatwierdzenia powstaje przed zapisem GitHub, aby
 utrata odpowiedzi sieciowej nie zgubila tozsamosci zatwierdzajacego.
 
+## Harmonogram scrapera
+
+Istniejacy Worker uruchamia workflow `discovercars-daily.yml` na `main`:
+09:37 Europe/Warsaw dla 20 dni i 18:07 dla 45 dni (raport nastepnego poranka).
+Cron Cloudflare wywoluje lekki handler co minute, lecz GitHub jest odpytywany
+tylko przez 30 minut po kazdej z tych godzin. Strefa Europe/Warsaw uwzglednia
+zmiane czasu. Harmonogram GitHuba pozostaje zapasowym wyzwalaczem.
+
+`SCRAPER_SCHEDULE_ENABLED=true` aktywuje wywolania. Uzywane sa juz istniejace
+sekrety GitHub App i ta sama instalacja ograniczona do tego repozytorium.
+Nie powstaje publiczny endpoint uruchamiajacy scraper ani nowe uprawnienia.
+Oddzielny obiekt koordynacyjny `prejsik/discovercars-tool:scheduler` zapisuje
+zamiar przed wyslaniem zlecenia. Zadanie oczekujace nie jest duplikowane;
+niejednoznaczna odpowiedz POST wymaga potwierdzenia istniejacego przebiegu.
+Maksymalnie trzy proby po potwierdzonych zakonczeniach, co najmniej 5 minut
+odstepu. Dopiero krok `Run scraper` potwierdza rzeczywisty start.
+Brak startu przez 15 minut jest oznaczany w logach jako opoznienie.
+Ostateczna blokada duplikatow pozostaje w gate workflow GitHuba.
+Wywolanie z Cloudflare nie gwarantuje dostepnosci runnera GitHub.
+
 ## Lokalnie
 
 ```powershell

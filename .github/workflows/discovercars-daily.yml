@@ -2,19 +2,20 @@ name: DiscoverCars daily run
 run-name: DiscoverCars ${{ inputs.schedule_slot || github.event.schedule || github.event_name }} ${{ inputs.report_date || '' }}
 
 on:
-  # GitHub cron uses UTC and can be delayed by several hours. These evening
-  # windows target the next Warsaw-morning report with fallback chances, while
-  # the gate below deduplicates each slot/date using active claims and publication
-  # evidence, never the successful status of a skipped workflow.
+  # Cloudflare targets 09:37 (day/20) and 18:07 (night/45) Europe/Warsaw.
+  # GitHub fallbacks are +5/+25 minutes. The shared gate rejects the inactive
+  # DST counterpart for both slots and deduplicates claims/publication evidence.
   schedule:
-    - cron: "17 20 * * *"
-    - cron: "47 20 * * *"
-    - cron: "17 21 * * *"
-    # 11:00 Warsaw, plus a retry at 11:30; GitHub cron is best effort.
-    - cron: "0 9 * * *"
-    - cron: "30 9 * * *"
-    - cron: "0 10 * * *"
-    - cron: "30 10 * * *"
+    # Day 09:42/10:02 Warsaw: summer, then winter UTC counterparts.
+    - cron: "42 7 * * *"
+    - cron: "2 8 * * *"
+    - cron: "42 8 * * *"
+    - cron: "2 9 * * *"
+    # Night 18:12/18:32 Warsaw: summer, then winter UTC counterparts.
+    - cron: "12 16 * * *"
+    - cron: "32 16 * * *"
+    - cron: "12 17 * * *"
+    - cron: "32 17 * * *"
   workflow_dispatch:
     inputs:
       schedule_slot:

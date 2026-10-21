@@ -45,7 +45,7 @@ test('deployment routes every asset through auth and disables preview URLs', asy
   assert.equal(config.assets.directory, './dist');
 });
 
-for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session', '/api/baseline/check', '/api/baseline/publish', '/api/report/file', '/api/report-baseline/check', '/api/report-baseline/publish']) {
+for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session', '/api/baseline/check', '/api/baseline/publish', '/api/report/file', '/api/report-baseline/check', '/api/report-baseline/publish', '/api/scheduler']) {
   test(`anonymous request cannot read ${path}`, async () => {
     const { env, requests } = setup();
     const response = await worker.fetch(await request(path), env);
@@ -54,6 +54,22 @@ for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js
     assert.equal(requests.length, 0);
   });
 }
+
+test('scheduled events use a private coordination object and current Warsaw window, not a stale event time', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-21T07:37:00Z') });
+  const calls = [];
+  const env = { SCRAPER_SCHEDULE_ENABLED: 'true', GITHUB_APP_ID: '1', GITHUB_INSTALLATION_ID: '2',
+    GITHUB_APP_PRIVATE_KEY: 'configured', PANEL_PREVIEW_KEY: 'configured',
+    RULES_WORKSPACE: { getByName: name => ({ scheduleTick: async now => {
+      calls.push({ name, now }); return { action: 'monitor' };
+    } }) } };
+  await worker.scheduled({ scheduledTime: Date.parse('2026-10-21T07:37:00Z') }, env);
+  assert.deepEqual(calls, [{name:'prejsik/discovercars-tool:scheduler',now:'2026-10-21T07:37:00.000Z'}]);
+  t.mock.timers.setTime(Date.parse('2026-10-21T10:00:00Z'));
+  await worker.scheduled({ scheduledTime: Date.parse('2026-10-21T07:37:00Z') }, env);
+  await worker.scheduled({}, { ...env, SCRAPER_SCHEDULE_ENABLED: 'false' });
+  assert.equal(calls.length, 1);
+});
 
 test('missing server configuration denies before asset lookup', async () => {
   for (const key of ['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_EMAILS']) {

@@ -12,6 +12,7 @@
     "run_worker_first": true
   },
   "vars": {
+    "SCRAPER_SCHEDULE_ENABLED": "true",
     "PANEL_WRITES_ENABLED": "true",
     "ACCESS_TEAM_DOMAIN": "https://shy-frost-2ba5.cloudflareaccess.com",
     "ACCESS_AUD": "01d95ecdc70f66541c90806e75eb513e104f91d3bcc77cecde0b697816de5189"
@@ -20,6 +21,7 @@
     "bindings": [{ "name": "RULES_WORKSPACE", "class_name": "RulesWorkspace" }]
   },
   "migrations": [{ "tag": "rules-workspace-v1", "new_sqlite_classes": ["RulesWorkspace"] }],
+  "triggers": { "crons": ["* * * * *"] },
   "observability": {
     "enabled": true,
     "logs": { "enabled": true, "head_sampling_rate": 1 },

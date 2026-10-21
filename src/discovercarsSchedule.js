@@ -1,34 +1,14 @@
 const fs = require('node:fs');
+const {warsawParts,nextDate,resolveCronSchedule} = require('./discovercarsScheduleConfig');
 
-const NIGHT_CRONS = ['17 20 * * *', '47 20 * * *', '17 21 * * *'];
-const DAY_CRONS = ['0 9 * * *', '30 9 * * *', '0 10 * * *', '30 10 * * *'];
 const WORKFLOW = 'discovercars-daily.yml';
-
-function warsawParts(value) {
-  const parts = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value));
-  const p = Object.fromEntries(parts.map(x=>[x.type,x.value]));
-  return {date:`${p.year}-${p.month}-${p.day}`,hour:Number(p.hour)};
-}
-
-function nextDate(date) {
-  return new Date(Date.parse(`${date}T12:00:00Z`)+86400000).toISOString().slice(0,10);
-}
 
 function resolveSchedule({event,cron,createdAt,now=new Date().toISOString(),slot,reportDate}) {
   const today = warsawParts(now).date;
   if (event === 'schedule') {
-    if (!NIGHT_CRONS.includes(cron) && !DAY_CRONS.includes(cron)) throw new Error(`Unknown schedule: ${cron}`);
-    // Anchor to the triggering run, not the gate execution time after waiting in a queue.
-    const created = new Date(createdAt);
-    if (!Number.isFinite(created.getTime())) throw new Error('Missing run creation time');
-    const [minute,hour] = cron.split(' ').map(Number);
-    const nominal = new Date(created);
-    nominal.setUTCHours(hour,minute,0,0);
-    if (nominal > created) nominal.setUTCDate(nominal.getUTCDate()-1);
-    const local = warsawParts(nominal);
-    slot = DAY_CRONS.includes(cron) ? 'day' : 'night';
-    if (slot === 'day' && local.hour !== 11) return {shouldRun:false,runType:'skip',reason:'Inactive UTC window for Warsaw daylight saving time'};
-    reportDate = slot === 'night' ? nextDate(local.date) : local.date;
+    const schedule = resolveCronSchedule(cron,createdAt);
+    if (!schedule) return {shouldRun:false,runType:'skip',reason:'Inactive or retired UTC schedule for Warsaw'};
+    ({slot,reportDate} = schedule);
   } else if (event !== 'workflow_dispatch' || !slot) {
     return {shouldRun:true,runType:event === 'push' ? 'push-smoke' : 'manual'};
   }

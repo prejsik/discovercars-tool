@@ -56,7 +56,7 @@ Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
 Jak dziala:
 
-- nocny run obejmuje 45 dni, dzienny 20 dni; nocne triggery sa ustawione poprzedniego wieczoru, a dzienne o `11:00` czasu polskiego (zapasowy trigger o `11:30`). GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
+- docelowy start Cloudflare to `09:37` dla dnia (20 dni) oraz `18:07` dla nocy (45 dni), zawsze `Europe/Warsaw`. Noc ma date raportu nastepnego dnia lokalnego; dzien ma date biezaca. Zapasowe triggery GitHub to `09:42`/`10:02` i `18:12`/`18:32`; bramka odrzuca nieaktywny wariant UTC lato/zima dla obu slotow. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
 - bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu lub dowodzie opublikowania kompletu wynikow,
 - zbieranie jest podzielone na dwa niezalezne runnery, lacznie do osmiu aktywnych stron; wyniki sa scalane do jednego raportu. Checkpoint pozwala wznowic swieze, zgodne fragmenty tego samego runa,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
@@ -71,6 +71,14 @@ Domyslny zakres w chmurze:
 - `rolling_days`: `45` dla nocy, `20` dla runa dziennego
 - `durations`: `2,3,4,5,6,7,8,9,10,11,12,13,14`
 - `speed_mode`: `fast`
+
+Wspolny kontrakt harmonogramu (`src/discovercarsScheduleConfig.js`, czysty CommonJS bez importow Node, do bundlowania takze w Workerze/przegladarce):
+
+- `warsawParts(now)` zwraca `{date, hour, minute}` w `Europe/Warsaw`, a `nextDate(date)` nastepna date kalendarzowa `YYYY-MM-DD`.
+- `dueSchedule(now, windowMinutes = 25)` zwraca `null` poza oknem albo `{slot, reportDate, key, rollingDays}`. Okno liczone po minutach obejmuje oba konce: `09:37`..`10:02` oraz `18:07`..`18:32`. Klucz ma format `day-YYYY-MM-DD` lub `night-YYYY-MM-DD` i musi byc wspolny dla Cloudflare, GitHub i watchdogu.
+- `resolveCronSchedule(cron, createdAt)` odtwarza ostatni nominalny trigger UTC przed utworzeniem runa (takze po opoznieniu przez polnoc), zwraca ten sam kontekst albo `null` dla nieaktywnego wariantu DST lub wycofanego starego crona; nieznany cron jest bledem. Bramka root nadal odrzuca nieaktualne daty i sprawdza artefakty claim/published zamiast samego statusu success.
+
+Watchdog `tools/dispatch_daily_scraper.js` wybiera oba sloty przez `dueSchedule`, monitoruje oczekujacy run, dopuszcza najwyzej trzy proby na klucz i nie ponawia slepo POST po bledzie/timeout. Timer `deploy/discovercars-scheduler.timer` sprawdza start oraz okna +5/+25 minut dla obu slotow, bez nadrabiania poza oknem. Pliki sa konfiguracja do wdrozenia; lokalna zmiana nie wlacza timera ani triggera Cloudflare.
 
 Jak przetestowac recznie:
 

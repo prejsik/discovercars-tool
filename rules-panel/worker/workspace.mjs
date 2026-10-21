@@ -4,10 +4,20 @@ import { PrivateWorkspaceStore } from '../server/private-store.mjs';
 import { GitHubRepository, githubConfigured } from './github.mjs';
 import { decodeBaseline, inspectBaseline, compareBaselineCoverage } from '../server/baseline.mjs';
 import { loadPublishedWorkbook, workbookInput } from '../server/reports.mjs';
+import { tickSchedule } from './scheduler.mjs';
 
 // One coordination atom is one repository, shared by its authorized directors.
 export class RulesWorkspace extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.queue = Promise.resolve(); }
+
+  async scheduleTick(now) {
+    const task = this.queue.catch(() => {}).then(async () => {
+      if (this.env.SCRAPER_SCHEDULE_ENABLED !== 'true' || !githubConfigured(this.env)) throw new Error('Scraper scheduler is disabled');
+      return tickSchedule({ now, repository: new GitHubRepository(this.env), storage: this.ctx.storage });
+    });
+    this.queue = task;
+    return task;
+  }
 
   async handle(action, input, actor) {
     const task = this.queue.catch(() => {}).then(async () => {

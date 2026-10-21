@@ -2,6 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { GitHubRepository, githubConfigured, readLimited, readOperationalStatus, REPOSITORY } from './github.mjs';
 import { loadPublishedWorkbook, loadPublishedReport } from '../server/reports.mjs';
 import { protectedReportHtml } from '../server/report-viewer.mjs';
+import schedule from '../../src/discovercarsScheduleConfig.js';
 
 const securityHeaders = {
   'Cache-Control': 'private, no-store',
@@ -41,6 +42,16 @@ export function createWorker({ resolveKeys } = {}) {
   });
 
   return {
+    async scheduled(controller, env) {
+      if (env.SCRAPER_SCHEDULE_ENABLED !== 'true') return;
+      const now = new Date().toISOString();
+      if (!schedule.dueSchedule(now, 30)) return;
+      if (!githubConfigured(env) || !env.RULES_WORKSPACE) throw new Error('Scraper scheduler is not configured');
+      const result = await env.RULES_WORKSPACE.getByName(`${REPOSITORY}:scheduler`).scheduleTick(now);
+      const log = { event: 'scraper_schedule', ...result };
+      if (result.delayed || ['unconfirmed', 'exhausted'].includes(result.action)) console.error(JSON.stringify(log));
+      else console.log(JSON.stringify(log));
+    },
     async fetch(request, env) {
       const issuer = env.ACCESS_TEAM_DOMAIN;
       const allowed = (env.ACCESS_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
