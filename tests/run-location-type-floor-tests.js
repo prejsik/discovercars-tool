@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { buildPricingRecommendations } = require('../src/pricingRecommendations');
-const { pricing } = require('../pricing-rules.config.example.json');
+const { pricing, excelPolicy, pricingPath } = require('./pricing_test_fixtures');
 const { loadPricingRules, resolveLocationTypeFloorPlnDay } = require('../src/pricingRules');
 const registry = require('../locations.config.json');
 const frozenMarkup = require('../input/broker-markup-frozen.json').brokerMarkupCalibration;
@@ -103,14 +103,14 @@ test('new floors cover only the six approved classes and days 1-20', () => {
   assert.equal(decision({ location: 'Wroclaw Downtown', days: 21 }).data_quality_status, 'duration_excluded');
 });
 
-test('both production entrypoints load the shared permanent floor policy', () => {
-  assert.deepEqual(loadPricingRules().locationTypeFloorsPlnDay, {
+test('pricing loader reads the fixed permanent floor policy', () => {
+  assert.deepEqual(loadPricingRules(pricingPath).locationTypeFloorsPlnDay, {
     ...floors, minimumRatesByKind: { city: 60, airport: 30 }
   });
 });
 
 test('retired permanent minima are absent while dated minima remain unchanged', () => {
-  const excel = require('../excel-rate-update.config.example.json');
+  const excel = excelPolicy;
   assert.deepEqual(excel.minimum_rates.scoped_overrides, []);
   assert.deepEqual(excel.minimum_rates.zone_overrides_pln_day, {});
   assert.deepEqual(excel.minimum_rates.bands, [

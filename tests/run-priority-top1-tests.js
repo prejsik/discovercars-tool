@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { buildPricingRecommendations } = require('../src/pricingRecommendations');
-const { pricing: configuredPricing } = require('../pricing-rules.config.example.json');
+const { pricing: configuredPricing, pricingPath } = require('./pricing_test_fixtures');
 // Legacy priority/SZLO fixtures are isolated; the permanent policy has its own production tests.
 const pricing = { ...configuredPricing, locationTypeFloorsPlnDay: undefined };
 const fs = require('node:fs');
@@ -290,8 +290,8 @@ runTest('mandatory complete table is independent of band ordering', () => {
   }));
 });
 
-runTest('actual shared pricing config supplies the approved mandatory SZLO table', () => {
-  const loaded = loadPricingRules(path.join(__dirname, '..', 'pricing-rules.config.example.json'));
+runTest('fixed shared pricing fixture supplies the mandatory SZLO table', () => {
+  const loaded = loadPricingRules(pricingPath);
   assert.deepEqual(loaded.mandatoryZoneFloorsPlnDay, mandatoryZoneFloorsPlnDay);
   const result = decision({ rates: [211, 212, 250] }, { ...loaded, brokerMarkupCalibration: frozenMarkup });
   assert.equal(result.target_rank, 2);

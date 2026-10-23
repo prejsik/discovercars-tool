@@ -9,7 +9,7 @@ const {buildCalibrationUpdate} = require('../src/updateBrokerMarkupCalibration')
 const {mergePricingRecommendations} = require('../src/mergePricingRecommendations');
 const fixed = require('../input/broker-markup-frozen.json').brokerMarkupCalibration;
 const registry = require('../locations.config.json');
-const {pricing} = require('../pricing-rules.config.example.json');
+const {pricing, excelPolicy} = require('./pricing_test_fixtures');
 const expected = {
   BYLO:[38,28,15,13,11,11], GD1:[41,31,15,11,13,13], GDLO:[41,31,15,10,13,13],
   KA1:[70,60,44,41,44,44], KALO:[39,29,14,8,12,12], KRDW:[36,26,10,6,9,9],
@@ -82,7 +82,7 @@ for(const command of ['node src/verifyCurrentMarkup.js','node src/updateBrokerMa
   'node src/mmRateSanityCheck.js','--require-sanity','--baseline-index=']) assert.ok(!workflow.includes(command),command);
 assert.ok(workflow.includes('node src/pricingRecommendations.js'));
 assert.ok(workflow.includes('verifyActiveRecommendationsDom'));
-assert.equal(require('../excel-rate-update.config.example.json').broker_markup_learning.enabled,false);
+assert.equal(excelPolicy.broker_markup_learning.enabled,false);
 verifyCurrentMarkup(scenario([70,90,100]),options,{probe:()=>{throw new Error('Unexpected live markup probe');}})
   .then(output=>{
     assert.equal(output.markup_verification.status,'disabled_manual_only');

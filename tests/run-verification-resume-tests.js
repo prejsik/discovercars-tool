@@ -67,7 +67,7 @@ async function withClock(now, run) {
 
 function pricedPayload(rates = [["MM Cars Rental", 50], ["Budget", 100], ["Avis", 120]]) {
   const location = "Warsaw Chopin Airport (WAW)";
-  const { pricing } = require("../pricing-rules.config.example.json");
+  const { pricing } = require("./pricing_test_fixtures");
   const pricingOptions = { ...pricing, brokerMarkupCalibration: mergeBrokerMarkupCalibration(
     pricing.brokerMarkupCalibration, require("../input/broker-markup-frozen.json")) };
   const list = rates.map(([provider, rate]) => ({ provider_name: provider, total_price: rate * 2,

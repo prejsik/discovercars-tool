@@ -45,10 +45,10 @@ test('JS scoped resolver respects explicit policy omissions before a protected-d
   }, 'FVMD', '2026-10-31', excelPolicy.protected_rate_periods), 0);
 });
 
-const decision = (options, { group = 'CDMV', date = '2026-10-15', location = 'Warsaw West Train Station' } = {}) => {
+const decision = (options, { group = 'CDMV', date = '2026-10-15', pickup, location = 'Warsaw West Train Station' } = {}) => {
   const offer = (provider_name, daily) => ({ provider_name, total_price: daily * 2, rental_days: 2, currency: 'PLN' });
   return buildPricingRecommendations({ locations: [location], scenarios: [{
-    group, start_date: date, rental_days: 2,
+    group, start_date: date, pickup_date: pickup, rental_days: 2,
     top_3_plus_mm_by_location: { [location]: { top_3: [offer('Other', 100)], mm_cars_rental: offer('MM Cars Rental', 20) } },
   }] }, { ...pricing, forceTop1: true, brokerMarkupCalibration: { enabled: false }, excelPolicy, ...options }).decisions[0];
 };
@@ -65,6 +65,31 @@ test('real JS recommendations cannot recommend below scoped mandatory floors', (
     assert.throws(() => decision({ mandatoryScopedFloorsPlnDay: [bad] }), /known|scope|group|zone/i);
   }
   assert.throws(() => decision({ ...options, excelPolicy: { ...excelPolicy, protected_rate_periods: 'bad' } }), /protect/i);
+});
+
+test('JS recommendations normalize ISO pickup timestamps without UTC date shifts', () => {
+  const options = { mandatoryScopedFloorsPlnDay: [floor()] };
+  for (const [date, pickup, minimum] of [
+    ['2026-10-15', '2026-10-15T11:00:00+02:00', 190],
+    ['2026-10-14', '2026-10-15T00:30:00+02:00', 190],
+    ['2026-10-31', '2026-10-31T00:30:00+01:00', 60],
+    [null, '2026-10-15T11:00:00Z', 190],
+    ['2026-10-15', '2026-10-15T11:00:00.123+02:00', 190],
+    ['2026-10-15', '2026-10-15', 190],
+  ]) {
+    const result = decision(options, { date, pickup });
+    assert.equal(result.mandatory_minimum_rate_pln_day, minimum, pickup);
+    assert.equal(result.pickup_date, pickup, 'output retains the original pickup timestamp');
+  }
+});
+
+test('JS recommendations reject invalid pickup dates despite a valid start date', () => {
+  const options = { mandatoryScopedFloorsPlnDay: [floor()] };
+  for (const pickup of ['not-a-date', '2026-02-30', '2026-02-30T11:00:00+01:00',
+    '2026-10-15T25:00:00+02:00', '2026-10-15T11:00:00+02:00junk', '2026-10-15junk', 42]) {
+    assert.throws(() => decision(options, { pickup }), /valid pickup date/, String(pickup));
+  }
+  assert.throws(() => decision(options, { date: null }), /valid pickup date/);
 });
 
 test('higher existing dated class floors prevail wherever the scoped matrix is active', () => {

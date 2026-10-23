@@ -192,7 +192,10 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     resolveLocationTypeFloorPlnDay(zoneKinds?.[zone], scenario.rental_days, options, scenario.group)
   ));
   const mandatoryMinimum = Math.max(locationTypeMinimum, ...(locationZones?.[location] || [location]).map((zone) => {
-    const pickup = scenario.pickup_date || scenario.start_date;
+    const rawPickup = scenario.pickup_date || scenario.start_date;
+    // Floors use the pickup's local calendar day, not its UTC date.
+    const pickup = typeof rawPickup === "string" && /^\d{4}-\d{2}-\d{2}T/.test(rawPickup)
+      && Number.isFinite(Date.parse(rawPickup)) ? rawPickup.slice(0, 10) : rawPickup;
     const periods = options.excelPolicy?.protected_rate_periods;
     const scoped = resolveMandatoryScopedFloorPlnDay(zone, scenario.rental_days, options, scenario.group, pickup, periods);
     // Keep the legacy recommendation path unchanged outside the new matrix scope.
