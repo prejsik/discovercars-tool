@@ -354,6 +354,192 @@
         "maxDays": 35,
         "minimumRatePlnDay": 100,
         "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 1,
+        "maxDays": 1,
+        "minimumRatePlnDay": 150,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 2,
+        "maxDays": 2,
+        "minimumRatePlnDay": 110,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 3,
+        "maxDays": 4,
+        "minimumRatePlnDay": 90,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 5,
+        "maxDays": 7,
+        "minimumRatePlnDay": 90,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 8,
+        "maxDays": 20,
+        "minimumRatePlnDay": 90,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KRDW",
+          "KRGA",
+          "KRLO",
+          "KRTI",
+          "KA1",
+          "KALO",
+          "WR2",
+          "WRLO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2026-11-01",
+        "minDays": 21,
+        "maxDays": 35,
+        "minimumRatePlnDay": 90,
+        "overrideProtected": false
       }
     ]
   }
