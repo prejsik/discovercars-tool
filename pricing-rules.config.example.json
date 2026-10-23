@@ -209,6 +209,152 @@
       "enabled": true,
       "manualOnly": true,
       "model": "fixed_amount"
-    }
+    },
+    "mandatoryScopedFloorsPlnDay": [
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 1,
+        "maxDays": 1,
+        "minimumRatePlnDay": 250,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 2,
+        "maxDays": 2,
+        "minimumRatePlnDay": 80,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 3,
+        "maxDays": 4,
+        "minimumRatePlnDay": 80,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 5,
+        "maxDays": 7,
+        "minimumRatePlnDay": 70,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 8,
+        "maxDays": 20,
+        "minimumRatePlnDay": 70,
+        "overrideProtected": false
+      },
+      {
+        "groups": [
+          "CDMV",
+          "CFAV",
+          "CGAV",
+          "CWAV",
+          "CWMR",
+          "EDAV",
+          "EDMV",
+          "FVMD",
+          "PDAH",
+          "PDAV",
+          "SWAV"
+        ],
+        "zones": [
+          "KALO"
+        ],
+        "startDate": "2026-10-23",
+        "endDate": "2027-12-23",
+        "minDays": 21,
+        "maxDays": 35,
+        "minimumRatePlnDay": 100,
+        "overrideProtected": false
+      }
+    ]
   }
 }

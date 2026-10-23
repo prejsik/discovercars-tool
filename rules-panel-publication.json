@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "approvalId": "4c040ff1-1824-4314-b0ea-f836e045986f",
-  "draftRevision": "0939e963-e645-49a3-8614-afaa3b5eda40",
-  "approvedAt": "2026-10-15T15:06:20.902Z",
-  "sourceRevision": "86e8315407484b803e5ca51fcf86c686dce93f10",
-  "policyHash": "7721883d238c81377c3440445394c4921cfecc802e249f7005c2e9467ccb433e",
+  "approvalId": "24fbbf6d-c7fa-44be-b41f-e6a5a2b39c34",
+  "draftRevision": "c3bc66b6-3c4c-43ab-8018-50ae39e26cf0",
+  "approvedAt": "2026-10-23T06:11:55.414Z",
+  "sourceRevision": "945f3b313b6a08025796a9a98a7f22710a628b83",
+  "policyHash": "3a6cccd55bbafc99ab435d3c18ec0b6dd102c72ef15c36e653bc5fac3106d2c8",
   "validation": "policy-and-source"
 }
