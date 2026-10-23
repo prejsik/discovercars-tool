@@ -1,0 +1,174 @@
+{
+  "worksheet": "Sheet1",
+  "baseline_manifest_file": "input/baseline-manifest.json",
+  "location_registry_file": "locations.config.json",
+  "header_row": 4,
+  "data_start_row": 5,
+  "duration_min_row": 2,
+  "duration_max_row": 3,
+  "columns": {
+    "group": 1,
+    "zone": 4,
+    "booking_end_date": 6,
+    "pickup_start_date": 7,
+    "pickup_end_date": 8,
+    "rate_start": 9
+  },
+  "apply_groups": [
+    "CDMV",
+    "CGAV",
+    "CWAV",
+    "CWMR",
+    "EDAV",
+    "EDMV"
+  ],
+  "max_import_rows": null,
+  "max_recommendation_duration_days": 20,
+  "duration_band_evidence_max_days": {
+    "8-20": 14
+  },
+  "excluded_groups": [
+    "FVMD",
+    "SWAV",
+    "CFAV",
+    "PDAH",
+    "PDAV"
+  ],
+  "omitted_group_zones": {
+    "SZLO": [
+      "FVMD"
+    ]
+  },
+  "excluded_group_highlights": {
+    "SWAV": 150
+  },
+  "group_rate_adjustments_pln_day": {
+    "EDAV": 1,
+    "EDMV": 1
+  },
+  "group_price_parity": {
+    "enabled": true,
+    "base_groups": [
+      "CDMV",
+      "CGAV",
+      "CWAV",
+      "CWMR"
+    ],
+    "premium_adjustments_pln_day": {
+      "EDAV": 1,
+      "EDMV": 1
+    }
+  },
+  "protected_rate_periods": [
+    {
+      "start_date": "2026-10-31",
+      "end_date": "2026-11-01"
+    },
+    {
+      "start_date": "2026-12-15",
+      "end_date": "2027-01-10"
+    }
+  ],
+  "city_top1_airport_cap": {
+    "enabled": true,
+    "max_multiplier": 1.3,
+    "recommendation_types": [
+      "top1_gap",
+      "force_top1_maintain",
+      "force_top1_undercut"
+    ]
+  },
+  "normalize_pickup_end_to_start": false,
+  "pickup_date_expansion": {
+    "enabled": true,
+    "mode": "source_ranges",
+    "time_zone": "Europe/Warsaw"
+  },
+  "changed_positions_sheet": "Changed Positions",
+  "recommendations_review_sheet": "Recommendations Review",
+  "validation_sheet": "Validation",
+  "pricing_rules_file": "pricing-rules.config.example.json",
+  "minimum_rates": {
+    "global_min_pln_day": 0,
+    "scoped_overrides": [],
+    "zone_overrides_pln_day": {},
+    "bands": [
+      {
+        "start_date": "2026-07-01",
+        "end_date": "2026-08-30",
+        "min_days": 1,
+        "max_days": 7,
+        "min_pln_day": 70
+      },
+      {
+        "start_date": "2026-07-01",
+        "end_date": "2026-08-30",
+        "min_days": 8,
+        "max_days": 20,
+        "min_pln_day": 115
+      },
+      {
+        "start_date": "2026-07-01",
+        "end_date": "2026-08-30",
+        "min_days": 21,
+        "max_days": 35,
+        "min_pln_day": 100
+      },
+      {
+        "start_date": "2026-09-01",
+        "end_date": "2027-01-31",
+        "min_days": 1,
+        "max_days": 35,
+        "min_pln_day": 50
+      }
+    ]
+  },
+  "broker_markup_learning": {
+    "enabled": false,
+    "min_multiplier": 1,
+    "max_multiplier": 1.2
+  },
+  "delta_color_scale": {
+    "max_delta_pln_day": 30,
+    "increase_light": "E2F0D9",
+    "increase_dark": "00B050",
+    "decrease_light": "F4CCCC",
+    "decrease_dark": "C00000"
+  },
+  "delta_color_steps": {
+    "thresholds_pln_day": [
+      5,
+      10,
+      15,
+      20
+    ],
+    "increase": [
+      "E2F0D9",
+      "C6E0B4",
+      "A9D18E",
+      "70AD47",
+      "00B050"
+    ],
+    "decrease": [
+      "F4CCCC",
+      "F8B4B4",
+      "EA9999",
+      "E06666",
+      "C00000"
+    ]
+  },
+  "recommendation_colors": {
+    "mandatory_zone_floor": "FCE4D6",
+    "mandatory_group_floor": "FCE4D6",
+    "top1_gap": "9DC3E6",
+    "top3_small_decrease": "FFC7CE",
+    "top1_undercut": "F4B183"
+  },
+  "min_excel_change_pln_day": 0.01,
+  "colors": {
+    "increase": "C6EFCE",
+    "decrease": "FFC7CE",
+    "hold": "D9EAF7",
+    "limited": "FCE4D6"
+  }
+}

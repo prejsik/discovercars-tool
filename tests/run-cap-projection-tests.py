@@ -8,8 +8,10 @@ import openpyxl
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from tools.update_excel_rates import apply_updates, merge_config  # noqa: E402
+from excel_test_fixtures import load_fixture_pricing_rules  # noqa: E402
 
 
 GROUPS = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"]
@@ -39,7 +41,7 @@ class CapProjectionTests(unittest.TestCase):
             book.close()
             original = source.read_bytes()
 
-            rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+            rules = load_fixture_pricing_rules()
             rules["pricing"]["mandatoryGroupFloorsPlnDay"]["EDAV"] = [
                 {"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 100},
             ]

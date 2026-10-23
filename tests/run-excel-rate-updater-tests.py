@@ -14,6 +14,7 @@ from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from tools.update_excel_rates import (  # noqa: E402
     add_calendar_months,
@@ -27,16 +28,18 @@ from tools.update_excel_rates import (  # noqa: E402
     get_import_row_limit,
     expand_pickup_date_rows,
     get_minimum_rate,
+    get_mandatory_correction_floor,
     get_floor_legend_text,
     highlight_excluded_group_rates,
     load_baseline_confirmation,
     load_config,
-    merge_config,
     parse_date_value,
     parse_number,
     seed_missing_zones,
     target_matches_recommendation_types,
 )
+from excel_test_fixtures import load_fixture_config, merge_fixture_config  # noqa: E402
+from tools import update_excel_rates as engine  # noqa: E402
 
 
 def assert_equal(actual, expected, message):
@@ -172,6 +175,11 @@ def build_minimal_workbook(path, rows):
     workbook.save(path)
 
 
+def expected_production_floor_rates(group, zone, pickup_date, rates, config):
+    return tuple(max(rate, get_mandatory_correction_floor(zone, group, low, high, config, pickup_date)[0] or 0)
+                 for rate, (low, high) in zip(rates, ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20), (21, 35))))
+
+
 def expected_approved_floor_rates(group, zone, pickup_date, rates):
     expected = tuple(rates)
     protected = (date(2026, 10, 31) <= pickup_date <= date(2026, 11, 1)
@@ -196,7 +204,7 @@ def test_preserved_source_ranges():
         recommendations = directory / "recommendations.json"
         pricing = directory / "pricing.json"
         pricing.write_text(json.dumps({"pricing": {}}), encoding="utf-8")
-        config = merge_config({
+        config = merge_fixture_config({
             "baseline_manifest_file": "", "pricing_rules_file": str(pricing),
             "location_zones": {"Fixture Airport": ["WALO"]},
             "apply_groups": ["CDMV"], "excluded_groups": ["CFAV", "FVMD"],
@@ -318,7 +326,7 @@ def main():
     test_preserved_source_ranges()
     for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
         try:
-            merge_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
+            merge_fixture_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
         except ValueError as error:
             assert retired_rule in str(error)
         else:
@@ -346,11 +354,11 @@ def main():
 
     warning_fill = get_delta_fill(
         {"new_rate": 59, "delta": -10},
-        merge_config({"changed_rate_warning": {"below_pln_day": 60, "color": "FFF2CC"}}),
+        merge_fixture_config({"changed_rate_warning": {"below_pln_day": 60, "color": "FFF2CC"}}),
     )
     assert_equal(str(warning_fill.fgColor.rgb)[-6:], "FFF2CC", "changed rate below warning threshold fill")
 
-    example_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    example_config = load_fixture_config()
     # These fixtures explicitly exercise legacy scoped/seasonal rules; production floors are covered separately.
     example_config["_location_type_floors"] = {}
     legacy_groups = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"]
@@ -429,7 +437,18 @@ def main():
     )
     assert_equal(august_gap_floor, 0, "no period floor on 31 August 2026")
     baseline_manifest = json.loads((ROOT / "input" / "baseline-manifest.json").read_text(encoding="utf-8"))
-    baseline_confirmation = load_baseline_confirmation(example_config, baseline_manifest["workbook_sha256"])
+    # Keep actual-baseline validation on the full current production registry and policy.
+    production_config = load_config(ROOT / "excel-rate-update.config.example.json")
+    production_floor_config = {**production_config,
+        "_priority_top1_rules": engine.get_pricing_rules(production_config).get("priorityTop1Rules", []),
+        "_pricing_policy": engine.get_pricing_policy(production_config),
+        "_mandatory_zone_floors": engine.get_mandatory_zone_floors(production_config),
+        "_mandatory_group_floors": engine.get_mandatory_group_floors(production_config),
+        "_mandatory_scoped_floors": engine.get_mandatory_scoped_floors(production_config),
+        "_location_type_floors": engine.get_location_type_floors(production_config),
+        "_location_type_allowed_groups": engine.resolve_apply_groups(production_config, None),
+    }
+    baseline_confirmation = load_baseline_confirmation(production_config, baseline_manifest["workbook_sha256"])
     assert_equal(baseline_confirmation["status"], baseline_manifest["status"], "baseline status matches manifest")
     assert_equal(
         baseline_confirmation["calibration_eligible"],
@@ -464,7 +483,7 @@ def main():
         build_workbook(highlight_path)
         highlight_book = openpyxl.load_workbook(highlight_path)
         highlight_ws = highlight_book["Sheet1"]
-        highlight_config = merge_config({})
+        highlight_config = merge_fixture_config({})
         highlight_durations = get_duration_columns(highlight_ws, highlight_config)
         highlight_rates = [highlight_ws.cell(10, col).value for col in range(9, 15)]
         for dry_run in (True, False):
@@ -522,7 +541,7 @@ def main():
             }),
             encoding="utf-8",
         )
-        frozen_config = merge_config({
+        frozen_config = merge_fixture_config({
             "excluded_groups": example_config["excluded_groups"],
             "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
             "group_price_parity": example_config["group_price_parity"],
@@ -577,7 +596,7 @@ def main():
             {"action": "decrease", "recommendation_type": "top3_small_decrease", "location": "Krakow Test", "start_date": "2026-09-28", "rental_days": days, "suggested_rate_pln_day": 20, "benchmark_rate_pln_day": 21}
             for days in (2, 3, 4)
         ]}), encoding="utf-8")
-        scoped_config = merge_config({
+        scoped_config = merge_fixture_config({
             "minimum_rates": example_config["minimum_rates"],
             "excluded_groups": example_config["excluded_groups"],
             "group_price_parity": example_config["group_price_parity"],
@@ -683,7 +702,7 @@ def main():
             json.dumps({"recommendations": holiday_recommendations}),
             encoding="utf-8",
         )
-        holiday_config = merge_config({
+        holiday_config = merge_fixture_config({
             "excluded_groups": example_config["excluded_groups"],
             "group_rate_adjustments_pln_day": example_config["group_rate_adjustments_pln_day"],
             "group_price_parity": example_config["group_price_parity"],
@@ -792,7 +811,7 @@ def main():
             "workbook_sha256": baseline_manifest["workbook_sha256"],
         }
         (temporary_path / "baseline.json").write_text(json.dumps(pending_manifest), encoding="utf-8")
-        pending_config = merge_config({"baseline_manifest_file": "baseline.json"})
+        pending_config = merge_fixture_config({"baseline_manifest_file": "baseline.json"})
         pending_config["_config_dir"] = str(temporary_path)
         try:
             load_baseline_confirmation(pending_config, baseline_manifest["workbook_sha256"])
@@ -1065,9 +1084,9 @@ def main():
         assert_equal(station_summary["zone_seeding"]["seeded_row_count"], 3, "zone seeding appears in audit summary")
         updated.close()
 
-    covered_zones = set().union(*location_zones.values())
+    covered_zones = set().union(*production_config["location_zones"].values())
     real_zones = workbook_zones(ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx")
-    assert_equal(sorted(set(example_config["zone_location_labels"]) - covered_zones), [],
+    assert_equal(sorted(set(production_config["zone_location_labels"]) - covered_zones), [],
                  "all registered zones are covered by location_zones")
     unmapped_source_zones = real_zones - covered_zones
 
@@ -1141,7 +1160,7 @@ def main():
             encoding="utf-8",
         )
 
-        config = merge_config(
+        config = merge_fixture_config(
             {
                 "location_zones": {"Warsaw": ["WA1"]},
                 "max_recommendation_duration_days": 35,
@@ -1167,7 +1186,7 @@ def main():
                 workbook_path=workbook_path,
                 recommendations_path=recommendations_path,
                 output_path=limited_output_path,
-                config=merge_config({
+                config=merge_fixture_config({
                     "location_zones": {"Warsaw": ["WA1"]},
                     "max_recommendation_duration_days": 35,
                     "max_import_rows": 13,
@@ -1373,7 +1392,7 @@ def main():
             workbook_path=exact_location_workbook_path,
             recommendations_path=exact_location_recommendations_path,
             output_path=exact_location_output_path,
-            config=merge_config(
+            config=merge_fixture_config(
                 {
                     "location_zones": example_config["location_zones"],
                     "pickup_date_expansion": {"enabled": False},
@@ -1424,7 +1443,7 @@ def main():
             workbook_path=dedup_workbook_path,
             recommendations_path=dedup_recommendations_path,
             output_path=dedup_output_path,
-            config=merge_config({"apply_groups": ["CDMV", "MDMR"], "location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"apply_groups": ["CDMV", "MDMR"], "location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
         )
@@ -1476,7 +1495,7 @@ def main():
             workbook_path=accepted_only_workbook_path,
             recommendations_path=accepted_only_recommendations_path,
             output_path=accepted_only_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
             accepted_only=True,
@@ -1532,7 +1551,7 @@ def main():
             workbook_path=acceptance_workbook_path,
             recommendations_path=acceptance_recommendations_path,
             output_path=acceptance_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
             accepted_only=True,
@@ -1596,7 +1615,7 @@ def main():
             workbook_path=expansion_workbook_path,
             recommendations_path=expansion_recommendations_path,
             output_path=expansion_output_path,
-            config=merge_config(
+            config=merge_fixture_config(
                 {
                     "location_zones": {"Warsaw": ["WA1"]},
                     "normalize_pickup_end_to_start": False,
@@ -1650,7 +1669,7 @@ def main():
             workbook_path=partial_range_workbook_path,
             recommendations_path=partial_range_recommendations_path,
             output_path=partial_range_output_path,
-            config=merge_config(
+            config=merge_fixture_config(
                 {
                     "pickup_date_expansion": {
                         "enabled": True,
@@ -1688,7 +1707,7 @@ def main():
             workbook_path=internal_gap_workbook_path,
             recommendations_path=partial_range_recommendations_path,
             output_path=internal_gap_output_path,
-            config=merge_config(
+            config=merge_fixture_config(
                 {
                     "pickup_date_expansion": {
                         "enabled": True,
@@ -1754,7 +1773,7 @@ def main():
             workbook_path=aggregate_workbook_path,
             recommendations_path=aggregate_recommendations_path,
             output_path=aggregate_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
         )
@@ -1794,7 +1813,7 @@ def main():
             workbook_path=partial_workbook_path,
             recommendations_path=partial_recommendations_path,
             output_path=partial_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
         )
@@ -1835,7 +1854,7 @@ def main():
             workbook_path=force_top1_workbook_path,
             recommendations_path=force_top1_recommendations_path,
             output_path=force_top1_output_path,
-            config=merge_config({"location_zones": {"Warsaw": ["WA1"]}}),
+            config=merge_fixture_config({"location_zones": {"Warsaw": ["WA1"]}}),
             cli_groups=None,
             dry_run=False,
         )
@@ -1898,7 +1917,7 @@ def main():
             workbook_path=city_cap_workbook_path,
             recommendations_path=city_cap_recommendations_path,
             output_path=city_cap_output_path,
-            config=merge_config({
+            config=merge_fixture_config({
                 "location_zones": {"Warsaw Train Station": ["WA1"]},
                 "city_zone_airport_zones": {"WA1": ["WALO"]},
                 "zone_location_labels": {"WALO": "Warsaw Chopin Airport (WAW)"},
@@ -1937,7 +1956,7 @@ def main():
             workbook_path=permission_cap_source,
             recommendations_path=city_cap_recommendations_path,
             output_path=permission_cap_output,
-            config=merge_config({
+            config=merge_fixture_config({
                 "location_zones": {"Warsaw Train Station": ["WA1"]},
                 "city_zone_airport_zones": {"WA1": ["WALO"]},
             }),
@@ -1956,7 +1975,7 @@ def main():
             workbook_path=city_cap_workbook_path,
             recommendations_path=city_cap_recommendations_path,
             output_path=city_cap_out_of_scope_output_path,
-            config=merge_config({
+            config=merge_fixture_config({
                 "location_zones": {"Warsaw Train Station": ["WA1"]},
                 "city_zone_airport_zones": {"WA1": ["WALO"]},
                 "pickup_date_expansion": {
@@ -2007,7 +2026,7 @@ def main():
         conflict_recommendations.write_text(json.dumps({"decisions": conflict_decisions}), encoding="utf-8")
         conflict_output = tmpdir / "city-cap-floor-conflict.xlsx"
         conflict_import = tmpdir / "city-cap-floor-conflict-import.xlsx"
-        conflict_config = merge_config({
+        conflict_config = merge_fixture_config({
             "location_zones": {"Warsaw Train Station": ["WA1"]},
             "city_zone_airport_zones": {"WA1": ["WALO"]},
             "minimum_rates": {"global_min_pln_day": 131},
@@ -2084,7 +2103,7 @@ def main():
             assert_equal(dry_conflict_summary[field], conflict_summary[field], f"dry-run/export agree on {field}")
         assert_equal(conflict_source.read_bytes(), conflict_source_bytes, "export and dry-run preserve source workbook bytes")
 
-        premium_conflict_config = merge_config({
+        premium_conflict_config = merge_fixture_config({
             "location_zones": {"Warsaw Train Station": ["WA1"]},
             "city_zone_airport_zones": {"WA1": ["WALO"]},
             "minimum_rates": {"scoped_overrides": [{
@@ -2143,7 +2162,7 @@ def main():
             ("MDMR", 161, 130, 131, 161),
         ):
             independent_output = tmpdir / f"city-cap-independent-{conflict_group}-{minimum}.xlsx"
-            independent_config = merge_config({
+            independent_config = merge_fixture_config({
                 "apply_groups": ["CDMV", "EDMV", "MDMR"],
                 "location_zones": {"Warsaw Train Station": ["WA1"]},
                 "city_zone_airport_zones": {"WA1": ["WALO"]},
@@ -2197,7 +2216,7 @@ def main():
                 workbook_path=city_only_workbook_path,
                 recommendations_path=city_cap_recommendations_path,
                 output_path=tmpdir / "city-cap-missing-airport-output.xlsx",
-                config=merge_config({
+                config=merge_fixture_config({
                     "location_zones": {"Warsaw Train Station": ["WA1"]},
                     "city_zone_airport_zones": {"WA1": ["WALO"]},
                 }),
@@ -2208,7 +2227,7 @@ def main():
         except ValueError as error:
             assert "Missing airport rate required" in str(error)
 
-        expired_config = merge_config(
+        expired_config = merge_fixture_config(
             {
                 "location_zones": {"Warsaw": ["WA1"]},
                 "pickup_date_expansion": {
@@ -2233,6 +2252,7 @@ def main():
             assert "Sheet1 was not modified" in str(error)
 
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
+        real_source_sha256 = engine.sha256_file(real_workbook_path)
         real_recommendations_path = tmpdir / "real-recommendations.json"
         real_output_path = tmpdir / "real-rates-updated.xlsx"
         real_before = openpyxl.load_workbook(real_workbook_path)
@@ -2244,6 +2264,7 @@ def main():
                                   for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
         frozen_source_rates = {}
+        frozen_source_intervals = {}
         unmapped_source_rates = {}
         real_target = None
         for row in range(5, real_ws.max_row + 1):
@@ -2260,6 +2281,10 @@ def main():
                 frozen_source_rates[(group, zone, pickup_date)] = tuple(
                     real_ws.cell(row, col).value for col in range(9, 15)
                 )
+                frozen_source_intervals.setdefault((group, zone), []).append((
+                    pickup_date, parse_date_value(real_ws.cell(row, 8).value) or pickup_date,
+                    frozen_source_rates[group, zone, pickup_date],
+                ))
             if group == "CDMV" and zone in {"KRDW", "KRGA", "KRLO", "KRTI"} and pickup_date and old_rate is not None:
                 real_target = (pickup_date, old_rate)
         if real_target is None:
@@ -2268,10 +2293,21 @@ def main():
             assert any(key[0] == group for key in frozen_source_rates), f"Real workbook needs baseline rows for {group}."
         real_before.close()
         expected_unmapped_rows = Counter()
+        floor_periods = engine.get_protected_rate_periods(production_config)
+        floor_periods += [(parse_date_value(band["start_date"]), parse_date_value(band["end_date"]))
+                          for bands in production_floor_config["_mandatory_group_floors"].values()
+                          for band in bands if band.get("start_date")]
+        floor_periods += [(parse_date_value(rule["startDate"]), parse_date_value(rule["endDate"]))
+                          for rule in production_floor_config["_mandatory_scoped_floors"]]
+        floor_boundaries = {start for start, _ in floor_periods}
+        floor_boundaries.update(end + timedelta(days=1) for _, end in floor_periods if end < date.max)
+        floor_boundaries = sorted(floor_boundaries)
         for (group, zone), source_rates in unmapped_source_rates.items():
             for pickup_date, pickup_end, rates in source_rates:
-                expected_rates = expected_approved_floor_rates(group, zone, pickup_date, rates)
-                expected_unmapped_rows[(group, zone, pickup_date, pickup_end, expected_rates)] += 1
+                cuts = [day for day in floor_boundaries if pickup_date < day <= pickup_end]
+                for start, end in zip([pickup_date, *cuts], [day - timedelta(days=1) for day in cuts] + [pickup_end]):
+                    expected_rates = expected_production_floor_rates(group, zone, start, rates, production_floor_config)
+                    expected_unmapped_rows[(group, zone, start, end, expected_rates)] += 1
         real_pickup_date, real_old_rate = real_target
         real_recommendations_path.write_text(
             json.dumps(
@@ -2300,7 +2336,7 @@ def main():
             workbook_path=real_workbook_path,
             recommendations_path=real_recommendations_path,
             output_path=real_output_path,
-            config=merge_config({"location_zones": {"Krakow": ["KRDW", "KRGA", "KRLO", "KRTI"]}}),
+            config=production_config,
             cli_groups=None,
             dry_run=False,
         )
@@ -2317,7 +2353,7 @@ def main():
             workbook_path=real_workbook_path,
             recommendations_path=baseline_real_recommendations_path,
             output_path=baseline_real_output_path,
-            config=load_config(ROOT / "excel-rate-update.config.example.json"),
+            config=production_config,
             cli_groups=None,
             dry_run=False,
             import_output_path=baseline_real_import_path,
@@ -2327,12 +2363,20 @@ def main():
                      "empty recommendations only enforce approved zone and class minima without market changes")
         assert_equal(baseline_real_summary["change_statistics"]["decrease_count"], 0,
                      "mandatory floor correction never lowers baseline prices")
+        assert all(row["status"] != "FAIL" for row in baseline_real_summary["validation"]), baseline_real_summary["validation"]
+        # Current policy resolvers are unit-tested above with fixed inputs; here verify their exported rates.
+        source_coverage = Counter()
+        for (group, zone), intervals in frozen_source_intervals.items():
+            for start, end, _ in intervals:
+                source_coverage[group, zone, start] += 1
+                source_coverage[group, zone, end + timedelta(days=1)] -= 1
         for output_file in (baseline_real_output_path, baseline_real_import_path):
             baseline_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
             baseline_real_ws = baseline_real_workbook["Sheet1"]
             pickup_dates = []
             pickup_ends = []
             frozen_output_rates = {}
+            output_coverage = Counter()
             unmapped_output_rows = Counter()
             for values in baseline_real_ws.iter_rows(min_row=5, min_col=1, max_col=14, values_only=True):
                 group = str(values[0] or "").strip().upper()
@@ -2343,9 +2387,22 @@ def main():
                     pickup_ends.append(parse_date_value(values[7]))
                 if group in frozen_groups and pickup_date is not None:
                     frozen_output_rates[(group, zone, pickup_date)] = tuple(values[8:14])
+                    source_intervals = frozen_source_intervals.get((group, zone), [])
+                    if source_intervals:
+                        pickup_end = parse_date_value(values[7]) or pickup_date
+                        source = next((item for item in source_intervals if item[0] <= pickup_date <= pickup_end <= item[1]), None)
+                        assert source is not None, f"Frozen output interval outside the baseline: {group}/{zone}/{pickup_date}/{pickup_end}"
+                        for boundary in (pickup_date, pickup_end):
+                            expected = expected_production_floor_rates(group, zone, boundary, source[2], production_floor_config)
+                            assert_equal(tuple(values[8:14]), expected, f"current production floor or preserved frozen rate {group}/{zone}/{boundary}")
+                        output_coverage[group, zone, pickup_date] += 1
+                        output_coverage[group, zone, pickup_end + timedelta(days=1)] -= 1
                 if zone in unmapped_source_zones:
                     unmapped_output_rows[(group, zone, pickup_date, parse_date_value(values[7]), tuple(values[8:14]))] += 1
             baseline_real_workbook.close()
+            assert_equal({key: count for key, count in output_coverage.items() if count},
+                         {key: count for key, count in source_coverage.items() if count},
+                         "frozen baseline intervals and multiplicities survive mandatory scoped-floor splits")
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
                          "all unmapped baseline classes, zones, full pickup intervals and row multiplicities retained; only approved minima change rates")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
@@ -2353,8 +2410,9 @@ def main():
             assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
             assert_equal(max(pickup_ends), expected_pickup_end, "real workbook retains the entire future pickup range")
             for key, expected_rates in frozen_source_rates.items():
-                expected_rates = expected_approved_floor_rates(*key, expected_rates)
+                expected_rates = expected_production_floor_rates(*key, expected_rates, production_floor_config)
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
+        assert_equal(engine.sha256_file(real_workbook_path), real_source_sha256, "actual production baseline bytes preserved")
 
     print("All Excel rate updater tests passed.")
 

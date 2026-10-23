@@ -10,7 +10,9 @@ import openpyxl
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'tests'))
 from tools import update_excel_rates as engine
+from excel_test_fixtures import load_fixture_config, load_fixture_pricing_rules
 
 BANDS = [(1, 1, 200), (2, 2, 190), (3, 4, 180), (5, 7, 170), (8, 20, 160), (21, 35, 150)]
 
@@ -20,11 +22,11 @@ class ScopedFloorTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.pricing = json.loads((ROOT / 'pricing-rules.config.example.json').read_text())
+        self.pricing = load_fixture_pricing_rules()
         self.floors = [dict(groups=['CDMV', 'CFAV'], zones=['WA1', 'WALO'],
                             startDate='2026-10-15', endDate='2026-11-02', minDays=low, maxDays=high,
                             minimumRatePlnDay=rate, overrideProtected=False) for low, high, rate in BANDS]
-        self.config = engine.load_config(ROOT / 'excel-rate-update.config.example.json')
+        self.config = load_fixture_config()
         self.config.update(pickup_date_expansion={'enabled': False}, baseline_manifest_file='',
                            pricing_rules_file=str(self.root / 'pricing.json'))
         self.write_rules()

@@ -15,14 +15,19 @@ from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from tools.update_excel_rates import (  # noqa: E402
-    apply_updates, build_validation_rows, get_duration_columns, get_review_status, merge_config,
+    apply_updates, build_validation_rows, get_duration_columns, get_review_status,
     load_baseline_confirmation, get_import_row_limit, validate_import_row_limit, parse_date_value,
     load_config, get_minimum_rate, get_mandatory_floor,
     save_import_ready_workbook,
 )
 from tools import update_excel_rates as excel_updater  # noqa: E402
+from excel_test_fixtures import (  # noqa: E402
+    FIXTURE_PRICING_RULES_PATH, FIXTURE_REGISTRY_PATH, load_fixture_config,
+    load_fixture_pricing_rules, merge_fixture_config,
+)
 
 
 ALLOWED = ["CDMV", "CGAV", "CWAV", "CWMR", "EDAV", "EDMV"]
@@ -34,11 +39,11 @@ class PricingPolicyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        legacy_rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        legacy_rules = load_fixture_pricing_rules()
         legacy_rules["pricing"].pop("locationTypeFloorsPlnDay", None)
         legacy_path = self.root / "legacy-rules.json"
         legacy_path.write_text(json.dumps(legacy_rules), encoding="utf-8")
-        self.config = merge_config({
+        self.config = merge_fixture_config({
             "pricing_rules_file": str(legacy_path),
             "location_zones": {"City": ["WA1"]},
             "city_zone_airport_zones": {"WA1": ["WALO"]},
@@ -123,7 +128,7 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
 
     def test_fvmd_holiday_invalid_scope_fails_closed(self):
-        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        original = load_fixture_pricing_rules()
         for override in ({"start_date": "bad"}, {"end_date": "2026-12-14"},
                          {"override_protected_dates": "true"}, {"end_date": None}):
             rules = json.loads(json.dumps(original))
@@ -227,7 +232,7 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
         with self.assertRaisesRegex(ValueError, "Missing Excel duration columns"):
             self.run_updates([], source, self.pdah_floor_config())
-        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        original = load_fixture_pricing_rules()
         for floors in ([], {"pdah": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": 170}]},
                        {"PDAH": []}, {"PDAH": [{"minDays": 21, "maxDays": 35, "minimumRatePlnDay": -1}]},
                        {"PDAH": [{"minDays": 21, "maxDays": 36, "minimumRatePlnDay": 170}]}):
@@ -238,7 +243,7 @@ class PricingPolicyTests(unittest.TestCase):
                 self.run_updates([], self.workbook(airport_rate=500, city_rate=500), config)
 
     def test_pdah_floor_respects_higher_zone_minimum_without_double_counting(self):
-        rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        rules = load_fixture_pricing_rules()
         rules["pricing"]["mandatoryZoneFloorsPlnDay"]["SZLO"][-1]["minimumRatePlnDay"] = 200
         path = self.root / "higher-zone-floor.json"
         path.write_text(json.dumps(rules), encoding="utf-8")
@@ -599,7 +604,7 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertFalse((self.root / "unused-import.xlsx").exists())
 
     def test_invalid_mandatory_floor_configuration_cannot_silently_export_rates(self):
-        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        original = load_fixture_pricing_rules()
         bands = original["pricing"]["mandatoryZoneFloorsPlnDay"]["SZLO"]
         invalid_tables = [None, [], {"szlo": bands}, {"SZLO": bands[:-1]},
                           {"SZLO": [{**bands[0], "minimumRatePlnDay": 0}, *bands[1:]]},
@@ -692,7 +697,7 @@ class PricingPolicyTests(unittest.TestCase):
                     self.assertEqual(prices[group, "WA1", "2026-10-01"], expected + (group in {"EDAV", "EDMV"}))
 
     def test_normal_floor_conflict_ignores_only_affected_band_and_exports_market_target(self):
-        config = merge_config({**self.config, "minimum_rates": {
+        config = merge_fixture_config({**self.config, "minimum_rates": {
             "global_min_pln_day": 50, "bands": [],
             "scoped_overrides": [{"zones": ["WA1"], "groups": ALLOWED,
                                   "min_days": 2, "max_days": 2, "min_pln_day": 53}],
@@ -741,7 +746,7 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
 
     def test_cap_ignored_count_counts_duration_bands_not_affected_classes(self):
-        config = merge_config({**self.config, "minimum_rates": {
+        config = merge_fixture_config({**self.config, "minimum_rates": {
             "global_min_pln_day": 53, "bands": [], "scoped_overrides": [],
         }})
         source = self.workbook()
@@ -838,7 +843,7 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertEqual(self.rates(output, 13)["CDMV", "WA1", "2026-10-01"], 60)
 
     def test_expected_floor_and_premium_rank_limits_are_notes_not_bad_evidence(self):
-        config = merge_config({**self.config, "city_top1_airport_cap": {"enabled": False}})
+        config = merge_fixture_config({**self.config, "city_top1_airport_cap": {"enabled": False}})
         summary, output, _ = self.run_updates([self.decision(suggested=45, action="decrease")], config=config)
         self.assertTrue(all(not change["target_achievable"] for change in summary["changes"]))
         book = openpyxl.load_workbook(output)
@@ -852,7 +857,7 @@ class PricingPolicyTests(unittest.TestCase):
         self.assertEqual(get_review_status([change]), "Sprawdz")
 
     def test_premium_only_rank_limit_is_not_reported_as_missing_evidence(self):
-        config = merge_config({**self.config, "minimum_rates": {"global_min_pln_day": 0, "bands": []},
+        config = merge_fixture_config({**self.config, "minimum_rates": {"global_min_pln_day": 0, "bands": []},
                                "city_top1_airport_cap": {"enabled": False}})
         summary, _, _ = self.run_updates([self.decision(suggested=55, action="decrease")], config=config)
         base = next(change for change in summary["changes"] if change["group"] == "CDMV")
@@ -902,7 +907,7 @@ class PricingPolicyTests(unittest.TestCase):
         book.close()
 
     def test_config_cannot_reverse_approved_priority_over_city_cap(self):
-        rules = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        rules = load_fixture_pricing_rules()
         rules["pricing"]["pricingPolicy"] = {
             "precedence": ["protected_dates", "class_allowlist", "required_evidence", "city_airport_cap",
                            "priority_top1", "scoped_floor", "zone_floor", "seasonal_floor", "ranking_target", "premium_parity"],
@@ -915,7 +920,7 @@ class PricingPolicyTests(unittest.TestCase):
             self.run_updates([self.decision(priority=True)], config=config)
 
     def test_retired_baseline_preservation_and_unknown_conflict_modes_fail_closed(self):
-        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        original = load_fixture_pricing_rules()
         source = self.workbook()
         source_bytes = source.read_bytes()
         for mode in ("preserve_baseline", "unknown", None):
@@ -1095,12 +1100,12 @@ class LocationTypeFloorTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.config = load_config(ROOT / "excel-rate-update.config.example.json")
+        self.config = load_fixture_config()
         self.config.update(baseline_manifest_file="", pickup_date_expansion={"enabled": False}, zone_seeds={})
-        self.config["pricing_rules_file"] = str(ROOT / "pricing-rules.config.example.json")
+        self.config["pricing_rules_file"] = str(FIXTURE_PRICING_RULES_PATH)
         self.config["location_zones"]["City"] = ["WA1"]
 
-    def test_production_rule_replaces_priority_scoped_and_seasonal_floors_at_endpoints(self):
+    def test_fixture_location_type_rule_replaces_priority_scoped_and_seasonal_floors_at_endpoints(self):
         for pickup in ("2026-07-01", "2026-10-25", "2026-10-26", "2028-02-10"):
             for zone, minimum in (("WA1", 60), ("WR2", 60), ("WALO", 30), ("KRTI", 30)):
                 for low, high in ((1, 1), (2, 2), (3, 4), (5, 7), (8, 20)):
@@ -1116,7 +1121,7 @@ class LocationTypeFloorTests(unittest.TestCase):
 
     def test_every_registry_zone_and_band_corrects_missing_market_without_lowering(self):
         source = self.workbook(pickups=(), city_rate=10)
-        registry = json.loads((ROOT / "locations.config.json").read_text(encoding="utf-8"))
+        registry = json.loads(FIXTURE_REGISTRY_PATH.read_text(encoding="utf-8"))
         expected = {}
         book = openpyxl.load_workbook(source)
         book["Sheet1"].delete_rows(5, book["Sheet1"].max_row)
@@ -1206,7 +1211,7 @@ class LocationTypeFloorTests(unittest.TestCase):
                 self.assertEqual(prices["EDMV", "WA1", "2026-10-01"], 11)
 
     def test_registry_mirrors_not_names_determine_kind(self):
-        registry = json.loads((ROOT / "locations.config.json").read_text(encoding="utf-8"))
+        registry = json.loads(FIXTURE_REGISTRY_PATH.read_text(encoding="utf-8"))
         for location in registry["locations"]:
             location["scraper_label"] = "Airport-looking city" if location["kind"] == "city" else "Downtown-looking airport"
             location["scraper_label"] += location["id"]
@@ -1221,7 +1226,7 @@ class LocationTypeFloorTests(unittest.TestCase):
             self.assertEqual(get_mandatory_floor(zone, "CDMV", 1, 1, config, "2026-10-13")[0], expected)
 
     def test_invalid_new_rule_fails_closed_before_outputs_are_saved(self):
-        original = json.loads((ROOT / "pricing-rules.config.example.json").read_text(encoding="utf-8"))
+        original = load_fixture_pricing_rules()
         for override in ({"groups": ["cdmv"]}, {"groups": ["CDMV", "CDMV"]}, {"groups": ["*"]},
                          {"groups": ["CDMVX"]}, {"maxDays": 21}, {"minDays": True},
                          {"minimumRatesByKind": {"city": 60}},

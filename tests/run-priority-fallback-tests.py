@@ -1,10 +1,13 @@
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.update_excel_rates import build_targets, merge_config, get_recommendation_outcome_pl, calculate_target_base_rate
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from tools.update_excel_rates import build_targets, get_recommendation_outcome_pl, calculate_target_base_rate
+from excel_test_fixtures import merge_fixture_config
 
-config = merge_config({"location_zones": {"Test": ["WA1"]}})
+config = merge_fixture_config({"location_zones": {"Test": ["WA1"]}})
 items = [{
     "location": "Test", "start_date": "2026-10-01", "rental_days": days,
     "action": "decrease", "priority_rule_id": "all-locations-autumn-2026-short",

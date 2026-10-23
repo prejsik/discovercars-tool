@@ -5,8 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const engine = require('../src/pricingRules');
 const { buildPricingRecommendations } = require('../src/pricingRecommendations');
-const { pricing } = require('../pricing-rules.config.example.json');
-const excelPolicy = require('../excel-rate-update.config.example.json');
+const fixtureDirectory = path.join(__dirname, 'fixtures/excel-policy-0939d46');
+const fixturePolicy = path.join(fixtureDirectory, 'pricing-rules.config.example.json');
+const { pricing } = require(fixturePolicy);
+const excelPolicy = require(path.join(fixtureDirectory, 'excel-rate-update.config.example.json'));
 
 const floor = (patch = {}) => ({ groups: ['CDMV', 'CFAV'], zones: ['WA1', 'WALO'],
   startDate: '2026-10-15', endDate: '2026-11-02', minDays: 2, maxDays: 2,
@@ -75,7 +77,7 @@ test('higher existing dated class floors prevail wherever the scoped matrix is a
 });
 
 test('real loader validates new shared field and leaves old config behavior untouched', () => {
-  const baseline = engine.loadPricingRules();
+  const baseline = engine.loadPricingRules(fixturePolicy);
   assert.equal(baseline.mandatoryScopedFloorsPlnDay, undefined);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scoped-rules-'));
   try {

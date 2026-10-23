@@ -167,7 +167,10 @@ jobs:
       - name: Run scheduled Excel preflight
         id: excel-preflight
         if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.schedule_key != ''
-        run: python tests/run-excel-rate-updater-tests.py
+        run: |
+          python tools/validate_excel_inputs.py
+          python tests/run-excel-preflight-isolation-tests.py
+          python tests/run-excel-rate-updater-tests.py
 
       - name: Resolve run options
         if: needs.gate.outputs.should_run == 'true'

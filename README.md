@@ -54,6 +54,12 @@ node src/index.js
 
 Workflow znajduje sie w `.github/workflows/discovercars-daily.yml`.
 
+Przed zbieraniem cen `tools/validate_excel_inputs.py` sprawdza aktualne reguly
+z panelu z pelnym rejestrem lokalizacji oraz zgodnosc bazy z manifestem.
+Testy przykladowych cennikow korzystaja z osobnych, stalych danych testowych,
+aby poprawna zmiana w panelu nie zmieniala oczekiwanych wynikow tych testow.
+Nieprawidlowe reguly produkcyjne nadal blokuja rozpoczecie scrapowania.
+
 Jak dziala:
 
 - docelowy start Cloudflare to `09:37` dla dnia (20 dni) oraz `18:07` dla nocy (45 dni), zawsze `Europe/Warsaw`. Noc ma date raportu nastepnego dnia lokalnego; dzien ma date biezaca. Zapasowe triggery GitHub to `09:42`/`10:02` i `18:12`/`18:32`; bramka odrzuca nieaktywny wariant UTC lato/zima dla obu slotow. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,

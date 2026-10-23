@@ -12,9 +12,11 @@ from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 from tools.update_excel_rates import (apply_updates, load_config, predict_site_rate,
     evaluate_target_constraints, target_for_group, format_broker_markup, resolve_apply_groups,
     find_city_top1_airport_cap_violations, build_targets, calculate_target_base_rate, get_minimum_rate)
+from excel_test_fixtures import load_fixture_config, FIXTURE_PRICING_RULES_PATH
 
 
 def main():
@@ -66,11 +68,11 @@ def main():
         wrong = folder / 'wrong-calibration.json'
         wrong.write_text(json.dumps({'brokerMarkupCalibration':{'enabled':True,'defaultMultiplier':10}}))
         subprocess.run([node,'src/pricingRecommendations.js',str(payload),str(recommendations),
-            '--config=pricing-rules.config.example.json',f'--calibration={wrong}'],cwd=ROOT,check=True,capture_output=True)
+            f'--config={FIXTURE_PRICING_RULES_PATH}',f'--calibration={wrong}'],cwd=ROOT,check=True,capture_output=True)
         decisions=json.loads(recommendations.read_text())
         assert decisions['decisions'][0]['suggested_rate_pln_day'] == 70
         assert decisions['decisions'][0]['predicted_site_rate_pln_day'] == 99
-        config=load_config(ROOT / 'excel-rate-update.config.example.json')
+        config=load_fixture_config()
         config['pickup_date_expansion']={'enabled':False}
         config['baseline_manifest_file']=''
         config['baseline_workbook_sha256']=original_hash
