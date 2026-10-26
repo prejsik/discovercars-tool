@@ -222,11 +222,11 @@ def test_preserved_source_ranges():
         build_minimal_workbook(source, rows)
         original_bytes = source.read_bytes()
 
-        def run(dates, name):
+        def run(dates, name, action="decrease", suggested_rate=100):
             recommendations.write_text(json.dumps({"recommendations": [{
-                "action": "decrease", "recommendation_type": "top1_undercut",
+                "action": action, "recommendation_type": "top1_undercut",
                 "location": "Fixture Airport", "start_date": value, "rental_days": 2,
-                "suggested_rate_pln_day": 100, "benchmark_rate_pln_day": 101,
+                "suggested_rate_pln_day": suggested_rate, "benchmark_rate_pln_day": suggested_rate + 1,
                 "data_quality_status": "ok",
             } for value in dates]}), encoding="utf-8")
             report, import_file = directory / f"{name}-report.xlsx", directory / f"{name}-import.xlsx"
@@ -297,6 +297,36 @@ def test_preserved_source_ranges():
             matching = [row for row in protected_output if parse_date_value(row[6]) <= day <= parse_date_value(row[7])]
             assert_equal(len(matching), 1, f"protected market coverage for {day}")
             assert_equal(matching[0][9], expected, f"market changes respect protected interval at {day}")
+
+        config["protected_rate_periods"] = [
+            {"start_date": "2026-10-31", "end_date": "2026-11-01"},
+            {"start_date": "2026-12-15", "end_date": "2027-01-10"},
+        ]
+        rows[:] = [["CDMV", None, None, "WALO", "01-01-26", "15-01-27", "25-10-26", "15-01-27", *([150] * 6)]]
+        build_minimal_workbook(source, rows)
+        original_bytes = source.read_bytes()
+        protected_dates = ["2026-10-31", "2026-11-01", "2026-12-15", "2027-01-10"]
+        regular_dates = ["2026-11-02", "2027-01-11"]
+        for action, suggested_rate in (("decrease", 100), ("increase", 200)):
+            protected_summary, protected_output = run(protected_dates, f"all-protected-{action}", action, suggested_rate)
+            assert_equal(protected_summary["change_count"], 0, "protected-only recommendations may produce zero changes")
+            assert_equal(protected_summary["skipped_target_count"], len(protected_dates), "every protected target is reported")
+            for row in protected_output:
+                assert_equal(tuple(row[8:14]), (150,) * 6, "all protected rates survive attempted market changes")
+            for value in protected_dates:
+                day = date.fromisoformat(value)
+                assert_equal(sum(parse_date_value(row[6]) <= day <= parse_date_value(row[7])
+                                 for row in protected_output), 1, f"protected-only export retains {day}")
+            mixed_summary, mixed_output = run(protected_dates + regular_dates, f"mixed-protected-{action}", action, suggested_rate)
+            assert mixed_summary["change_count"] > 0, "protected targets cannot prevent valid changes on other dates"
+            assert_equal(mixed_summary["skipped_target_count"], len(protected_dates), "mixed export skips only protected targets")
+            for value in protected_dates + regular_dates:
+                day = date.fromisoformat(value)
+                matching = [row for row in mixed_output if parse_date_value(row[6]) <= day <= parse_date_value(row[7])]
+                assert_equal(len(matching), 1, f"mixed export retains each requested date: {day}")
+                expected = suggested_rate if value in regular_dates else 150
+                assert_equal(matching[0][9], expected, f"date protection precedes market {action}: {day}")
+                assert_equal(tuple(matching[0][8:9] + matching[0][10:14]), (150,) * 5, "other duration bands remain unchanged")
 
         pricing.write_text(json.dumps({"pricing": {"mandatoryZoneFloorsPlnDay": {"SZLO": [
             {"minDays": low, "maxDays": high, "minimumRatePlnDay": rate}
@@ -2253,8 +2283,6 @@ def main():
 
         real_workbook_path = ROOT / "input" / "mm-cars-rental-rates-inclusive-fp.xlsx"
         real_source_sha256 = engine.sha256_file(real_workbook_path)
-        real_recommendations_path = tmpdir / "real-recommendations.json"
-        real_output_path = tmpdir / "real-rates-updated.xlsx"
         real_before = openpyxl.load_workbook(real_workbook_path)
         real_ws = real_before["Sheet1"]
         before_snapshot = header_rows_snapshot(real_ws)
@@ -2266,12 +2294,10 @@ def main():
         frozen_source_rates = {}
         frozen_source_intervals = {}
         unmapped_source_rates = {}
-        real_target = None
         for row in range(5, real_ws.max_row + 1):
             group = str(real_ws.cell(row, 1).value or "").strip().upper()
             zone = str(real_ws.cell(row, 4).value or "").strip().upper()
             pickup_date = parse_date_value(real_ws.cell(row, 7).value)
-            old_rate = parse_number(real_ws.cell(row, 10).value)
             if zone in unmapped_source_zones and pickup_date is not None:
                 end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
                 unmapped_source_rates.setdefault((group, zone), []).append((
@@ -2285,10 +2311,6 @@ def main():
                     pickup_date, parse_date_value(real_ws.cell(row, 8).value) or pickup_date,
                     frozen_source_rates[group, zone, pickup_date],
                 ))
-            if group == "CDMV" and zone in {"KRDW", "KRGA", "KRLO", "KRTI"} and pickup_date and old_rate is not None:
-                real_target = (pickup_date, old_rate)
-        if real_target is None:
-            raise AssertionError("Real workbook smoke test needs a CDMV Krakow row with a duration 2 rate.")
         for group in frozen_groups:
             assert any(key[0] == group for key in frozen_source_rates), f"Real workbook needs baseline rows for {group}."
         real_before.close()
@@ -2308,43 +2330,6 @@ def main():
                 for start, end in zip([pickup_date, *cuts], [day - timedelta(days=1) for day in cuts] + [pickup_end]):
                     expected_rates = expected_production_floor_rates(group, zone, start, rates, production_floor_config)
                     expected_unmapped_rows[(group, zone, start, end, expected_rates)] += 1
-        real_pickup_date, real_old_rate = real_target
-        real_recommendations_path.write_text(
-            json.dumps(
-                {
-                    "recommendations": [
-                        {
-                            "action": "increase",
-                            "recommendation_type": "top1_undercut",
-                            "reason": "MM Cars Rental jest top2 i brakuje mniej niz 10 PLN/dzien, zeby zostac top1; cel to 1 PLN ponizej top1.",
-                            "location": "Krakow",
-                            "start_date": real_pickup_date.isoformat(),
-                            "rental_days": 2,
-                            "suggested_rate_pln_day": real_old_rate + 10,
-                            "mm_rate_pln_day": real_old_rate,
-                            "benchmark_provider": "Car24",
-                            "benchmark_rate_pln_day": real_old_rate + 11,
-                            "scenario_id": f"real-template-{real_pickup_date.isoformat()}-2",
-                        }
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        real_summary = apply_updates(
-            workbook_path=real_workbook_path,
-            recommendations_path=real_recommendations_path,
-            output_path=real_output_path,
-            config=production_config,
-            cli_groups=None,
-            dry_run=False,
-        )
-        assert real_summary["change_count"] > 0
-        real_after = openpyxl.load_workbook(real_output_path)
-        after_snapshot = header_rows_snapshot(real_after["Sheet1"])
-        assert_equal(after_snapshot, before_snapshot, "Sheet1 rows 1-4 values and formatting")
-
         baseline_real_recommendations_path = tmpdir / "baseline-real-recommendations.json"
         baseline_real_output_path = tmpdir / "baseline-real-recommendations.xlsx"
         baseline_real_import_path = tmpdir / "baseline-real-import.xlsx"
@@ -2371,6 +2356,10 @@ def main():
                 source_coverage[group, zone, start] += 1
                 source_coverage[group, zone, end + timedelta(days=1)] -= 1
         for output_file in (baseline_real_output_path, baseline_real_import_path):
+            header_workbook = openpyxl.load_workbook(output_file)
+            assert_equal(header_rows_snapshot(header_workbook["Sheet1"]), before_snapshot,
+                         "Sheet1 rows 1-4 values and formatting")
+            header_workbook.close()
             baseline_real_workbook = openpyxl.load_workbook(output_file, read_only=True)
             baseline_real_ws = baseline_real_workbook["Sheet1"]
             pickup_dates = []
