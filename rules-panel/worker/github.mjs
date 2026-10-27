@@ -76,6 +76,8 @@ export class GitHubRepository {
     return Uint8Array.from(atob(blob.content.replace(/\s/g, '')), character => character.charCodeAt(0));
   }
 
+  frozenMarkup(revision) { return this.json('input/broker-markup-frozen.json', revision); }
+
   async latestRuns() {
     const { workflow_runs = [] } = await this.api('/actions/workflows/discovercars-daily.yml/runs?per_page=30');
     const runs = workflow_runs.filter(run => /^\d+$/.test(String(run.id))).map(run => ({
@@ -119,7 +121,7 @@ export class GitHubRepository {
     return (await this.reportEvidence(record, 'report'))['report.html'];
   }
 
-  async publishBaseline({ input, summary, snapshot, approvedAt }) {
+  async publishBaseline({ input, summary, snapshot, approvedAt, onboarding }) {
     const parent = await this.api(`/git/commits/${snapshot.source.revision}`);
     const blob = await this.api('/git/blobs', { method: 'POST', body: { content: input.content, encoding: 'base64' } });
     const manifest = { schema_version: 1, status: 'user_approved_baseline', approved_by: 'user', approved_at: approvedAt,
@@ -127,10 +129,17 @@ export class GitHubRepository {
       previous_baseline_sha256: snapshot.baseline.sha256,
       source_baseline: { status: 'user_supplied', workbook_sha256: summary.sha256, source_filename: input.filename },
       coverage: summary,
+      ...(onboarding ? { location_onboarding: onboarding.additions.map(item => Object.fromEntries(
+        ['zone', 'existingLocationId', 'placeId', 'markupSourceZone', 'daily'].filter(key => Object.hasOwn(item, key)).map(key => [key, item[key]]))), onboarding_hash: onboarding.hash,
+        onboarding_request_hash: onboarding.requestHash } : {}),
       note: 'Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated.' };
     const tree = await this.api('/git/trees', { method: 'POST', body: { base_tree: parent.tree.sha, tree: [
       { path: 'input/mm-cars-rental-rates-inclusive-fp.xlsx', mode: '100644', type: 'blob', sha: blob.sha },
       { path: 'input/baseline-manifest.json', mode: '100644', type: 'blob', content: `${JSON.stringify(manifest, null, 2)}\n` },
+      ...(onboarding ? [
+        { path: 'locations.config.json', mode: '100644', type: 'blob', content: `${JSON.stringify(onboarding.documents.locations, null, 2)}\n` },
+        { path: 'input/broker-markup-frozen.json', mode: '100644', type: 'blob', content: `${JSON.stringify(onboarding.frozen, null, 2)}\n` },
+      ] : []),
     ] } });
     const commit = await this.api('/git/commits', { method: 'POST', body: { message: 'Update director-approved pricing baseline', tree: tree.sha, parents: [snapshot.source.revision] } });
     await this.api('/git/refs/heads/main', { method: 'PATCH', body: { sha: commit.sha, force: false } });
@@ -146,7 +155,9 @@ export class GitHubRepository {
       const manifest = await this.json('input/baseline-manifest.json', revision);
       return { schemaVersion: 1, source: { revision, policyHash: await hashJson(documents), loadedAt: new Date().toISOString() },
         baseline: { filename: manifest.source_filename, approvedAt: manifest.approved_at, sha256: manifest.workbook_sha256,
-          importConfirmed: manifest.confirmed === true || manifest.status === 'confirmed_imported' },
+          importConfirmed: manifest.confirmed === true || manifest.status === 'confirmed_imported',
+          ...(manifest.onboarding_hash ? { onboardingHash: manifest.onboarding_hash } : {}),
+          ...(manifest.onboarding_request_hash ? { onboardingRequestHash: manifest.onboarding_request_hash } : {}) },
         capabilities: { mode: 'github', authentication: 'cloudflare-access', publish: true }, documents };
     })();
     return this.snapshotPromise;

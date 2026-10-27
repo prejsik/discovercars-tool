@@ -13,11 +13,15 @@ page.on("pageerror", error => errors.push(error.message));
 const output = new URL("../../output/playwright/director/", import.meta.url);
 await mkdir(output, { recursive: true });
 try {
+  const snapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
+  const originalScoped = snapshot.documents.pricing.pricing.mandatoryScopedFloorsPlnDay ?? [];
+  const firstAddedRule = `[data-rule-id="scoped:${originalScoped.length}"]`;
   await page.route("**/api/workspace", route => route.fulfill({ status: 404, json: {} }));
   await page.goto(origin);
   await page.getByRole("heading", { name: "Zasady cenowe", exact: true }).waitFor();
   assert.equal(await page.getByLabel("Okres reguł").inputValue(), "current");
   assert.equal(await page.locator(".rule-row").filter({ hasText: "Okres zakończony" }).count(), 0);
+  const originalVisibleScopedCount = await page.locator('[data-rule-id^="scoped:"]').count();
   await page.getByRole("button", { name: "Dodaj regułę", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("heading", { name: "Nowa reguła" }).waitFor();
@@ -42,17 +46,22 @@ try {
   await dialog.getByLabel("Data startu do").fill("2027-03-15");
   await dialog.getByRole("button", { name: "Zapisz w szkicu" }).click();
   await dialog.waitFor({ state: "hidden" });
-  assert.equal(await page.locator('[data-rule-id^="scoped:"]').count(), 6);
+  assert.equal(await page.locator('[data-rule-id^="scoped:"]').count(), originalVisibleScopedCount + 6);
   await page.reload();
-  await page.locator('[data-rule-id="scoped:0"]').waitFor();
-  assert.equal(await page.locator('[data-rule-id^="scoped:"]').count(), 6);
-  await page.locator('[data-rule-id="scoped:0"]').getByRole("button").click();
+  await page.locator(firstAddedRule).waitFor();
+  assert.equal(await page.locator('[data-rule-id^="scoped:"]').count(), originalVisibleScopedCount + 6);
+  const savedScoped = await page.evaluate(() => JSON.parse(localStorage.getItem('discovercars-rules-draft-v1')).model.pricing.pricing.mandatoryScopedFloorsPlnDay);
+  assert.equal(savedScoped.length, originalScoped.length + 6);
+  assert.deepEqual(savedScoped.slice(0, originalScoped.length), originalScoped, 'Adding a matrix must preserve every original scoped rule');
+  assert.deepEqual(savedScoped.slice(originalScoped.length), [[1, 1], [2, 2], [3, 4], [5, 7], [8, 20], [21, 35]].map(([minDays, maxDays]) => ({
+    groups: ['CDMV'], zones: ['GDLO'], startDate: '2027-03-01', endDate: '2027-03-15', minDays, maxDays, minimumRatePlnDay: 95, overrideProtected: false,
+  })));
+  await page.locator(firstAddedRule).getByRole("button").click();
   assert.equal(await dialog.getByLabel("Data startu od").inputValue(), "2027-03-01");
   assert.equal(await dialog.getByLabel("Data startu do").inputValue(), "2027-03-15");
   assert.doesNotMatch(await dialog.innerText(), /obejmuje wszystkie klasy bezterminowo/);
   await page.keyboard.press("Escape");
   await page.screenshot({ path: fileURLToPath(new URL("rules-mobile.png", output)) });
-  const snapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
   let workspace = { snapshot, draft: { revision: "draft-a", model: snapshot.documents, reason: "Test", savedBy: "Dyrektor", savedAt: "2026-10-15T08:00:00Z" }, preview: null, history: [{ revision: "history-a", at: "2026-10-14T08:00:00Z", actor: "Dyrektor", reason: "Pierwszy szkic", action: "save", sourceRevision: snapshot.source.revision }], capabilities: { sharedDraft: true, preview: true, publish: false, reason: "Tryb lokalny" }, status: { available: true, report: { generatedAt: "2026-10-15T08:00:00Z", revision: "report-v1", sourceStartedAt: "2026-10-15T07:00:00Z" }, baseline: { ...snapshot.baseline, importConfirmed: false }, links: {} } };
   await page.unroute("**/api/workspace");
   await page.route("**/api/workspace", route => route.fulfill({ json: workspace }));
@@ -137,5 +146,5 @@ try {
   await page.getByRole("button", { name: /Podgląd zmian/ }).click();
   assert.equal(await page.getByRole("button", { name: "Przelicz wpływ szkicu" }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log("Director UI PASS: current rules, Polish multiselect, six bands, responsive editor, visible conflict, truthful operational status.");
+  console.log(`Director UI PASS: ${originalScoped.length} original scoped rules preserved + 6 added, Polish multiselect, six bands, responsive editor, visible conflict, truthful operational status.`);
 } finally { await browser.close(); }

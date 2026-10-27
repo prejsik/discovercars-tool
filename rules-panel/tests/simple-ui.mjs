@@ -18,6 +18,7 @@ try {
   await page.getByRole('heading', { name: 'Zasady cenowe', exact: true }).waitFor();
   assert.equal(await page.locator('.topbar').count(), 0, 'No duplicate technical header');
   assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).count(), 0, 'Publication belongs to review only');
+  await page.getByLabel('Okres reguł').selectOption('all');
   for (const name of ['Minima podstawowe', 'Minima szczególne', 'Chronione terminy', 'Cel cenowy']) await page.getByRole('heading', { name, exact: true }).waitFor();
   const legacy = page.locator('.supplementary-rules');
   assert.equal(await legacy.getAttribute('open'), null);

@@ -144,7 +144,7 @@ test('shared mutations require same-origin JSON and forward only signed actor', 
   });
   const jwt = await token({ email: emails[1] });
   const headers = { origin: 'https://panel.example.com', 'content-type': 'application/json', 'x-panel-request': '1' };
-  for (const path of ['/api/draft', '/api/baseline/check', '/api/baseline/publish', '/api/report-baseline/check', '/api/report-baseline/publish'])
+  for (const path of ['/api/draft', '/api/baseline/check', '/api/baseline/publish', '/api/report-baseline/check', '/api/report-baseline/publish', '/api/locations/search'])
     for (const patch of [{ origin: 'https://evil.example' }, { 'content-type': 'text/plain' }, { 'x-panel-request': '' }]) {
       const response = await worker.fetch(await request(path, jwt, { method: 'POST', headers: { ...headers, ...patch }, body: '{}' }), env);
       assert.equal(response.status, 403);

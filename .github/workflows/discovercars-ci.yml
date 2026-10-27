@@ -9,6 +9,7 @@ on:
       - 'tools/**'
       - 'tests/**'
       - 'input/**'
+      - 'rules-panel/**'
       - '*.json'
   pull_request:
   workflow_dispatch:
@@ -45,3 +46,26 @@ jobs:
           done
           exit 1
       - run: npm run test:all
+
+  panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            rules-panel/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm ci --prefix rules-panel
+      - run: python -m pip install 'openpyxl>=3.1,<4'
+      - run: npm --prefix rules-panel test
+      - run: npm --prefix rules-panel run check:deploy

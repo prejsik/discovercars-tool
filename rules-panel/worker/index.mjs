@@ -96,7 +96,7 @@ export function createWorker({ resolveKeys } = {}) {
           } }));
         } catch (error) { return json({ error: error.status ? error.message : 'Nie mozna pobrac pliku. Odswiez wyniki.' }, error.status ?? 502); }
       }
-      const action = { '/api/workspace': 'workspace', '/api/draft': 'draft', '/api/preview': 'preview', '/api/publish': 'publish', '/api/rollback': 'rollback', '/api/baseline/check': 'baselineCheck', '/api/baseline/publish': 'baselinePublish', '/api/report-baseline/check': 'reportBaselineCheck', '/api/report-baseline/publish': 'reportBaselinePublish' }[url.pathname];
+      const action = { '/api/workspace': 'workspace', '/api/draft': 'draft', '/api/preview': 'preview', '/api/publish': 'publish', '/api/rollback': 'rollback', '/api/baseline/check': 'baselineCheck', '/api/baseline/publish': 'baselinePublish', '/api/report-baseline/check': 'reportBaselineCheck', '/api/report-baseline/publish': 'reportBaselinePublish', '/api/locations/search': 'locationsSearch' }[url.pathname];
       if (action) {
         if ((action === 'workspace' && !['GET', 'HEAD'].includes(request.method)) || (action !== 'workspace' && request.method !== 'POST')) return deny('Method not allowed.', 405);
         if (action !== 'workspace') {

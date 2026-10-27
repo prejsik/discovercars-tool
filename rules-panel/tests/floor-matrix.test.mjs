@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as policy from '../src/policy.mjs';
 
-const read = async (name) => JSON.parse(await readFile(new URL(`../../${name}`, import.meta.url), 'utf8'));
+const read = async (name) => JSON.parse(await readFile(new URL(`../../tests/fixtures/excel-policy-0939d46/${name}`, import.meta.url), 'utf8'));
 const original = policy.createModel({
   pricing: await read('pricing-rules.config.example.json'),
   excel: await read('excel-rate-update.config.example.json'),

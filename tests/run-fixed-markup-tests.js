@@ -8,7 +8,8 @@ const {verifyCurrentMarkup} = require('../src/verifyCurrentMarkup');
 const {buildCalibrationUpdate} = require('../src/updateBrokerMarkupCalibration');
 const {mergePricingRecommendations} = require('../src/mergePricingRecommendations');
 const fixed = require('../input/broker-markup-frozen.json').brokerMarkupCalibration;
-const registry = require('../locations.config.json');
+const registry = require('./fixtures/excel-policy-0939d46/locations.config.json');
+const productionRegistry = require('../locations.config.json');
 const {pricing, excelPolicy} = require('./pricing_test_fixtures');
 const expected = {
   BYLO:[38,28,15,13,11,11], GD1:[41,31,15,11,13,13], GDLO:[41,31,15,10,13,13],
@@ -39,6 +40,17 @@ for (const entry of registry.locations) {
   }
 }
 assert.throws(()=>resolve({location:'Warsaw',rental_days:2},fixed),/Missing fixed/);
+// Newly approved points must have complete, consistent fixed tables, not historical numeric fixtures.
+for (const entry of productionRegistry.locations) {
+  for (let day = 1; day <= 35; day++) {
+    const result = resolve({ location: entry.scraper_label, rental_days: day, group: 'CDMV' }, fixed);
+    assert.ok(Number.isFinite(result.amountPlnDay) && result.amountPlnDay >= 0, `${entry.scraper_label}/${day}`);
+    for (const zone of entry.zones) {
+      assert.equal(resolve({ location: zone, rental_days: day, group: 'CDMV' }, fixed).amountPlnDay,
+        result.amountPlnDay, `registered zone and point share a fixed markup: ${zone}/${day}`);
+    }
+  }
+}
 assert.throws(()=>resolve({location:'WALO',rental_days:36},fixed),/Missing fixed/);
 assert.throws(()=>resolve({location:'WALO',rental_days:2,group:'UNKNOWN'},fixed),/Missing fixed/);
 assert.deepEqual(merge(fixed,{model:'percentage',manualOnly:false,locationDurationAmounts:{}}).locationDurationAmounts,fixed.locationDurationAmounts);

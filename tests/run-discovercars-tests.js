@@ -474,10 +474,16 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   const dailyLocations = getDailyLocations();
   const zones = buildLocationZones();
   const geoOverrides = buildGeoLocationOverrides();
-  assert.equal(dailyLocations.length, 25);
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '../locations.config.json'), 'utf8'));
+  assert.deepEqual(dailyLocations, registry.profiles.daily.map(id => {
+    const point = registry.locations.find(entry => entry.id === id);
+    assert.ok(point, `daily profile references registered point: ${id}`);
+    return point.scraper_label;
+  }));
+  assert.equal(new Set(dailyLocations).size, dailyLocations.length);
   assert(dailyLocations.includes("Wroclaw Train Station"));
-  assert.deepEqual(zones["Wroclaw Train Station"], ["WR2"]);
-  assert.deepEqual(zones["Wroclaw Downtown"], ["WR1"]);
+  assert.ok(zones["Wroclaw Train Station"].includes("WR2"));
+  assert.ok(zones["Wroclaw Downtown"].includes("WR1"));
   assert(dailyLocations.includes("Galeria Krakowska Shopping Mall"));
   assert(dailyLocations.includes("Bydgoszcz Airport (BZG)"));
   assert(dailyLocations.includes("Lodz Downtown"));
@@ -487,7 +493,7 @@ runTest("location registry is the source for daily locations, zones, and geo ove
   assert(dailyLocations.includes("Opole Downtown"));
   assert(dailyLocations.includes("Torun Downtown"));
   assert(dailyLocations.includes("Warsaw West Train Station"));
-  assert.deepEqual(zones["Krakow Airport (KRK)"], ["KRLO", "KRTI"]);
+  assert.ok(["KRLO", "KRTI"].every(zone => zones["Krakow Airport (KRK)"].includes(zone)));
   assert.deepEqual(zones["Warsaw"], ["WA1", "WA2", "WALO"]);
   assert.equal(geoOverrides["Galeria Krakowska Shopping Mall"].radiusMeters, 20000);
 
@@ -512,7 +518,10 @@ runTest("Szczecin searches select the exact airport, downtown and station with d
     ["Szczecin Train Station", "SZ1", 355153]
   ]) {
     assert(locations.includes(label));
-    assert.deepEqual(zones[label], [zone]);
+    assert.ok(zones[label].includes(zone));
+    for (const other of ["Szczecin Goleniow Airport (SZZ)", "Szczecin Downtown", "Szczecin Train Station"]) {
+      if (other !== label) assert.ok(!zones[other].includes(zone), `${zone} belongs only to its registered Szczecin point`);
+    }
     assert.equal(config.pinnedLocationIds[label], placeId);
     assert.deepEqual(selectLocationCandidates(label, candidates, config.pinnedLocationIds).map((point) => point.placeID), [placeId]);
     assert.deepEqual(selectLocationCandidates(label, [], config.pinnedLocationIds).map((point) => point.placeID), [placeId]);

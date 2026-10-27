@@ -50,6 +50,7 @@ export function createService(fetcher = (...args) => fetch(...args)) {
     publish: (draftRevision) => request("/api/publish", { draftRevision }),
     checkBaseline: input => request('/api/baseline/check', input),
     publishBaseline: input => request('/api/baseline/publish', input),
+    searchLocations: query => request('/api/locations/search', { query }),
     checkReportBaseline: input => request('/api/report-baseline/check', input),
     publishReportBaseline: input => request('/api/report-baseline/publish', input),
     rollback: (revision, expectedRevision) => request("/api/rollback", { revision, expectedRevision }),

@@ -91,3 +91,29 @@ test('baseline publication writes only original binary and its matching manifest
   assert.equal(JSON.parse(tree[1].content).workbook_sha256,'a'.repeat(64));
   assert.equal(calls.at(-1).body.force,false);
 });
+
+test('location onboarding publishes baseline, registry and frozen markup with one main update', async () => {
+  const calls = [];
+  const repository = new GitHubRepository({}, { api: async (path, options = {}) => {
+    calls.push({ path, ...options });
+    if (path.startsWith('/git/commits/') && !options.method) return { tree: { sha: 'old-tree' } };
+    if (path === '/git/blobs') return { sha: 'binary-blob' };
+    if (path === '/git/trees') return { sha: 'new-tree' };
+    if (path === '/git/commits') return { sha: 'b'.repeat(40) };
+    if (path === '/git/refs/heads/main') return {};
+    throw new Error(path);
+  } });
+  const onboarding = { documents: { locations: { schema_version: 1, locations: [{ id: 'new' }] } },
+    frozen: { brokerMarkupCalibration: { manualOnly: true } }, additions: [{ zone: 'RZLO', query: 'Private search query' }] };
+  await repository.publishBaseline({ input: { content: 'ORIGINAL_BYTES', filename: 'rates.xlsx', importConfirmed: true },
+    summary: { sha256: 'a'.repeat(64) }, snapshot: { source: { revision: 'c'.repeat(40) }, baseline: { sha256: 'd'.repeat(64) } },
+    approvedAt: '2026-10-27T10:00:00Z', onboarding });
+  const tree = calls.find(call => call.path === '/git/trees').body.tree;
+  assert.deepEqual(tree.map(file => file.path).sort(), ['input/mm-cars-rental-rates-inclusive-fp.xlsx',
+    'input/baseline-manifest.json', 'locations.config.json', 'input/broker-markup-frozen.json'].sort());
+  assert.deepEqual(JSON.parse(tree.find(file => file.path === 'locations.config.json').content), onboarding.documents.locations);
+  assert.deepEqual(JSON.parse(tree.find(file => file.path === 'input/broker-markup-frozen.json').content), onboarding.frozen);
+  assert.equal(JSON.stringify(tree).includes('Private search query'), false);
+  assert.equal(calls.filter(call => call.path === '/git/refs/heads/main').length, 1);
+  assert.equal(calls.at(-1).body.force, false);
+});

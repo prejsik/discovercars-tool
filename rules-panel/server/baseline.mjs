@@ -43,7 +43,7 @@ export function decodeBaseline(input) {
   return bytes;
 }
 
-export async function inspectBaseline(bytes, documents) {
+export async function inspectBaseline(bytes, documents, { allowUnknownZones = false } = {}) {
   let files;
   let expanded = 0;
   const names = new Set();
@@ -125,7 +125,7 @@ export async function inspectBaseline(bytes, documents) {
     if (rowNumber < 5 || Object.values(row).every(value => clean(value) === '')) return;
     const group = clean(row.A); const zone = clean(row.D);
     if (!expectedGroups.includes(group)) fail(`Nieznana klasa ${group || '(pusta)'} w wierszu ${rowNumber}. Najpierw uzgodnij klasy w zasadach.`);
-    if (!expectedZones.includes(zone)) fail(`Nieznana lokalizacja ${zone || '(pusta)'} w wierszu ${rowNumber}.`);
+    if (!expectedZones.includes(zone) && !(allowUnknownZones === true && /^[A-Z0-9]{2,12}$/.test(zone))) fail(`Nieznana lokalizacja ${zone || '(pusta)'} w wierszu ${rowNumber}.`);
     const dates = Object.fromEntries(['E', 'F', 'G', 'H'].map(column => [column, dateValue(row[column], date1904, rowDateStyles[column])]));
     for (const column of ['E', 'F', 'G', 'H']) if (!dates[column]) fail(`Nieprawidlowa data w ${column}${rowNumber}.`);
     const pickup = dates.G; const end = dates.H;
@@ -168,7 +168,8 @@ export async function inspectBaseline(bytes, documents) {
   const missing = [...expectedGroups.filter(group => !groups.has(group)), ...expectedZones.filter(zone => !zones.has(zone))];
   if (missing.length) fail(`Brakuje klas/lokalizacji: ${missing.join(', ')}.`);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return { sha256: [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join(''), rowCount, groups: [...groups].sort(), zones: [...zones].sort(), pairs: [...pairs].sort(), firstDate, lastDate };
+  return { sha256: [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join(''), rowCount, groups: [...groups].sort(), zones: [...zones].sort(), pairs: [...pairs].sort(), firstDate, lastDate,
+    ...(allowUnknownZones === true ? { unknownZones: [...zones].filter(zone => !expectedZones.includes(zone)).sort() } : {}) };
 }
 
 export function compareBaselineCoverage(next, previous) {

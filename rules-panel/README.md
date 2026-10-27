@@ -22,9 +22,10 @@ wygenerowanych Exceli do pliku bazowego.
    okresu startu i szesciu przedzialow dlugosci najmu.
 3. Zapisz szkic z uzasadnieniem. Konflikt wersji wymaga odswiezenia,
    nie nadpisuje automatycznie zmian drugiej osoby.
-4. Uruchom podglad. Porownanie uzywa istniejacego silnika i danych cenowych,
+4. Opcjonalnie uruchom podglad. Porownanie uzywa istniejacego silnika i danych cenowych,
    bez uruchamiania scrapera. Zakres dowodow i ograniczenia sa jawne.
-5. Zatwierdz tylko swiezy, poprawny podglad tej samej wersji szkicu i bazy.
+5. Zatwierdz aktualny, poprawny szkic tej samej wersji zrodla i bazy.
+   Publikacja zasad nie wymaga przeliczania wplywu.
    Zapis na `main` jest atomowy, bez force push. Nastepny run korzysta z zasad
    ze swojego checkoutu; trwajacy run nie zmienia zasad w polowie pracy.
 
@@ -34,9 +35,9 @@ obejmuje ostatnie 50 zdarzen; wersje pozostaja w prywatnym magazynie.
 
 ## Granice edycji
 
-Walidacja serwerowa dopuszcza tylko jawne pola zasad. Nie pozwala zmieniac
-repozytorium, lokalizacji scrapera, narzutow brokera, parytetu klas, pliku
-bazowego, harmonogramu ani dowolnych kluczy konfiguracji. Nowa macierz minimow
+Walidacja serwerowa edytora zasad dopuszcza tylko jawne pola zasad. Nie pozwala zmieniac
+repozytorium, parytetu klas, harmonogramu ani dowolnych kluczy konfiguracji.
+Baza i nowe lokalizacje maja oddzielny proces zatwierdzania opisany ponizej. Nowa macierz minimow
 korzysta z `mandatoryScopedFloorsPlnDay`; zgodnosc liczenia sprawdzaja testy
 JS i Python. Istniejace obowiazkowe minima i wykluczenia sa zachowane.
 
@@ -48,6 +49,29 @@ Zmiany rynkowe obejmuja tylko daty obecne w rekomendacjach. Harmonogram scrapera
 pozostaje bez zmian: 45 dni w nocy i 20 dni w dzien. Limit liczby wierszy pozostaje
 wylaczony (`max_import_rows: null`). Podglad nie zmienia tej konfiguracji.
 Zapis zasad nie oznacza zaimportowania nowych cen u brokera.
+
+## Nowe lokalizacje z pliku bazowego
+
+W widoku `Plik bazowy` wybierz XLSX i sprawdz plik. Nieznane symbole stref
+pojawia sie w formularzu konfiguracji; sama kontrola nie zmienia dzialajacej bazy.
+Kazdy symbol trzeba powiazac z istniejacym punktem albo nowym punktem wybranym
+z wyszukiwarki DiscoverCars. Nowy punkt wymaga jawnego wyboru istniejacej tabeli
+stalego narzutu. Nie ma automatycznej kalibracji ani zgadywania identyfikatorow.
+Mozna tez wskazac udzial punktu w obu codziennych harmonogramach.
+
+Po sprawdzeniu kompletnej konfiguracji panel pokazuje miasto, typ, narzuty
+i lotniska referencyjne wynikajace z tego samego miasta w rejestrze. Nowe
+lokalizacje stosuja ogolne zasady klas, w tym dopuszczenia i wykluczenia,
+chronione terminy oraz minima rozrozniajace lotnisko/miasto. Wybor zrodla
+narzutu kopiuje tylko tabele narzutu, nie lokalne minima ani wyjatki innych
+oddzialow; ustawia sie je osobno w zasadach.
+
+Zatwierdzenie zapisuje oryginalny XLSX, manifest, rejestr lokalizacji i rozszerzona
+tabele narzutu w jednym commicie i jednym fast-forward `main`. Do tego momentu
+dotychczasowa konfiguracja pozostaje aktywna. Niekompletny formularz, brak punktu
+w DiscoverCars, usuniete dotychczasowe dane albo konflikt wersji nie publikuja
+zadnej czesci zmiany. W jednym pliku mozna skonfigurowac do 12 nowych symboli.
+Wyszukiwarka obsluguje konkretne punkty w Polsce, bez pozycji `all locations`.
 
 ## Prywatnosc i publikacja
 
@@ -65,10 +89,13 @@ dostep, nie otwiera panelu publicznie. Adresy dostepu sa sekretem serwera,
 nie wpisem w publicznym `wrangler.jsonc`.
 
 GitHub App ma dostep tylko do tego repozytorium, Contents write i Actions write.
-Kod ogranicza zapis do `pricing-rules.config.example.json`,
+Zapis zasad ogranicza sie do `pricing-rules.config.example.json`,
 `excel-rate-update.config.example.json` i `rules-panel-publication.json`.
-Publikacja wymaga zgodnosci HEAD, konfiguracji, bazy, szkicu oraz potwierdzonego
-workflow. Dziennik zamiaru zatwierdzenia powstaje przed zapisem GitHub, aby
+Zapis bazy obejmuje tylko `input/mm-cars-rental-rates-inclusive-fp.xlsx` oraz
+`input/baseline-manifest.json`; przy dodawaniu lokalizacji dodatkowo tylko
+`locations.config.json` i `input/broker-markup-frozen.json`.
+Publikacja zasad wymaga zgodnosci HEAD, konfiguracji, bazy i szkicu.
+Dziennik zamiaru zatwierdzenia powstaje przed zapisem GitHub, aby
 utrata odpowiedzi sieciowej nie zgubila tozsamosci zatwierdzajacego.
 
 ## Harmonogram scrapera

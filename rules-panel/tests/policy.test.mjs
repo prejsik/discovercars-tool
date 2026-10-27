@@ -18,6 +18,7 @@ const preview = (input = {}, value = model()) => previewPolicy(value, {
 });
 
 test('editing a cloned model and exported documents cannot mutate inputs or each other', () => {
+  const originalZones = [...documents.locations.locations[0].zones];
   const value = model();
   assert.deepEqual(Object.keys(value).sort(), ['excel', 'locations', 'pricing']);
   const exported = toDocuments(value);
@@ -25,7 +26,7 @@ test('editing a cloned model and exported documents cannot mutate inputs or each
   exported.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city = 999;
   value.locations.locations[0].zones.push('FAKE');
   assert.equal(value.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 60);
-  assert.deepEqual(documents.locations.locations[0].zones, ['BYLO']);
+  assert.deepEqual(documents.locations.locations[0].zones, originalZones);
 });
 
 test('source range configuration survives a rule edit and JSON document roundtrip without rolling defaults', () => {
