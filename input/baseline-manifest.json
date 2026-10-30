@@ -2,19 +2,19 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-10-27T12:40:27.527Z",
-  "workbook_sha256": "430bbcdac646a3f49155a55d86d88679a11adf8c130600460dbde9de010ec1da",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 27-Oct-26 (3).xlsx",
+  "approved_at": "2026-10-30T06:34:47.568Z",
+  "workbook_sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26.xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "4ad5d0004a5fcabf77f6d41163d5d1f5f138f226b03edcce1e3b4c5cc75af312",
+  "previous_baseline_sha256": "430bbcdac646a3f49155a55d86d88679a11adf8c130600460dbde9de010ec1da",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "430bbcdac646a3f49155a55d86d88679a11adf8c130600460dbde9de010ec1da",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 27-Oct-26 (3).xlsx"
+    "workbook_sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26.xlsx"
   },
   "coverage": {
-    "sha256": "430bbcdac646a3f49155a55d86d88679a11adf8c130600460dbde9de010ec1da",
-    "rowCount": 30303,
+    "sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
+    "rowCount": 33006,
     "groups": [
       "CDMV",
       "CFAV",
@@ -40,6 +40,7 @@
       "KRGA",
       "KRLO",
       "KRTI",
+      "KTT",
       "LDT",
       "LO1",
       "LOLO",
@@ -60,7 +61,9 @@
       "WALO",
       "WR1",
       "WR2",
-      "WRLO"
+      "WRLO",
+      "WSTW",
+      "WWTE"
     ],
     "pairs": [
       "CDMV/BYLO",
@@ -74,6 +77,7 @@
       "CDMV/KRGA",
       "CDMV/KRLO",
       "CDMV/KRTI",
+      "CDMV/KTT",
       "CDMV/LDT",
       "CDMV/LO1",
       "CDMV/LOLO",
@@ -95,6 +99,8 @@
       "CDMV/WR1",
       "CDMV/WR2",
       "CDMV/WRLO",
+      "CDMV/WSTW",
+      "CDMV/WWTE",
       "CFAV/BYLO",
       "CFAV/BYT",
       "CFAV/GD1",
@@ -106,6 +112,7 @@
       "CFAV/KRGA",
       "CFAV/KRLO",
       "CFAV/KRTI",
+      "CFAV/KTT",
       "CFAV/LDT",
       "CFAV/LO1",
       "CFAV/LOLO",
@@ -127,6 +134,8 @@
       "CFAV/WR1",
       "CFAV/WR2",
       "CFAV/WRLO",
+      "CFAV/WSTW",
+      "CFAV/WWTE",
       "CGAV/BYLO",
       "CGAV/BYT",
       "CGAV/GD1",
@@ -138,6 +147,7 @@
       "CGAV/KRGA",
       "CGAV/KRLO",
       "CGAV/KRTI",
+      "CGAV/KTT",
       "CGAV/LDT",
       "CGAV/LO1",
       "CGAV/LOLO",
@@ -159,6 +169,8 @@
       "CGAV/WR1",
       "CGAV/WR2",
       "CGAV/WRLO",
+      "CGAV/WSTW",
+      "CGAV/WWTE",
       "CWAV/BYLO",
       "CWAV/BYT",
       "CWAV/GD1",
@@ -170,6 +182,7 @@
       "CWAV/KRGA",
       "CWAV/KRLO",
       "CWAV/KRTI",
+      "CWAV/KTT",
       "CWAV/LDT",
       "CWAV/LO1",
       "CWAV/LOLO",
@@ -191,6 +204,8 @@
       "CWAV/WR1",
       "CWAV/WR2",
       "CWAV/WRLO",
+      "CWAV/WSTW",
+      "CWAV/WWTE",
       "CWMR/BYLO",
       "CWMR/BYT",
       "CWMR/GD1",
@@ -202,6 +217,7 @@
       "CWMR/KRGA",
       "CWMR/KRLO",
       "CWMR/KRTI",
+      "CWMR/KTT",
       "CWMR/LDT",
       "CWMR/LO1",
       "CWMR/LOLO",
@@ -223,6 +239,8 @@
       "CWMR/WR1",
       "CWMR/WR2",
       "CWMR/WRLO",
+      "CWMR/WSTW",
+      "CWMR/WWTE",
       "EDAV/BYLO",
       "EDAV/BYT",
       "EDAV/GD1",
@@ -234,6 +252,7 @@
       "EDAV/KRGA",
       "EDAV/KRLO",
       "EDAV/KRTI",
+      "EDAV/KTT",
       "EDAV/LDT",
       "EDAV/LO1",
       "EDAV/LOLO",
@@ -255,6 +274,8 @@
       "EDAV/WR1",
       "EDAV/WR2",
       "EDAV/WRLO",
+      "EDAV/WSTW",
+      "EDAV/WWTE",
       "EDMV/BYLO",
       "EDMV/BYT",
       "EDMV/GD1",
@@ -266,6 +287,7 @@
       "EDMV/KRGA",
       "EDMV/KRLO",
       "EDMV/KRTI",
+      "EDMV/KTT",
       "EDMV/LDT",
       "EDMV/LO1",
       "EDMV/LOLO",
@@ -287,6 +309,8 @@
       "EDMV/WR1",
       "EDMV/WR2",
       "EDMV/WRLO",
+      "EDMV/WSTW",
+      "EDMV/WWTE",
       "FVMD/GDLO",
       "FVMD/KALO",
       "FVMD/KRDW",
@@ -309,6 +333,7 @@
       "PDAH/KRGA",
       "PDAH/KRLO",
       "PDAH/KRTI",
+      "PDAH/KTT",
       "PDAH/LDT",
       "PDAH/LO1",
       "PDAH/LOLO",
@@ -330,6 +355,8 @@
       "PDAH/WR1",
       "PDAH/WR2",
       "PDAH/WRLO",
+      "PDAH/WSTW",
+      "PDAH/WWTE",
       "PDAV/KRDW",
       "PDAV/KRGA",
       "PDAV/KRLO",
@@ -349,6 +376,7 @@
       "SWAV/KRGA",
       "SWAV/KRLO",
       "SWAV/KRTI",
+      "SWAV/KTT",
       "SWAV/LDT",
       "SWAV/LO1",
       "SWAV/LOLO",
@@ -369,44 +397,31 @@
       "SWAV/WALO",
       "SWAV/WR1",
       "SWAV/WR2",
-      "SWAV/WRLO"
+      "SWAV/WRLO",
+      "SWAV/WSTW",
+      "SWAV/WWTE"
     ],
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
   "location_onboarding": [
     {
-      "zone": "BYT",
+      "zone": "KTT",
       "existingLocationId": "bydgoszcz_airport",
       "daily": true
     },
     {
-      "zone": "GDT",
+      "zone": "WSTW",
       "existingLocationId": "bydgoszcz_airport",
       "daily": true
     },
     {
-      "zone": "LDT",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    },
-    {
-      "zone": "OLT",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    },
-    {
-      "zone": "OPT",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    },
-    {
-      "zone": "POT",
+      "zone": "WWTE",
       "existingLocationId": "bydgoszcz_airport",
       "daily": true
     }
   ],
-  "onboarding_hash": "5c631baaf45f70c352be4a0fc636de4a4c864d68a3f1493f5b6d28049dd73c16",
-  "onboarding_request_hash": "762a264ffa8c077559afb5c1a5874103cf6170e6de4f1202ffe192f6b63e8927",
+  "onboarding_hash": "831041e6b0ef663c9099698d02286090b4f02e7ec3632f3389030eed66d5b2f0",
+  "onboarding_request_hash": "6affdcb4563ff21a77ebbf372f0c94b95e9b57026d6f001a2caf3e2d5c6e1af4",
   "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }

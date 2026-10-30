@@ -53,7 +53,10 @@
         "LDT",
         "OLT",
         "OPT",
-        "POT"
+        "POT",
+        "KTT",
+        "WSTW",
+        "WWTE"
       ],
       "discovercars": {
         "place_id": 5827

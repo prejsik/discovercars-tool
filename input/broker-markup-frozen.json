@@ -79,7 +79,10 @@
       "LDT": "Bydgoszcz Airport (BZG)",
       "OLT": "Bydgoszcz Airport (BZG)",
       "OPT": "Bydgoszcz Airport (BZG)",
-      "POT": "Bydgoszcz Airport (BZG)"
+      "POT": "Bydgoszcz Airport (BZG)",
+      "KTT": "Bydgoszcz Airport (BZG)",
+      "WSTW": "Bydgoszcz Airport (BZG)",
+      "WWTE": "Bydgoszcz Airport (BZG)"
     },
     "locationDurationAmounts": {
       "Bydgoszcz Airport (BZG)": {
