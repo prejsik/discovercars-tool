@@ -17,16 +17,6 @@
       }
     },
     "mandatoryGroupFloorsPlnDay": {
-      "*": [
-        {
-          "minDays": 1,
-          "maxDays": 35,
-          "minimumRatePlnDay": 110,
-          "start_date": "2026-10-30",
-          "end_date": "2026-11-01",
-          "override_protected_dates": true
-        }
-      ],
       "PDAH": [
         {
           "minDays": 21,
