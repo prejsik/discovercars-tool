@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-10-30T06:34:47.568Z",
-  "workbook_sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26.xlsx",
+  "approved_at": "2026-10-30T12:20:46.496Z",
+  "workbook_sha256": "738fe7bf27304ee09c5e1f57040725f50bed321a80c0e586f88e883e1ec0c2af",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26 (1).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "430bbcdac646a3f49155a55d86d88679a11adf8c130600460dbde9de010ec1da",
+  "previous_baseline_sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26.xlsx"
+    "workbook_sha256": "738fe7bf27304ee09c5e1f57040725f50bed321a80c0e586f88e883e1ec0c2af",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE POA ) 30-Oct-26 (1).xlsx"
   },
   "coverage": {
-    "sha256": "0e9f155df4d39fa3c231e7e859567923c9ad81708abf4266d3f7f202ac3843cc",
+    "sha256": "738fe7bf27304ee09c5e1f57040725f50bed321a80c0e586f88e883e1ec0c2af",
     "rowCount": 33006,
     "groups": [
       "CDMV",
@@ -404,24 +404,5 @@
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
-  "location_onboarding": [
-    {
-      "zone": "KTT",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    },
-    {
-      "zone": "WSTW",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    },
-    {
-      "zone": "WWTE",
-      "existingLocationId": "bydgoszcz_airport",
-      "daily": true
-    }
-  ],
-  "onboarding_hash": "831041e6b0ef663c9099698d02286090b4f02e7ec3632f3389030eed66d5b2f0",
-  "onboarding_request_hash": "6affdcb4563ff21a77ebbf372f0c94b95e9b57026d6f001a2caf3e2d5c6e1af4",
   "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
