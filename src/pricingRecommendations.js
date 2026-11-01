@@ -174,7 +174,9 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
   );
   const locationData = priorityRule
     ? scenario.offer_views_by_location?.[location]?.[priorityRule.transmission]
-    : getScenarioLocationData(scenario, location);
+    : options.bestAvailableRank
+      ? scenario.offer_views_by_location?.[location]?.automatic || getScenarioLocationData(scenario, location)
+      : getScenarioLocationData(scenario, location);
   const topOffers = Array.isArray(locationData?.top_3) ? locationData.top_3.filter(Boolean) : [];
   const mmOffer = locationData?.mm_cars_rental || topOffers.find((offer) => isMmCarsProvider(offer?.provider_name)) || null;
   const top1 = topOffers[0] || null;
@@ -197,7 +199,8 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
     const pickup = typeof rawPickup === "string" && /^\d{4}-\d{2}-\d{2}T/.test(rawPickup)
       && Number.isFinite(Date.parse(rawPickup)) ? rawPickup.slice(0, 10) : rawPickup;
     const periods = options.excelPolicy?.protected_rate_periods;
-    const scoped = resolveMandatoryScopedFloorPlnDay(zone, scenario.rental_days, options, scenario.group, pickup, periods);
+    const groups = options.bestAvailableRank && !scenario.group ? options.excelPolicy?.apply_groups || [] : [scenario.group];
+    const scoped = Math.max(0, ...groups.map(group => resolveMandatoryScopedFloorPlnDay(zone, scenario.rental_days, options, group, pickup, periods)));
     // Keep the legacy recommendation path unchanged outside the new matrix scope.
     const group = scoped > 0 ? resolveMandatoryGroupFloorPlnDay(scenario.group, scenario.rental_days, options, pickup, periods) : 0;
     return Math.max(resolveMandatoryZoneFloorPlnDay(zone, scenario.rental_days, options), scoped, group);
@@ -276,9 +279,15 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       options, null, 'markup_needs_review');
   }
 
-  if (priorityRule) {
+  if (options.bestAvailableRank && (!mmOffer || mmRate == null)) {
+    return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.", options, null, "missing_mm");
+  }
+
+  if (priorityRule || options.bestAvailableRank) {
     const calibration = resolveBrokerMarkupCalibration(base, options.brokerMarkupCalibration);
-    const minimumImport = Math.max(locationTypeMinimum || priorityRule.minimumRatePlnDay, mandatoryMinimum) + (priorityRule.premiumReservePlnDay || 0);
+    const reserve = priorityRule ? priorityRule.premiumReservePlnDay || 0
+      : Math.max(0, ...Object.values(options.excelPolicy?.group_price_parity?.premium_adjustments_pln_day || {}));
+    const minimumImport = Math.max(locationTypeMinimum || priorityRule?.minimumRatePlnDay || 0, mandatoryMinimum) + reserve;
     const competitors = topOffers.filter((offer) => !isMmCarsProvider(offer.provider_name));
     for (const [index, competitor] of competitors.entries()) {
       const rate = toDailyRate(competitor);
@@ -443,6 +452,9 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  if (options.bestAvailableRank && !options.excelPolicy) {
+    options.excelPolicy = JSON.parse(fs.readFileSync(path.resolve(options.excelPolicyFile || path.join(__dirname, '..', 'excel-rate-update.config.example.json')), 'utf8'));
+  }
   validateMandatoryZoneFloorsPlnDay(options.mandatoryZoneFloorsPlnDay);
   validateLocationTypeFloorsPlnDay(options.locationTypeFloorsPlnDay);
   validateMandatoryScopedFloorsPlnDay(options.mandatoryScopedFloorsPlnDay);

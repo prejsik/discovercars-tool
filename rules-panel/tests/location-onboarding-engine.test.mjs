@@ -69,7 +69,7 @@ s.append(['Min days']+[None]*7+[1,2,3,5,8,21]);s.append(['Max days']+[None]*7+[1
 s.append(['Group','Description','Rate code','Zone','Booking start date','Booking end date','Pickup start date','Pickup end date']+['Per day']*6)
 recommendations=[]
 for zone,label in [('RZLO','Rzeszow Airport (RZE)'),('RZ1','Rzeszow Train Station')]:
- for day in [date(2026,10,31),date(2026,11,3)]:
+ for day in [date(2026,12,15),date(2026,11,3)]:
   s.append(['CDMV',None,None,zone,date(2026,1,1),date(2027,12,31),day,day]+[500]*6)
   recommendations.append(dict(action='decrease',recommendation_type='top1_undercut',location=label,start_date=day.isoformat(),rental_days=2,suggested_rate_pln_day=80,benchmark_rate_pln_day=81))
 w.save(p/'source.xlsx');original=(p/'source.xlsx').read_bytes()
@@ -81,7 +81,7 @@ for name in ['report.xlsx','import.xlsx']:
  book=openpyxl.load_workbook(p/name);sheet=book['Sheet1']
  assert sheet.max_row==8
  for row in sheet.iter_rows(min_row=5,values_only=True):
-  assert row[9]==(500 if e.parse_date_value(row[6])==date(2026,10,31) else 80),row
+  assert row[9]==(500 if e.parse_date_value(row[6])==date(2026,12,15) else 80),row
   assert tuple(row[8:9]+row[10:14])==(500,)*5,row
  book.close()
 assert (p/'source.xlsx').read_bytes()==original

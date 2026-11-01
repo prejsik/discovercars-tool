@@ -88,36 +88,7 @@
     "global_min_pln_day": 0,
     "scoped_overrides": [],
     "zone_overrides_pln_day": {},
-    "bands": [
-      {
-        "start_date": "2026-07-01",
-        "end_date": "2026-08-30",
-        "min_days": 1,
-        "max_days": 7,
-        "min_pln_day": 70
-      },
-      {
-        "start_date": "2026-07-01",
-        "end_date": "2026-08-30",
-        "min_days": 8,
-        "max_days": 20,
-        "min_pln_day": 115
-      },
-      {
-        "start_date": "2026-07-01",
-        "end_date": "2026-08-30",
-        "min_days": 21,
-        "max_days": 35,
-        "min_pln_day": 100
-      },
-      {
-        "start_date": "2026-09-01",
-        "end_date": "2027-01-31",
-        "min_days": 1,
-        "max_days": 35,
-        "min_pln_day": 50
-      }
-    ]
+    "bands": []
   },
   "broker_markup_learning": {
     "enabled": false,

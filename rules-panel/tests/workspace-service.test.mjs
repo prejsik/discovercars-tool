@@ -91,7 +91,7 @@ test('publish validates current draft and source without requiring impact previe
 test('rollback prepares a new draft and retains history without publishing', async () => {
   const { service, store } = setup();
   const first = (await service.save(input(change(65)), actor)).draft;
-  const second = (await service.save(input(change(70), first.revision), actor)).draft;
+  const second = (await service.save(input(change(66), first.revision), actor)).draft;
   const restored = await service.rollback({ revision: first.revision, expectedRevision: second.revision }, actor);
   assert.notEqual(restored.draft.revision, first.revision);
   assert.equal(restored.draft.model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 65);

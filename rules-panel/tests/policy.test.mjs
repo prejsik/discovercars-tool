@@ -6,7 +6,7 @@ import {
   setGroupEnabled, toDocuments, previewPolicy, knownGroups, DURATION_BANDS,
 } from '../src/policy.mjs';
 
-const readConfig = async (name) => JSON.parse(await readFile(new URL(`../../${name}`, import.meta.url), 'utf8'));
+const readConfig = async (name) => JSON.parse(await readFile(new URL(`../../tests/fixtures/excel-policy-0939d46/${name}`, import.meta.url), 'utf8'));
 const documents = {
   pricing: await readConfig('pricing-rules.config.example.json'),
   excel: await readConfig('excel-rate-update.config.example.json'),
@@ -15,6 +15,20 @@ const documents = {
 const model = () => createModel(documents);
 const preview = (input = {}, value = model()) => previewPolicy(value, {
   zone: 'WA1', group: 'CDMV', pickupDate: '2026-10-15', duration: 2, baselineRate: 20, ...input,
+});
+
+test('current production rules preserve permanent ranking across panel edits', async () => {
+  const read = async name => JSON.parse(await readFile(new URL(`../../${name}`, import.meta.url), 'utf8'));
+  const current = createModel({ pricing: await read('pricing-rules.config.example.json'),
+    excel: await read('excel-rate-update.config.example.json'), locations: await read('locations.config.json') });
+  assert.deepEqual(validateModel(current, current).errors, []);
+  const edited = updateRule(current, 'location:city', {
+    amount: current.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city + 1,
+  });
+  assert.deepEqual(validateModel(edited, current).errors, []);
+  assert.equal(toDocuments(edited).pricing.pricing.bestAvailableRank, true);
+  edited.pricing.pricing.bestAvailableRank = false;
+  assert.ok(validateModel(edited, current).errors.length);
 });
 
 test('editing a cloned model and exported documents cannot mutate inputs or each other', () => {

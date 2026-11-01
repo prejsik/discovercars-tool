@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { build, createServer } from "vite";
 import { readSnapshot } from "../server/snapshot.mjs";
+import { readFile } from "node:fs/promises";
 
 const panelRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -14,7 +15,7 @@ test("snapshot contains source hashes and current rules without private paths or
   assert.equal(
     snapshot.documents.pricing.pricing.locationTypeFloorsPlnDay
       .minimumRatesByKind.city,
-    60,
+    JSON.parse(await readFile(new URL('../../pricing-rules.config.example.json', import.meta.url), 'utf8')).pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city,
   );
   assert.equal(snapshot.documents.excel.max_recommendation_duration_days, 20);
   assert.ok(

@@ -2782,7 +2782,8 @@ def build_targets(
             })
             if block_band:
                 continue
-        priority_rank = max((int(item.get("target_rank") or 1) for item in active), default=1) if representative.get("priority_rule_id") else None
+        ranked_band = representative.get("priority_rule_id") or get_pricing_rules(config).get("bestAvailableRank") is True
+        priority_rank = max((int(item.get("target_rank") or 1) for item in active), default=1) if ranked_band else None
         targets[zone][target_date].append({
             **representative,
             **({"target_rank": priority_rank, "recommendation_type": "priority_top3" if priority_rank > 1 else representative.get("recommendation_type")} if priority_rank else {}),
