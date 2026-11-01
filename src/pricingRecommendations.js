@@ -25,6 +25,16 @@ const DEFAULT_OPTIONS = {
   includeNoop: false
 };
 
+const API_ONLY_CONSTRAINT_RENTAL_DAYS = new Set([9, 11, 12]);
+const API_ONLY_CONSTRAINT_SOURCE_STATUSES = new Set([
+  "api_unverified", "dom_confirmed", "dom_fallback", "dom_only", "api_dom_conflict_dom_used"
+]);
+const API_ONLY_CONSTRAINT_REPAIR_SOURCE_STATUSES = new Set([
+  "api_dom_conflict_api_used", "dom_validation_failed_api_used"
+]);
+const API_ONLY_CONSTRAINT_PRIOR_TYPES = new Set(["force_top1_maintain", "force_top1_undercut", "minimum_fallback"]);
+const MAX_API_ONLY_CONSTRAINT_SOURCE_AGE_MS = 12 * 60 * 60 * 1000;
+
 function normalizeProviderName(value) {
   return String(value || "")
     .trim()
@@ -74,6 +84,217 @@ function roundRate(value, options) {
   }
 
   return Number((Math.floor((value + Number.EPSILON * 100) / increment) * increment).toFixed(2));
+}
+
+function validateApiOnlyConstraintRentalDays(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || new Set(value).size !== value.length
+    || Array.from(value).some((days) => !Number.isSafeInteger(days) || !API_ONLY_CONSTRAINT_RENTAL_DAYS.has(days))) {
+    throw new Error("apiOnlyConstraintRentalDays must be a unique array of integer values from 9, 11 and 12.");
+  }
+  return value;
+}
+
+function hasValidApiOnlyConstraintEvidence(recommendation, now) {
+  const repairAudit = recommendation.api_constraint_repair || {};
+  const recommendationType = recommendation.api_recommendation_type
+    || repairAudit.original_recommendation_type || recommendation.recommendation_type;
+  const siteCap = repairAudit.original_site_cap_rate_pln_day ?? recommendation.site_cap_rate_pln_day;
+  const maximumImport = repairAudit.original_maximum_import_rate_pln_day ?? recommendation.maximum_import_rate_pln_day;
+  const generatedAt = recommendation.source_generated_at;
+  const timezoneDateTime = typeof generatedAt === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(generatedAt)
+    ? Date.parse(generatedAt) : NaN;
+  const age = (Number.isFinite(now) ? now : NaN) - timezoneDateTime;
+  const positiveFields = [
+    siteCap,
+    maximumImport,
+    recommendation.mm_rate_pln_day,
+    recommendation.benchmark_rate_pln_day
+  ];
+  return API_ONLY_CONSTRAINT_PRIOR_TYPES.has(recommendationType)
+    && typeof recommendation.mm_provider === "string" && isMmCarsProvider(recommendation.mm_provider)
+    && typeof recommendation.benchmark_provider === "string" && Boolean(recommendation.benchmark_provider.trim())
+    && !isMmCarsProvider(recommendation.benchmark_provider)
+    && Number.isFinite(timezoneDateTime) && age >= 0 && age <= MAX_API_ONLY_CONSTRAINT_SOURCE_AGE_MS
+    && typeof recommendation.source_run_id === "string" && Boolean(recommendation.source_run_id.trim())
+    && String(recommendation.currency || "").trim().toUpperCase() === "PLN"
+    && positiveFields.every((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+}
+
+function hasValidApiOnlyConstraintSource(recommendation, now) {
+  const status = typeof recommendation.source_validation_status === "string"
+    ? recommendation.source_validation_status.trim() : "";
+  return API_ONLY_CONSTRAINT_SOURCE_STATUSES.has(status)
+    && hasValidApiOnlyConstraintEvidence(recommendation, now);
+}
+
+function isApiOnlyConstraintRepairEligible(item, options = {}, now = Date.now()) {
+  const selectedDays = validateApiOnlyConstraintRentalDays(options?.apiOnlyConstraintRentalDays);
+  const sourceStatus = typeof item?.source_validation_status === "string"
+    ? item.source_validation_status.trim() : "";
+  const policy = options?.excelPolicy;
+  const date = String(item?.start_date || item?.pickup_date || "").slice(0, 10);
+  if (!item || options?.recommendedFallbackToMinimum !== true
+    || !Number.isSafeInteger(item.rental_days) || !selectedDays.includes(item.rental_days)
+    || !["increase", "decrease"].includes(item.action)
+    || !API_ONLY_CONSTRAINT_REPAIR_SOURCE_STATUSES.has(sourceStatus)
+    || !policy || !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    || policy.protected_rate_periods?.some(period => period.start_date <= date && date <= period.end_date)
+    || (item.group && (!policy.apply_groups?.includes(item.group) || policy.excluded_groups?.includes(item.group)))) {
+    return false;
+  }
+  const repairAudit = item.api_constraint_repair;
+  if (item.recommendation_type === "api_constraint_repair_pending"
+    && (repairAudit?.status !== "pending"
+      || repairAudit.source_validation_status !== sourceStatus
+      || repairAudit.source_run_id !== item.source_run_id
+      || repairAudit.original_recommendation_type !== item.api_recommendation_type)) return false;
+  return hasValidApiOnlyConstraintEvidence(item, now);
+}
+
+function hasApiOnlyConstraintRepairMarker(item) {
+  return Boolean(item && (item.requires_dom_constraint_repair === true
+    || item.recommendation_type === "api_constraint_repair_pending"
+    || item.data_quality_status === "api_constraint_repair_pending"
+    || item.verification_scope === "api_constraint_dom_repair"
+    || item.api_constraint_repair?.status === "pending"));
+}
+
+function isCanonicalApiOnlyConstraintRepairPending(item, options = {}, now = Date.now()) {
+  const audit = item?.api_constraint_repair;
+  return hasApiOnlyConstraintRepairMarker(item)
+    && ["increase", "decrease"].includes(item.action)
+    && item.recommendation_type === "api_constraint_repair_pending"
+    && item.data_quality_status === "api_constraint_repair_pending"
+    && item.requires_dom_constraint_repair === true
+    && item.verification_scope === "api_constraint_dom_repair"
+    && item.requires_popularity_verification === false
+    && typeof item.api_requires_popularity_verification === "boolean"
+    && item.api_recommendation_type === audit?.original_recommendation_type
+    && item.source_validation_status === audit?.source_validation_status
+    && item.source_run_id === audit?.source_run_id
+    && audit?.status === "pending"
+    && Array.isArray(audit.source_validation_reasons)
+    && item.suggested_rate_pln_day === null
+    && item.maximum_import_rate_pln_day === null
+    && item.site_target_rate_pln_day === null
+    && item.site_cap_rate_pln_day === null
+    && item.predicted_site_rate_pln_day === null
+    && item.target_rank === null
+    && item.change_pln_day === null
+    && isApiOnlyConstraintRepairEligible(item, options, now);
+}
+
+function buildApiOnlyConstraintRepairPending(item) {
+  const originalType = item.recommendation_type ?? null;
+  const originalPopularityVerification = item.requires_popularity_verification === true;
+  const result = { ...item };
+  for (const key of Object.keys(result)) {
+    if (/^dom_.*(?:verif|status|repric)/i.test(key)) delete result[key];
+  }
+  return {
+    ...result,
+    action: item.action,
+    recommendation_type: "api_constraint_repair_pending",
+    data_quality_status: "api_constraint_repair_pending",
+    requires_dom_constraint_repair: true,
+    verification_scope: "api_constraint_dom_repair",
+    api_recommendation_type: originalType,
+    api_requires_popularity_verification: originalPopularityVerification,
+    api_constraint_repair: {
+      status: "pending",
+      source_validation_status: item.source_validation_status,
+      source_validation_reasons: Array.isArray(item.source_validation_reasons) ? [...item.source_validation_reasons] : [],
+      source_run_id: item.source_run_id,
+      original_recommendation_type: originalType,
+      original_site_cap_rate_pln_day: item.site_cap_rate_pln_day,
+      original_maximum_import_rate_pln_day: item.maximum_import_rate_pln_day
+    },
+    target_rank: null,
+    reason: "API-only source validation failed; one bounded DOM repair is required before these prices can be used.",
+    suggested_rate_pln_day: null,
+    site_target_rate_pln_day: null,
+    site_cap_rate_pln_day: null,
+    maximum_import_rate_pln_day: null,
+    predicted_site_rate_pln_day: null,
+    requires_popularity_verification: false,
+    change_pln_day: null
+  };
+}
+
+function applyApiOnlyConstraintPolicy(item, options = {}, now = Date.now()) {
+  const selectedDays = validateApiOnlyConstraintRentalDays(options?.apiOnlyConstraintRentalDays);
+  if (hasApiOnlyConstraintRepairMarker(item)) {
+    if (isCanonicalApiOnlyConstraintRepairPending(item, options, now)) return item;
+    const result = { ...item };
+    for (const key of Object.keys(result)) {
+      if (/^dom_.*(?:verif|status|repric)/i.test(key)) delete result[key];
+    }
+    const originalType = item.api_recommendation_type
+      ?? item.api_constraint_repair?.original_recommendation_type
+      ?? (item.recommendation_type === "api_constraint_repair_pending" ? null : item.recommendation_type ?? null);
+    delete result.requires_dom_constraint_repair;
+    delete result.api_constraint_repair;
+    return {
+      ...result,
+      action: "hold",
+      recommendation_type: "api_constraint_only",
+      verification_scope: "api_only_constraint",
+      api_recommendation_type: originalType,
+      api_requires_popularity_verification: item.api_requires_popularity_verification === true
+        || (item.recommendation_type !== "api_constraint_repair_pending" && item.requires_popularity_verification === true),
+      target_rank: null,
+      reason: "API-only constraint unavailable: malformed DOM repair metadata; price authorization is blocked.",
+      suggested_rate_pln_day: null,
+      site_target_rate_pln_day: null,
+      site_cap_rate_pln_day: null,
+      maximum_import_rate_pln_day: null,
+      predicted_site_rate_pln_day: null,
+      data_quality_status: "api_constraint_unavailable",
+      requires_popularity_verification: false,
+      change_pln_day: 0
+    };
+  }
+  if (!item || typeof item !== "object" || options?.recommendedFallbackToMinimum !== true
+    || !Number.isSafeInteger(item.rental_days) || !selectedDays.includes(item.rental_days)
+    || !["increase", "decrease"].includes(item.action)) {
+    return item;
+  }
+
+  if (isApiOnlyConstraintRepairEligible(item, options, now)) {
+    return buildApiOnlyConstraintRepairPending(item);
+  }
+
+  const sourceAvailable = hasValidApiOnlyConstraintSource(item, now);
+  const apiRecommendationType = item.recommendation_type ?? null;
+  const apiRequiresPopularityVerification = item.requires_popularity_verification === true;
+  const result = { ...item };
+  for (const key of Object.keys(result)) {
+    if (/^dom_.*(?:verif|status|repric)/i.test(key)) delete result[key];
+  }
+
+  return {
+    ...result,
+    source_validation_status: typeof item.source_validation_status === "string" ? item.source_validation_status : null,
+    action: "hold",
+    recommendation_type: "api_constraint_only",
+    verification_scope: "api_only_constraint",
+    api_recommendation_type: apiRecommendationType,
+    api_requires_popularity_verification: apiRequiresPopularityVerification,
+    target_rank: null,
+    reason: sourceAvailable
+      ? "Ograniczenie API-only ze zredukowanego zrodla; niezweryfikowane w DOM ani na zywo, nie jest celem importu."
+      : "Ograniczenie API-only niedostepne: zrodlo brakujace, nieaktualne lub sprzeczne; nie sprawdzono DOM ani na zywo. Zachowaj baze.",
+    suggested_rate_pln_day: null,
+    site_target_rate_pln_day: null,
+    predicted_site_rate_pln_day: null,
+    site_cap_rate_pln_day: sourceAvailable ? item.site_cap_rate_pln_day : null,
+    maximum_import_rate_pln_day: sourceAvailable ? item.maximum_import_rate_pln_day : null,
+    data_quality_status: sourceAvailable ? "api_constraint_only" : "api_constraint_unavailable",
+    requires_popularity_verification: false,
+    change_pln_day: 0
+  };
 }
 
 function formatProviderName(offer) {
@@ -534,6 +755,7 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  const apiOnlyConstraintRentalDays = new Set(validateApiOnlyConstraintRentalDays(options.apiOnlyConstraintRentalDays));
   const scenarios = normalizeScenarios(payload);
   if (options.recommendedFallbackToMinimum && options.recommendedWindowStartDate === undefined) {
     // Persist the full run's anchor so isolated shards and DOM repricing cannot move the window.
@@ -568,7 +790,7 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
 
   for (const scenario of scenarios) {
     for (const location of listScenarioLocations(payload, scenario)) {
-      const recommendation = buildRecommendationForLocation({
+      let recommendation = buildRecommendationForLocation({
         rootPayload: payload,
         scenario,
         location,
@@ -578,6 +800,17 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
         top1SignalIndex,
         markupEvidence: evidence.get(markupKey(location, scenario.start_date, scenario.rental_days))
       });
+      if (options.recommendedFallbackToMinimum === true
+        && apiOnlyConstraintRentalDays.has(recommendation.rental_days)
+        && ["increase", "decrease"].includes(recommendation.action)) {
+        const sourceValidationStatus = scenario?.source_validation_by_location?.[location]?.status;
+        const policyItem = {
+          ...recommendation,
+          source_validation_status: typeof sourceValidationStatus === "string" ? sourceValidationStatus : null,
+          ...(scenario.group === undefined ? {} : { group: scenario.group })
+        };
+        recommendation = applyApiOnlyConstraintPolicy(policyItem, options);
+      }
       decisions.push(recommendation);
 
       if (recommendation.action === "hold") {
@@ -684,7 +917,11 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_OPTIONS,
+  applyApiOnlyConstraintPolicy,
   buildPricingRecommendations,
+  hasApiOnlyConstraintRepairMarker,
+  isCanonicalApiOnlyConstraintRepairPending,
+  isApiOnlyConstraintRepairEligible,
   isMmCarsProvider,
   isRecommendedDateInScope,
   priceTop1Target,

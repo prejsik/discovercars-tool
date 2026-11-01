@@ -286,6 +286,7 @@
       }
     ],
     "bestAvailableRank": true,
+    "apiOnlyConstraintRentalDays": [9, 11, 12],
     "recommendedFallbackToMinimum": true
   }
 }

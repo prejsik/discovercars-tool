@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const { resolveBrokerMarkupCalibration, fixedMarkupFields } = require("./brokerMarkupCalibration");
+const { applyApiOnlyConstraintPolicy } = require("./pricingRecommendations");
+const { isCanonicalApiOnlyConstraintRepair, isSourceVerified } = require("./verifyActiveRecommendationsDom");
 
 function listRecommendations(payload) {
   if (Array.isArray(payload)) {
@@ -110,6 +112,17 @@ function mergePricingRecommendations(basePayload, updatePayload, now = new Date(
     }
   }
   merged.push(...updateRecommendations);
+  const pricingOptions = updatePayload?.options || basePayload?.options || {};
+  for (let index = 0; index < merged.length; index += 1) {
+    const item = merged[index];
+    if (isCanonicalApiOnlyConstraintRepair(item, pricingOptions, now.getTime())) continue;
+    const selectedApiOnlyDay = pricingOptions.recommendedFallbackToMinimum === true
+      && [9, 11, 12].includes(Number(item?.rental_days));
+    if (selectedApiOnlyDay && item?.action !== "hold" && item?.api_constraint_repair?.status === "confirmed"
+      && isSourceVerified(item, item.source_generated_at || updatePayload?.source_generated_at || updatePayload?.generated_at,
+        now.getTime(), pricingOptions)) continue;
+    merged[index] = applyApiOnlyConstraintPolicy(item, pricingOptions, now.getTime());
+  }
   merged.sort(compareRecommendations);
   const includeNoop = Boolean(updatePayload?.options?.includeNoop || basePayload?.options?.includeNoop);
   const publishedRecommendations = decisionAware && !includeNoop

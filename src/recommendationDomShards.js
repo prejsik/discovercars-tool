@@ -4,6 +4,8 @@ const {
   blockRecommendation,
   MAX_CURRENT_RUN_AGE_MS,
   extractorCodeHash,
+  finishApiOnlyConstraintRepair,
+  isCanonicalApiOnlyConstraintRepair,
   groupTimingMetadata,
   inputFingerprint,
   isFreshVerification,
@@ -28,6 +30,22 @@ function dateDurationKey(item) {
   return `${String(item?.start_date || item?.pickup_date || "").slice(0, 10)}|${Number(item?.rental_days) || 1}`;
 }
 
+function hasPortableRepairAttemptProof(proof, input, summary, inputIndex, attemptedAt) {
+  const fields = ["version", "checkpoint_version", "checkpoint_input_fingerprint", "checkpoint_extractor_hash",
+    "checkpoint_integrity_hash", "decision_index", "item_input_fingerprint", "source_run_id", "attempted_at", "checkpoint_status"];
+  return Boolean(proof && typeof proof === "object" && !Array.isArray(proof)
+    && Object.keys(proof).sort().join("|") === [...fields].sort().join("|")
+    && proof.version === 1 && proof.checkpoint_version === 1
+    && proof.checkpoint_input_fingerprint === summary?.input_fingerprint
+    && proof.checkpoint_extractor_hash === summary?.extractor_hash
+    && /^[a-f0-9]{64}$/.test(proof.checkpoint_integrity_hash)
+    && proof.decision_index === inputIndex
+    && proof.item_input_fingerprint === inputFingerprint(input)
+    && typeof input.source_run_id === "string" && proof.source_run_id === input.source_run_id
+    && proof.attempted_at === attemptedAt
+    && ["repair_attempted", "repair_failed", "confirmed"].includes(proof.checkpoint_status));
+}
+
 function pendingRecommendationGroups(payload, now = Date.now()) {
   const groups = new Map();
   for (const item of listDecisions(payload)) {
@@ -37,6 +55,40 @@ function pendingRecommendationGroups(payload, now = Date.now()) {
     groups.get(groupKey).push(item);
   }
   return groups;
+}
+
+function reconstructApiOnlyConstraintRepairBlock(input, output, summary, completedAt, pricingOptions, inputIndex) {
+  const audit = output?.api_constraint_repair;
+  const reason = audit?.reason;
+  if (!audit || typeof reason !== "string" || !reason || reason.length > 500 || output.dom_repricing
+    || output.action !== "hold" || output.change_pln_day !== 0
+    || ["suggested_rate_pln_day", "maximum_import_rate_pln_day", "site_target_rate_pln_day",
+      "site_cap_rate_pln_day", "predicted_site_rate_pln_day"].some((field) => output[field] !== null)) return null;
+
+  let attemptedAt = null;
+  if (audit.status === "failed" && audit.attempted === true) {
+    attemptedAt = audit.attempted_at;
+    const attemptedTime = Date.parse(attemptedAt);
+    if (!Number.isFinite(attemptedTime)
+      || !isFreshVerification(attemptedAt, Date.now(), MAX_CURRENT_RUN_AGE_MS)
+      || attemptedTime > completedAt
+      || !hasPortableRepairAttemptProof(audit.attempt_proof, input, summary, inputIndex, attemptedAt)
+      || !isCanonicalApiOnlyConstraintRepair(input, pricingOptions, attemptedTime)) return null;
+  } else if (audit.status === "unavailable" && audit.attempted === false
+    && !Object.hasOwn(audit, "attempted_at")
+    && ["repair_source_or_policy_no_longer_eligible", "repair_source_or_policy_expired_before_execution"].includes(reason)) {
+    // This is a fail-closed preflight outcome; no repair attempt was consumed.
+  } else {
+    return null;
+  }
+
+  const expected = finishApiOnlyConstraintRepair(input, {
+    attempted: audit.attempted,
+    attemptedAt,
+    attemptProof: audit.attempt_proof,
+    reason
+  });
+  return inputFingerprint(output) === inputFingerprint(expected) ? expected : null;
 }
 
 function createCostPlan(payload, count, groups, createdAt, weights) {
@@ -243,7 +295,7 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       const itemKey = keyOf(item);
       if (!pendingByKey.has(itemKey)) continue;
       if (outputByKey.has(itemKey)) duplicateKeys.add(itemKey);
-      outputByKey.set(itemKey, { item, completedAt: summary.completed_at });
+      outputByKey.set(itemKey, { item, completedAt: summary.completed_at, summary, expectedShard });
     }
   }
 
@@ -262,10 +314,19 @@ function mergeVerifiedRecommendationShards(basePayload, shardPayloads, options =
       duplicateOutputCount += 1;
       return blockRecommendation(item, "dom_verification_shard_duplicate", ["duplicate_shard_output"]);
     }
-    const { item: verified, completedAt } = outputByKey.get(itemKey) || {};
+    const { item: verified, completedAt, summary: shardSummary, expectedShard } = outputByKey.get(itemKey) || {};
     if (!verified) {
       missingOutputCount += 1;
       return blockRecommendation(item, "dom_verification_shard_missing", ["missing_shard_output"]);
+    }
+    if (["failed", "unavailable"].includes(verified.api_constraint_repair?.status)) {
+      const inputIndex = expectedShard?.decisions.findIndex((candidate) => keyOf(candidate) === itemKey) ?? -1;
+      const repairedBlock = reconstructApiOnlyConstraintRepairBlock(
+        item, verified, shardSummary, Date.parse(completedAt), basePayload.options, inputIndex
+      );
+      if (repairedBlock) return repairedBlock;
+      unverifiedOutputCount += 1;
+      return blockRecommendation(item, "dom_verification_shard_unverified", ["invalid_api_constraint_repair_block"]);
     }
     const blocked = verified.action === "hold";
     if (verified.dom_repricing) {

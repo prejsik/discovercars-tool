@@ -2,7 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discovercars/scraper");
-const { buildPricingRecommendations, isMmCarsProvider, priceTop1Target, isRecommendedDateInScope } = require("./pricingRecommendations");
+const { buildPricingRecommendations, hasApiOnlyConstraintRepairMarker: hasPricingRepairMarker,
+  isCanonicalApiOnlyConstraintRepairPending, isMmCarsProvider, priceTop1Target, isRecommendedDateInScope } = require("./pricingRecommendations");
 const { resolveBrokerMarkupCalibration } = require('./brokerMarkupCalibration');
 
 const MAX_VERIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
@@ -108,8 +109,31 @@ function loadCheckpoint(checkpointPath, fingerprint, extractorHash) {
   } catch { return empty; }
 }
 
+function createRepairAttemptProof(checkpoint, fingerprint, extractorHash, index, item) {
+  if (!checkpoint || checkpoint.version !== CHECKPOINT_VERSION || checkpoint.input_fingerprint !== fingerprint
+    || checkpoint.extractor_hash !== extractorHash || checkpoint.integrity_hash !== checkpointDigest(checkpoint)
+    || !Number.isSafeInteger(index) || index < 0) return null;
+  const entry = checkpoint.entries[index];
+  if (!entry || entry.input_fingerprint !== inputFingerprint(item) || entry.repair_attempted !== true
+    || !["repair_attempted", "repair_failed", "confirmed"].includes(entry.status)
+    || typeof entry.attempted_at !== "string" || !Number.isFinite(Date.parse(entry.attempted_at))) return null;
+  return {
+    version: 1,
+    checkpoint_version: CHECKPOINT_VERSION,
+    checkpoint_input_fingerprint: fingerprint,
+    checkpoint_extractor_hash: extractorHash,
+    checkpoint_integrity_hash: checkpoint.integrity_hash,
+    decision_index: index,
+    item_input_fingerprint: entry.input_fingerprint,
+    source_run_id: item.source_run_id,
+    attempted_at: entry.attempted_at,
+    checkpoint_status: entry.status
+  };
+}
+
 function writeCheckpoint(checkpointPath, checkpoint) {
-  const content = { ...checkpoint, integrity_hash: checkpointDigest(checkpoint) };
+  const integrityHash = checkpointDigest(checkpoint);
+  const content = { ...checkpoint, integrity_hash: integrityHash };
   fs.mkdirSync(path.dirname(checkpointPath), { recursive: true });
   const temporary = `${checkpointPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
@@ -122,6 +146,7 @@ function writeCheckpoint(checkpointPath, checkpoint) {
   } finally {
     if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
   }
+  return integrityHash;
 }
 
 function applyVerdict(item, verdict, pricingOptions) {
@@ -138,6 +163,12 @@ function applyVerdict(item, verdict, pricingOptions) {
 
 // Rebuild with the same policy, never by editing a stale target or learning a new markup.
 function rebuildDomRecommendation(item, record, pricingOptions) {
+  const repairInput = hasApiOnlyConstraintRepairMarker(item);
+  const canonicalRepair = repairInput && isCanonicalApiOnlyConstraintRepair(item, pricingOptions);
+  if (repairInput && !canonicalRepair) return null;
+  const rebuildOptions = canonicalRepair
+    ? { ...pricingOptions, apiOnlyConstraintRentalDays: [] }
+    : pricingOptions;
   if (!pricingOptions || pricingOptions.brokerMarkupCalibration?.manualOnly !== true
     || record?.version !== 1 || record.input_fingerprint !== inputFingerprint(repricingInput(item))
     || !record.input || record.input_fingerprint !== inputFingerprint(record.input)
@@ -173,6 +204,7 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
   const view = { top_3: formatted.slice(0, 3), mm_cars_rental: formatted.find((offer) => isMmCarsProvider(offer.provider_name)) || null };
   const scenario = { scenario_id: item.scenario_id, start_date: item.start_date,
     pickup_date: item.pickup_date, dropoff_date: item.dropoff_date, rental_days: days,
+    ...(item.group === undefined ? {} : { group: item.group }),
     generated_at: record.verified_at, source_run_id: item.source_run_id,
     top_3_plus_mm_by_location: { [item.location]: view },
     offer_views_by_location: { [item.location]: { automatic: view } },
@@ -181,16 +213,32 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
   let decision;
   try {
     decision = buildPricingRecommendations({ generated_at: record.verified_at, run_id: item.source_run_id,
-      locations: [item.location], scenarios: [scenario] }, pricingOptions).decisions[0];
+      locations: [item.location], scenarios: [scenario] }, rebuildOptions).decisions[0];
   } catch { return null; }
   if (!decision || decision.requires_popularity_verification || decision.data_quality_status === 'popularity_unavailable'
     || (sorted.length < 3 && decision.action !== "hold" && decision.target_rank !== 1
       && decision.recommendation_type !== 'minimum_fallback')) return null;
-  return { ...item, benchmark_provider: null, benchmark_rate_pln_day: null, target_rank: null,
+  const rebuilt = { ...item, benchmark_provider: null, benchmark_rate_pln_day: null, target_rank: null,
     recommendation_type: null, site_target_rate_pln_day: null, predicted_site_rate_pln_day: null,
     requires_popularity_verification: false,
     ...decision, dom_verification_status: "confirmed", dom_verification_reasons: [],
     dom_verified_at: record.verified_at, dom_repricing: record };
+  if (!canonicalRepair) return rebuilt;
+
+  delete rebuilt.requires_dom_constraint_repair;
+  delete rebuilt.verification_scope;
+  delete rebuilt.api_recommendation_type;
+  delete rebuilt.api_requires_popularity_verification;
+  rebuilt.api_constraint_repair = {
+    ...item.api_constraint_repair,
+    status: "confirmed",
+    source_validation_status: item.source_validation_status,
+    source_run_id: item.source_run_id,
+    original_recommendation_type: item.api_recommendation_type,
+    verified_at: record.verified_at,
+    input_fingerprint: record.input_fingerprint
+  };
+  return rebuilt;
 }
 
 function keyOf(item) {
@@ -227,6 +275,57 @@ function blockRecommendation(item, status, reasons) {
     dom_verification_reasons: reasons,
     reason: `Rekomendacja zablokowana przez kontrole DOM: ${reasons.join(", ") || status}.`
   };
+}
+
+function hasApiOnlyConstraintRepairMarker(item) {
+  return hasPricingRepairMarker(item);
+}
+
+function isCanonicalApiOnlyConstraintRepair(item, pricingOptions, now = Date.now()) {
+  return isCanonicalApiOnlyConstraintRepairPending(item, pricingOptions, now);
+}
+
+function finishApiOnlyConstraintRepair(item, { attempted = false, attemptedAt = null, attemptProof = null, reason }) {
+  const status = attempted ? "api_constraint_repair_failed" : "api_constraint_repair_unavailable";
+  const repairReason = String(reason || status).slice(0, 500);
+  const portableProof = attemptProof ? {
+    version: attemptProof.version,
+    checkpoint_version: attemptProof.checkpoint_version,
+    checkpoint_input_fingerprint: attemptProof.checkpoint_input_fingerprint,
+    checkpoint_extractor_hash: attemptProof.checkpoint_extractor_hash,
+    checkpoint_integrity_hash: attemptProof.checkpoint_integrity_hash,
+    decision_index: attemptProof.decision_index,
+    item_input_fingerprint: attemptProof.item_input_fingerprint,
+    source_run_id: attemptProof.source_run_id,
+    attempted_at: attemptProof.attempted_at,
+    checkpoint_status: attemptProof.checkpoint_status
+  } : null;
+  const blocked = blockRecommendation(item, status, [repairReason]);
+  const output = {
+    ...blocked,
+    recommendation_type: status,
+    data_quality_status: status,
+    requires_popularity_verification: false,
+    api_constraint_repair: {
+      ...(item.api_constraint_repair || {}),
+      status: attempted ? "failed" : "unavailable",
+      attempted,
+      ...(attemptedAt ? { attempted_at: attemptedAt } : {}),
+      ...(portableProof ? { attempt_proof: portableProof } : {}),
+      reason: repairReason
+    },
+    suggested_rate_pln_day: null,
+    maximum_import_rate_pln_day: null,
+    site_target_rate_pln_day: null,
+    site_cap_rate_pln_day: null,
+    predicted_site_rate_pln_day: null,
+    change_pln_day: 0
+  };
+  delete output.requires_dom_constraint_repair;
+  delete output.verification_scope;
+  delete output.api_recommendation_type;
+  delete output.api_requires_popularity_verification;
+  return output;
 }
 
 async function verifyGroup(group, options) {
@@ -342,17 +441,50 @@ async function verifyActiveRecommendations(payload, options = {}) {
   const alreadyVerified = new Map();
   const verified = new Map();
   const checkpointReused = new Set();
+  const repairAttemptProofs = new Map();
   const pending = [];
   for (const [index, item] of decisions.entries()) {
     if (item?.action === "hold") continue;
+    const entry = checkpoint.entries[index];
+    const entryMatches = entry?.input_fingerprint === inputFingerprint(item);
+    const repairMarked = hasApiOnlyConstraintRepairMarker(item);
+    const canonicalRepair = repairMarked && isCanonicalApiOnlyConstraintRepair(item, payload.options);
+    if (repairMarked && !canonicalRepair) {
+      const attempted = entryMatches && entry.repair_attempted === true;
+      verified.set(index, finishApiOnlyConstraintRepair(item, {
+        attempted,
+        attemptedAt: attempted ? entry.attempted_at : null,
+        reason: "repair_source_or_policy_no_longer_eligible"
+      }));
+      continue;
+    }
     if (isSourceVerified(item, payload?.source_generated_at, Date.now(), payload.options)) {
       const output = { ...item, dom_verification_status: "confirmed_existing_dom", dom_verification_reasons: [],
         dom_verified_at: item.dom_verified_at ?? item.source_generated_at ?? payload?.source_generated_at };
       alreadyVerified.set(index, output);
       verified.set(index, output);
     } else {
-      const entry = checkpoint.entries[index];
-      if (entry?.input_fingerprint === inputFingerprint(item) && isFreshVerification(entry.verified_at)
+      if (canonicalRepair && entryMatches && entry.repair_attempted === true) {
+        const attemptProof = createRepairAttemptProof(checkpoint, fingerprint, extractorHash, index, item);
+        if (entry.status === "confirmed" && isFreshVerification(entry.verified_at)
+          && Array.isArray(entry.reasons) && entry.reasons.length === 0) {
+          const restored = applyVerdict(item, entry, payload.options);
+          if (restored.dom_verification_status === "confirmed" && restored.dom_repricing
+            && isSourceVerified(restored, payload?.source_generated_at, Date.now(), payload.options)) {
+            verified.set(index, restored);
+            checkpointReused.add(index);
+            continue;
+          }
+        }
+        verified.set(index, finishApiOnlyConstraintRepair(item, {
+          attempted: true,
+          attemptedAt: attemptProof?.attempted_at || entry.attempted_at || entry.verified_at || null,
+          attemptProof,
+          reason: "repair_attempt_already_consumed"
+        }));
+        continue;
+      }
+      if (entryMatches && isFreshVerification(entry.verified_at)
         && entry.status === "confirmed" && Array.isArray(entry.reasons) && entry.reasons.length === 0) {
         const restored = applyVerdict(item, entry, payload.options);
         if (restored.dom_verification_status !== "confirmed") {
@@ -384,6 +516,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
   const groupTimings = [];
   let truncatedTimingCount = 0;
   let budgetExhausted = false;
+  let preCallBudgetBlockedCount = 0;
   const workerCount = Math.max(1, Math.min(Number(options.concurrency) || 2, groupItems.length || 1));
   const browserProvider = createSharedBrowserProvider();
   try {
@@ -395,38 +528,129 @@ async function verifyActiveRecommendations(payload, options = {}) {
         }
         const groupIndex = next++;
         const group = groupItems[groupIndex];
+        const liveGroup = [];
+        for (const entry of group) {
+          if (hasApiOnlyConstraintRepairMarker(entry.item)
+            && !isCanonicalApiOnlyConstraintRepair(entry.item, payload.options, Date.now())) {
+            const saved = checkpoint.entries[entry.index];
+            const attempted = saved?.input_fingerprint === inputFingerprint(entry.item) && saved.repair_attempted === true;
+            verified.set(entry.index, finishApiOnlyConstraintRepair(entry.item, {
+              attempted,
+              attemptedAt: attempted ? saved.attempted_at : null,
+              reason: "repair_source_or_policy_expired_before_execution"
+            }));
+          } else {
+            liveGroup.push(entry);
+          }
+        }
+        if (!liveGroup.length) continue;
+        if (Date.now() >= verificationDeadline) {
+          budgetExhausted = true;
+          for (const { item, index } of liveGroup) {
+            verified.set(index, blockRecommendation(item, "dom_verification_budget_exhausted", ["time_budget_exhausted"]));
+            preCallBudgetBlockedCount += 1;
+          }
+          continue;
+        }
         const groupStartedAt = Date.now();
+        const repairAttemptAt = new Date(groupStartedAt).toISOString();
+        const repairAttempts = new Set(liveGroup
+          .filter(({ item }) => isCanonicalApiOnlyConstraintRepair(item, payload.options, groupStartedAt))
+          .map(({ index }) => index));
+        if (repairAttempts.size) {
+          for (const { item, index } of liveGroup) {
+            if (!repairAttempts.has(index)) continue;
+            checkpoint.entries[index] = {
+              input_fingerprint: inputFingerprint(item),
+              status: "repair_attempted",
+              repair_attempted: true,
+              attempted_at: repairAttemptAt
+            };
+          }
+          checkpoint.integrity_hash = writeCheckpoint(checkpointPath, checkpoint);
+          for (const { item, index } of liveGroup) {
+            if (!repairAttempts.has(index)) continue;
+            repairAttemptProofs.set(index, createRepairAttemptProof(checkpoint, fingerprint, extractorHash, index, item));
+          }
+        }
         let output;
         try {
-          output = await verifyGroup(group.map(({ item }) => item), { ...options, workDir, browserProvider, pricingOptions: payload.options });
+          output = await verifyGroup(liveGroup.map(({ item }) => item), { ...options, workDir, browserProvider, pricingOptions: payload.options });
         } catch (error) {
-          output = group.map(({ item }) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
+          output = liveGroup.map(({ item }) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
         }
+        let checkpointChanged = false;
+        output.forEach((item, offset) => {
+          const { index, item: input } = liveGroup[offset];
+          if (!repairAttempts.has(index)) return;
+          const status = item.dom_verification_status;
+          if (status === "confirmed" && item.dom_repricing
+            && isSourceVerified(item, payload?.source_generated_at, Date.now(), payload.options)) return;
+          const reason = (item.dom_verification_reasons || []).join(", ") || "dom_repair_not_confirmed";
+          output[offset] = finishApiOnlyConstraintRepair(input, {
+            attempted: true,
+            attemptedAt: repairAttemptAt,
+            attemptProof: repairAttemptProofs.get(index),
+            reason
+          });
+        });
         if (groupIndex < MAX_GROUP_TIMINGS) {
-          groupTimings.push({ group_key: groupKeyOf(group[0].item),
-            location_count: new Set(group.map(({ item }) => item.location)).size,
+          groupTimings.push({ group_key: groupKeyOf(liveGroup[0].item),
+            location_count: new Set(liveGroup.map(({ item }) => item.location)).size,
             elapsed_ms: Math.max(1, Date.now() - groupStartedAt) });
         } else truncatedTimingCount += 1;
         processedLiveGroupCount += 1;
-        let checkpointChanged = false;
         output.forEach((item, offset) => {
-          const { index, item: input } = group[offset];
+          const { index, item: input } = liveGroup[offset];
           const status = item.dom_verification_status;
           verified.set(index, item);
-          // Only completed comparisons are resumable; scrape errors and budget blocks retry.
+          if (repairAttempts.has(index) && status !== "confirmed") {
+            checkpoint.entries[index] = {
+              input_fingerprint: inputFingerprint(input),
+              status: "repair_failed",
+              repair_attempted: true,
+              attempted_at: repairAttemptAt,
+              verified_at: new Date().toISOString(),
+              reasons: item.dom_verification_reasons || []
+            };
+            checkpointChanged = true;
+            return;
+          }
           if (status === "confirmed") {
             const verdict = {
               input_fingerprint: inputFingerprint(input), status,
               reasons: item.dom_verification_reasons || [],
               verified_at: item.dom_verified_at || new Date().toISOString(),
+              ...(repairAttempts.has(index) ? { repair_attempted: true, attempted_at: repairAttemptAt } : {}),
               ...(item.dom_repricing ? { repricing: item.dom_repricing } : {})
             };
             checkpoint.entries[index] = verdict;
-            verified.set(index, applyVerdict(input, verdict, payload.options));
+            const restored = applyVerdict(input, verdict, payload.options);
+            if (repairAttempts.has(index) && (restored.dom_verification_status !== "confirmed"
+              || !restored.dom_repricing
+              || !isSourceVerified(restored, payload?.source_generated_at, Date.now(), payload.options))) {
+              const reason = (restored.dom_verification_reasons || []).join(", ") || "invalid_rebuilt_repair";
+              verified.set(index, finishApiOnlyConstraintRepair(input, {
+                attempted: true,
+                attemptedAt: repairAttemptAt,
+                attemptProof: repairAttemptProofs.get(index),
+                reason
+              }));
+              checkpoint.entries[index] = {
+                input_fingerprint: inputFingerprint(input),
+                status: "repair_failed",
+                repair_attempted: true,
+                attempted_at: repairAttemptAt,
+                verified_at: new Date().toISOString(),
+                reasons: [reason]
+              };
+            } else {
+              verified.set(index, restored);
+            }
             checkpointChanged = true;
           }
         });
-        if (checkpointChanged) writeCheckpoint(checkpointPath, checkpoint);
+        if (checkpointChanged) checkpoint.integrity_hash = writeCheckpoint(checkpointPath, checkpoint);
       }
     }));
     const failedWorker = workers.find((worker) => worker.status === "rejected");
@@ -435,7 +659,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
     await browserProvider.close();
   }
 
-  let budgetExhaustedCount = 0;
+  let budgetExhaustedCount = preCallBudgetBlockedCount;
   for (const group of groupItems.slice(next)) {
     for (const { item, index } of group) {
       verified.set(
@@ -523,6 +747,10 @@ module.exports = {
   MAX_VERIFICATION_AGE_MS,
   MAX_CURRENT_RUN_AGE_MS,
   MAX_GROUP_TIMINGS,
+  finishApiOnlyConstraintRepair,
+  createRepairAttemptProof,
+  hasApiOnlyConstraintRepairMarker,
+  isCanonicalApiOnlyConstraintRepair,
   blockRecommendation,
   rebuildDomRecommendation,
   extractorCodeHash,

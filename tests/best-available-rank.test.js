@@ -75,7 +75,10 @@ import openpyxl
 from tools import update_excel_rates as e
 p=Path(sys.argv[1]);root=Path.cwd()
 config=json.loads((root/'excel-rate-update.config.example.json').read_text())
-config.update(baseline_manifest_file='',location_registry_file=str(root/'locations.config.json'),pricing_rules_file=str(root/'pricing-rules.config.example.json'))
+legacy_rules=json.loads((root/'pricing-rules.config.example.json').read_text())
+legacy_rules['pricing']['recommendedFallbackToMinimum']=False
+(p/'legacy-pricing.json').write_text(json.dumps(legacy_rules))
+config.update(baseline_manifest_file='',location_registry_file=str(root/'locations.config.json'),pricing_rules_file=str(p/'legacy-pricing.json'))
 (p/'config.json').write_text(json.dumps(config));c=e.load_config(p/'config.json')
 w=openpyxl.Workbook();s=w.active;s.title='Sheet1'
 s.append(['Rental rates for packages: INCLUSIVE POA'])

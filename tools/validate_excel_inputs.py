@@ -28,6 +28,7 @@ def validate_inputs(config_path: Path, workbook_path: Path) -> dict:
     engine.get_mandatory_group_floors(config)
     scoped = engine.get_mandatory_scoped_floors(config)
     engine.get_location_type_floors(config)
+    engine.get_api_only_constraint_rental_days(config)
     digest = engine.sha256_file(workbook_path)
     confirmation = engine.load_baseline_confirmation(config, digest)
     return {"status": "ok", "scoped_rule_count": len(scoped),

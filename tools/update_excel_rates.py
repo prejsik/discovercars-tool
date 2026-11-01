@@ -14,6 +14,7 @@ from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from copy import copy
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from statistics import median
 from textwrap import wrap
@@ -134,6 +135,18 @@ DEFAULT_CONFIG = {
 
 CONFIRMED_BASELINE_STATUSES = {"confirmed_imported", "verified_live"}
 MANDATORY_FLOOR_TYPES = {"mandatory_zone_floor", "mandatory_group_floor"}
+# Keep the verifier's source-status aliases synchronized with verifyActiveRecommendationsDom.js.
+VERIFIED_DOM_SOURCE_STATUSES = {
+    "dom_confirmed", "api_dom_conflict_dom_used", "dom_fallback", "dom_only",
+    "dom_recommendation_verified",
+}
+API_ONLY_CONSTRAINT_SOURCE_STATUSES = {
+    "api_unverified", "dom_confirmed", "api_dom_conflict_dom_used", "dom_fallback", "dom_only",
+}
+CONFIRMED_DOM_VERIFICATION_STATUSES = {"confirmed", "confirmed_existing_dom"}
+API_ONLY_ORIGINAL_RECOMMENDATION_TYPES = {
+    "force_top1_maintain", "force_top1_undercut", "minimum_fallback",
+}
 
 PRICING_POLICY_PRECEDENCE = (
     "protected_dates", "class_allowlist", "required_evidence", "priority_top1",
@@ -158,6 +171,49 @@ def get_pricing_rules(config: dict[str, Any]) -> dict[str, Any]:
         }
     payload = load_json(path)
     return payload.get("pricing") or payload
+
+
+def get_api_only_constraint_rental_days(config: dict[str, Any]) -> set[int]:
+    pricing_rules = config.get("_pricing_rules")
+    if not isinstance(pricing_rules, dict):
+        pricing_rules = get_pricing_rules(config)
+    if not isinstance(pricing_rules, dict):
+        raise ValueError("Pricing rules must be a JSON object.")
+    days = pricing_rules.get("apiOnlyConstraintRentalDays", [])
+    allowed_days = {9, 11, 12}
+    if (not isinstance(days, list)
+            or any(type(day) is not int or day not in allowed_days for day in days)
+            or len(days) != len(set(days))):
+        raise ValueError("apiOnlyConstraintRentalDays must be a unique array of integer values from 9, 11 and 12.")
+    return set(days)
+
+
+def api_only_constraints_enabled(config: dict[str, Any], days: set[int]) -> bool:
+    pricing_rules = config.get("_pricing_rules")
+    if not isinstance(pricing_rules, dict):
+        pricing_rules = get_pricing_rules(config)
+    return bool(days) and pricing_rules.get("recommendedFallbackToMinimum") is True
+
+
+def positive_finite_json_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        number = float(value)
+    except OverflowError:
+        return False
+    return math.isfinite(number) and number > 0
+
+
+def money_to_grosze(value: Any) -> int | None:
+    number = parse_number(value)
+    if number is None:
+        return None
+    try:
+        cents = (Decimal(str(number)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return None
+    return int(cents)
 
 
 def get_pricing_policy(config: dict[str, Any]) -> dict[str, Any]:
@@ -826,6 +882,53 @@ def calculate_target_base_rate(
     return base_rate, suggested_rate, minimum_rate, minimum_reason
 
 
+def calculate_effective_target_rate(
+    target: dict[str, Any], group: Any, old_rate: float | None, config: dict[str, Any],
+    family_minimum: float = 0, cap_info: dict[str, Any] | None = None,
+    cap_ignored: bool = False,
+) -> dict[str, Any]:
+    group_adjustment = get_group_rate_adjustment(group, config)
+    current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
+    base_rate, suggested_rate, minimum_rate, minimum_reason = calculate_target_base_rate(
+        {**target, "group": group}, current_base_equivalent, config,
+    )
+    if family_minimum > minimum_rate:
+        minimum_rate = family_minimum
+        base_rate = max(base_rate, family_minimum)
+        minimum_reason = "Minimum powiazanych klas parytetu ma pierwszenstwo."
+    uncapped_base_rate = base_rate
+    city_airport_cap_applied = False
+    city_airport_max_rate = None
+    airport_reference_rate = None
+    if cap_info is not None:
+        base_rate_cap = float(cap_info["base_rate_cap_pln_day"])
+        city_airport_max_rate = round(base_rate_cap + group_adjustment, 2)
+        airport_reference_rate = (cap_info.get("airport_rates_by_group") or {}).get(normalize_code(group))
+        if not cap_ignored and minimum_rate > base_rate_cap + 0.001:
+            raise ValueError(
+                "Unresolved city Top1 airport cap/floor conflict; no workbook changes were saved. "
+                f"{normalize_code(group)}/{target['zone']}/{target['target_date'].isoformat()} "
+                f"{target['duration_band']}: floor {format_rate_for_comment(minimum_rate)} > "
+                f"cap {format_rate_for_comment(base_rate_cap)}."
+            )
+        if not cap_ignored and base_rate > base_rate_cap:
+            base_rate = base_rate_cap
+            city_airport_cap_applied = True
+    return {
+        "base_rate": base_rate,
+        "suggested_rate": suggested_rate,
+        "minimum_rate": minimum_rate,
+        "minimum_reason": minimum_reason,
+        "uncapped_base_rate": uncapped_base_rate,
+        "group_adjustment": group_adjustment,
+        "new_rate": base_rate + group_adjustment,
+        "city_airport_cap_active": cap_info is not None and not cap_ignored,
+        "city_airport_cap_applied": city_airport_cap_applied,
+        "city_airport_max_rate": city_airport_max_rate,
+        "airport_reference_rate": airport_reference_rate,
+    }
+
+
 def classify_actual_action(old_rate: float | None, new_rate: float, fallback_action: str) -> str:
     if old_rate is None:
         return fallback_action
@@ -1029,6 +1132,148 @@ def has_confirmed_competitor_recommended_evidence(item: dict[str, Any]) -> bool:
         return False
     age_seconds = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
     return 0 <= age_seconds <= 12 * 60 * 60
+
+
+def is_api_only_constraint_item(item: dict[str, Any]) -> bool:
+    return ("api_recommendation_type" in item
+            or "api_requires_popularity_verification" in item
+            or item.get("recommendation_type") == "api_constraint_only"
+            or item.get("verification_scope") == "api_only_constraint"
+            or item.get("data_quality_status") == "api_constraint_only"
+            or item.get("data_quality_status") == "api_constraint_unavailable")
+
+
+def has_fresh_timezone_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or "T" not in value:
+        return False
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        return False
+    age_seconds = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
+    return 0 <= age_seconds <= 12 * 60 * 60
+
+
+def is_mm_cars_provider_name(value: Any) -> bool:
+    return (isinstance(value, str) and bool(value.strip())
+            and "mm cars rental" in re.sub(r"[^a-z0-9]+", " ", value.lower()).strip())
+
+
+def is_competitor_provider_name(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and not is_mm_cars_provider_name(value)
+
+
+def is_valid_api_only_constraint_item(item: dict[str, Any], api_days: set[int]) -> bool:
+    required_null_fields = (
+        "suggested_rate_pln_day", "site_target_rate_pln_day", "predicted_site_rate_pln_day",
+    )
+    if (item.get("action") != "hold"
+            or item.get("recommendation_type") != "api_constraint_only"
+            or item.get("verification_scope") != "api_only_constraint"
+            or item.get("data_quality_status") != "api_constraint_only"
+            or type(item.get("rental_days")) is not int
+            or item.get("rental_days") not in api_days
+            or item.get("duration_band") != "8-20"
+            or item.get("duration_min_days") != 8
+            or item.get("duration_max_days") != 20
+            or item.get("target_rank", object()) is not None
+            or not all(key in item and item[key] is None for key in required_null_fields)
+            or item.get("requires_popularity_verification") is not False
+            or not isinstance(item.get("api_recommendation_type"), str)
+            or not item["api_recommendation_type"].strip()
+            or item["api_recommendation_type"] not in API_ONLY_ORIGINAL_RECOMMENDATION_TYPES
+            or not isinstance(item.get("api_requires_popularity_verification"), bool)):
+        return False
+    if any(re.match(r"^dom_.*(?:verif|status|repric)", str(key), re.IGNORECASE) for key in item):
+        return False
+    if (not positive_finite_json_number(item.get("maximum_import_rate_pln_day"))
+            or (item.get("site_cap_rate_pln_day") is not None
+                and not positive_finite_json_number(item.get("site_cap_rate_pln_day")))
+            or not isinstance(item.get("currency"), str)
+            or item["currency"].strip().upper() != "PLN"
+            or not isinstance(item.get("source_validation_status"), str)
+            or item.get("source_validation_status") not in API_ONLY_CONSTRAINT_SOURCE_STATUSES
+            or not has_fresh_timezone_timestamp(item.get("source_generated_at"))):
+        return False
+    source_run_id = item.get("source_run_id")
+    if not isinstance(source_run_id, str) or not source_run_id.strip():
+        return False
+    location = item.get("location")
+    if not isinstance(location, str) or not normalize_key(location):
+        return False
+    if (not is_mm_cars_provider_name(item.get("mm_provider"))
+            or not is_competitor_provider_name(item.get("benchmark_provider"))
+            or not positive_finite_json_number(item.get("mm_rate_pln_day"))
+            or not positive_finite_json_number(item.get("benchmark_rate_pln_day"))):
+        return False
+    return True
+
+
+def is_confirmed_api_selected_item(item: dict[str, Any]) -> bool:
+    return (not is_api_only_constraint_item(item)
+            and item.get("action") in {"increase", "decrease"}
+            and item.get("data_quality_status") == "ok"
+            and isinstance(item.get("source_validation_status"), str)
+            and item.get("source_validation_status") in VERIFIED_DOM_SOURCE_STATUSES
+            and isinstance(item.get("dom_verification_status"), str)
+            and item.get("dom_verification_status") in CONFIRMED_DOM_VERIFICATION_STATUSES
+            and item.get("dom_verification_reasons") == []
+            and ("requires_popularity_verification" not in item
+                 or item.get("requires_popularity_verification") is False
+                 or item.get("requires_popularity_verification") is None)
+            and isinstance(item.get("currency"), str)
+            and item["currency"].strip().upper() == "PLN"
+            and is_mm_cars_provider_name(item.get("mm_provider"))
+            and is_competitor_provider_name(item.get("benchmark_provider"))
+            and has_fresh_timezone_timestamp(item.get("source_generated_at"))
+            and has_fresh_timezone_timestamp(item.get("dom_verified_at"))
+            and positive_finite_json_number(item.get("maximum_import_rate_pln_day"))
+            and (item.get("site_cap_rate_pln_day") is None
+                 or positive_finite_json_number(item.get("site_cap_rate_pln_day")))
+            and positive_finite_json_number(item.get("mm_rate_pln_day"))
+            and positive_finite_json_number(item.get("benchmark_rate_pln_day"))
+            and isinstance(item.get("source_run_id"), str)
+            and bool(item["source_run_id"].strip()))
+
+
+def validate_api_only_constraint_bucket(
+    candidates: list[dict[str, Any]], api_days: set[int], enabled: bool,
+) -> tuple[bool, str]:
+    api_items = [item for item in candidates if item.get("_api_only_constraint_reference")]
+    has_enabled_duration_band = enabled and any(item.get("duration_band") == "8-20" for item in candidates)
+    if not api_items and not has_enabled_duration_band:
+        return True, ""
+    if not enabled:
+        return False, "API-only constraint references are not enabled by pricing policy."
+    if any(not is_valid_api_only_constraint_item(item, api_days) for item in api_items):
+        return False, "API-only constraint record is malformed, stale, or outside the enabled 8-20 policy."
+
+    by_location: dict[tuple[str, date, int], list[dict[str, Any]]] = defaultdict(list)
+    for item in candidates:
+        location = item.get("location")
+        if not isinstance(location, str) or not normalize_key(location):
+            return False, "API-only evidence has no canonical location identity."
+        by_location[(normalize_key(location), item["target_date"], int(item["rate_col"]))].append(item)
+
+    required_days = set(range(8, 15))
+    for items in by_location.values():
+        required_items = [item for item in items if type(item.get("rental_days")) is int
+                          and item["rental_days"] in required_days]
+        days = [item["rental_days"] for item in required_items]
+        if len(days) != 7 or set(days) != required_days or any(days.count(day) != 1 for day in required_days):
+            return False, "API-only evidence requires exactly one record for each duration 8-14 in the same location/date/cell."
+        for item in required_items:
+            if (not item.get("_api_only_constraint_reference")
+                    and not is_confirmed_api_selected_item(item)):
+                return False, "Every non-reference 8-14 duration requires fresh, confirmed DOM recommendations."
+        run_ids = [item.get("source_run_id") for item in required_items]
+        if (any(not isinstance(run_id, str) or not run_id.strip() for run_id in run_ids)
+                or len(set(run_ids)) != 1):
+            return False, "API-only references and selected DOM evidence must share one nonempty source_run_id."
+
+    return True, ""
 
 
 def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
@@ -1921,6 +2166,15 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
                       "kalendarzowych zakresu scrapera sprawdzamy Najpopularniejsze. MM pierwsze: zachowaj baze; "
                       "potwierdzony konkurent pierwszy: minimum bez gwarancji rankingu. Poza 20 dniami lub przy "
                       "braku potwierdzenia zachowaj baze, jesli Top1 cenowo jest niemozliwe. ")
+    api_days = get_api_only_constraint_rental_days(config)
+    if api_days and api_only_constraints_enabled(config, api_days):
+        api_text = ",".join(str(day) for day in sorted(api_days))
+        full_days = ",".join(str(day) for day in sorted(set(range(8, 15)) - api_days))
+        mandatory += (
+            f"Dla {api_text} dni tylko ograniczenia z API; pelne potwierdzenia {full_days}. "
+            "Odczyt API nie wyznacza sam stawke; przy nizszym limicie/braku potwierdzenia zachowaj baze "
+            "(poza niezaleznymi minimami obowiazkowymi). "
+        )
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
     ) + ". Konflikt floor/cap: pomin sprzeczny limit miasta, zachowaj minimum i realizuj rekomendacje."
@@ -1939,7 +2193,10 @@ def get_ranking_limit_reason(
     minimum_rate: float, group_adjustment: float, config: dict[str, Any],
 ) -> str:
     constraints = target.get("constraint_items") or [target]
-    if any(item.get("data_quality_status") not in {None, "", "ok"} for item in constraints):
+    if any(item.get("data_quality_status") not in {None, "", "ok"}
+           and not (item.get("_api_only_constraint_reference")
+                    and item.get("_api_only_constraint_validated"))
+           for item in constraints):
         return ""
     if not evaluate_target_constraints(target, suggested_rate)["target_achievable"]:
         return ""
@@ -2730,6 +2987,10 @@ def build_targets(
     candidates_by_cell: dict[tuple[str, date, int], list[dict[str, Any]]] = defaultdict(list)
     skipped: list[dict[str, Any]] = []
     protected_periods = get_protected_rate_periods(config)
+    api_days = config.get("_api_only_constraint_rental_days")
+    if not isinstance(api_days, set):
+        api_days = get_api_only_constraint_rental_days(config)
+    api_constraints_enabled = api_only_constraints_enabled(config, api_days)
 
     for item in recommendations:
         action = item.get("action")
@@ -2779,6 +3040,8 @@ def build_targets(
                 site_cap_rate = predict_site_rate(maximum_rate, item)
             candidates_by_cell[(zone, target_date, col)].append({
                 **item,
+                "_api_only_constraint_reference": is_api_only_constraint_item(item),
+                "_api_only_constraint_validated": False,
                 "zone": zone,
                 "target_date": target_date,
                 "rate_col": col,
@@ -2795,9 +3058,23 @@ def build_targets(
         if not active:
             continue
 
+        api_bucket_valid, api_bucket_error = validate_api_only_constraint_bucket(
+            candidates, api_days, api_constraints_enabled,
+        )
+        if not api_bucket_valid:
+            skipped.append({
+                **active[0],
+                "skip_reason": f"Duration-band update blocked: {api_bucket_error}",
+            })
+            continue
+        for item in candidates:
+            if item.get("_api_only_constraint_reference"):
+                item["_api_only_constraint_validated"] = True
+
         invalid_fallback_evidence = [
             item for item in candidates
-            if item.get("recommendation_type") == "minimum_fallback"
+            if not item.get("_api_only_constraint_reference")
+            and item.get("recommendation_type") == "minimum_fallback"
             and not has_confirmed_competitor_recommended_evidence(item)
         ]
         if invalid_fallback_evidence:
@@ -2812,7 +3089,9 @@ def build_targets(
 
         invalid_constraints = [
             item for item in candidates
-            if item.get("data_quality_status") not in {None, "", "ok"}
+            if (item.get("data_quality_status") not in {None, "", "ok"}
+                and not (item.get("_api_only_constraint_reference")
+                         and item.get("_api_only_constraint_validated")))
             or parse_number(item.get("constraint_import_rate_pln_day")) is None
         ]
         if invalid_constraints:
@@ -2828,7 +3107,8 @@ def build_targets(
             })
             continue
 
-        controlling = min(candidates, key=lambda item: float(item["constraint_import_rate_pln_day"]))
+        market_candidates = [item for item in candidates if not item.get("_api_only_constraint_reference")]
+        controlling = min(market_candidates, key=lambda item: float(item["constraint_import_rate_pln_day"]))
         representative = min(active, key=lambda item: float(item["suggested_rate_pln_day"]))
         aggregate_rate = float(controlling["constraint_import_rate_pln_day"])
         source_actions = sorted({str(item.get("action")) for item in active})
@@ -2874,7 +3154,8 @@ def build_targets(
             aggregated_target_rank = representative.get("target_rank")
         fallback_evidence = next(
             (item.get("recommended_ranking") for item in candidates
-             if item.get("recommendation_type") == "minimum_fallback"),
+             if not item.get("_api_only_constraint_reference")
+             and item.get("recommendation_type") == "minimum_fallback"),
             None,
         )
         targets[zone][target_date].append({
@@ -2959,6 +3240,131 @@ def build_group_price_parity_scope(
                 if isinstance(target_date, date) and isinstance(rate_col, int):
                     scope.add((normalized_zone, target_date, rate_col))
     return scope
+
+
+def find_api_only_cap_blocked_targets(
+    ws: Any,
+    targets: dict[str, dict[date, list[dict[str, Any]]]],
+    config: dict[str, Any],
+    allowed_groups: set[str],
+    city_top1_airport_caps: dict[tuple[str, date, int], dict[str, Any]],
+    ignored_cap_cells: set[tuple[str, date, int, str]],
+    parity_minimum_rates: dict[tuple[str, date, int], float],
+) -> dict[tuple[str, date, int], str]:
+    api_targets = {
+        (normalize_code(zone), target_date, int(target["rate_col"])): target
+        for zone, by_date in targets.items()
+        for target_date, row_targets in by_date.items()
+        for target in row_targets
+        if any(item.get("_api_only_constraint_validated") for item in target.get("constraint_items", []))
+    }
+    if not api_targets:
+        return {}
+
+    api_targets_by_zone_date: dict[
+        tuple[str, date], list[tuple[tuple[str, date, int], dict[str, Any]]]
+    ] = defaultdict(list)
+    for key, target in api_targets.items():
+        api_targets_by_zone_date[(key[0], key[1])].append((key, target))
+    proposed_rates: dict[str, float] = {}
+    direct_groups_by_cell: dict[tuple[str, date, int], dict[str, str]] = defaultdict(dict)
+    rows_by_target: dict[tuple[str, date, int], dict[str, int]] = defaultdict(dict)
+    columns = config["columns"]
+    data_start_row = int(config["data_start_row"])
+    min_change = float(config.get("min_excel_change_pln_day", 0.01))
+    parity = get_group_price_parity(config)
+    base_groups, premium_adjustments = parity if parity else ([], {})
+    base_groups = [group for group in base_groups if group_is_allowed(group, allowed_groups)]
+    premium_adjustments = {group: adjustment for group, adjustment in premium_adjustments.items()
+                           if group_is_allowed(group, allowed_groups)}
+    parity_groups = set(base_groups) | set(premium_adjustments)
+
+    for row in range(data_start_row, ws.max_row + 1):
+        group = normalize_code(ws.cell(row, int(columns["group"])).value)
+        zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
+        pickup_date = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
+        if not zone or pickup_date is None:
+            continue
+        for key, original_target in api_targets_by_zone_date.get((zone, pickup_date), []):
+            rows_by_target[key][group] = row
+            if not group_is_allowed(group, allowed_groups):
+                continue
+            target = target_for_group(original_target, group)
+            priority = priority_top1_applies(target, group, config)
+            if ((target.get("priority_rule_id") and not priority)
+                    or (group_is_excluded(group, config) and not priority)):
+                continue
+
+            rate_col = key[2]
+            cell = ws.cell(row, rate_col)
+            old_rate = parse_number(cell.value)
+            family_minimum = parity_minimum_rates.get(key, 0) if group in parity_groups else 0
+            cap_info = city_top1_airport_caps.get(key)
+            cap_ignored = (*key, group) in ignored_cap_cells
+            rate_details = calculate_effective_target_rate(
+                target, group, old_rate, config, family_minimum, cap_info, cap_ignored,
+            )
+            proposed_rate = rate_details["new_rate"]
+            if old_rate is not None and abs(proposed_rate - old_rate) < min_change:
+                proposed_rate = old_rate
+            proposed_rates[cell.coordinate] = proposed_rate
+            direct_groups_by_cell[key][cell.coordinate] = group
+
+    final_rates = dict(proposed_rates)
+    for key, rows in rows_by_target.items():
+        base_rate = None
+        for group in base_groups:
+            row = rows.get(group)
+            if row is None:
+                continue
+            cell = ws.cell(row, key[2])
+            base_rate = parse_number(final_rates.get(cell.coordinate, cell.value))
+            if base_rate is not None:
+                break
+        if base_rate is None:
+            continue
+        parity_rates = {group: base_rate for group in base_groups}
+        parity_rates.update({group: base_rate + adjustment
+                             for group, adjustment in premium_adjustments.items()})
+        for group, parity_rate in parity_rates.items():
+            row = rows.get(group)
+            if row is None:
+                continue
+            cell = ws.cell(row, key[2])
+            old_rate = parse_number(final_rates.get(cell.coordinate, cell.value))
+            if old_rate is None or abs(parity_rate - old_rate) >= min_change:
+                final_rates[cell.coordinate] = parity_rate
+
+    blocked: dict[tuple[str, date, int], str] = {}
+    for key, original_target in api_targets.items():
+        api_refs = [item for item in original_target.get("constraint_items", [])
+                    if item.get("_api_only_constraint_validated")]
+        for coordinate, group in direct_groups_by_cell.get(key, {}).items():
+            group_target = target_for_group(original_target, group)
+            api_caps = [money_to_grosze(item.get("constraint_import_rate_pln_day"))
+                        for item in group_target.get("constraint_items", [])
+                        if item.get("_api_only_constraint_validated")]
+            if not api_caps:
+                api_caps = [money_to_grosze(item.get("maximum_import_rate_pln_day")) for item in api_refs]
+            rate = parse_number(final_rates.get(coordinate))
+            if rate is None:
+                continue
+            zone = key[0]
+            duration_min = int(parse_number(original_target.get("duration_min_days")) or 0)
+            duration_max = int(parse_number(original_target.get("duration_max_days")) or 0)
+            mandatory_floor, _ = get_mandatory_correction_floor(
+                zone, group, duration_min, duration_max, config, key[1],
+            )
+            if mandatory_floor is not None:
+                rate = max(rate, mandatory_floor)
+            rate_grosze = money_to_grosze(rate)
+            if any(cap is not None and rate_grosze > cap for cap in api_caps):
+                blocked[key] = (
+                    "Duration-band market update blocked because the final import rate after parity and "
+                    "mandatory floors exceeds an API-only cap; independent mandatory floors remain active."
+                )
+                break
+    return blocked
 
 
 def build_city_top1_airport_rate_caps(
@@ -3717,7 +4123,10 @@ def apply_updates(
 ) -> dict[str, Any]:
     input_workbook_sha256 = sha256_file(workbook_path)
     pricing_rules = get_pricing_rules(config)
-    config = {**config, "_priority_top1_rules": pricing_rules.get("priorityTop1Rules", []),
+    api_only_constraint_days = get_api_only_constraint_rental_days({**config, "_pricing_rules": pricing_rules})
+    config = {**config, "_pricing_rules": pricing_rules,
+              "_api_only_constraint_rental_days": api_only_constraint_days,
+              "_priority_top1_rules": pricing_rules.get("priorityTop1Rules", []),
               "_pricing_policy": get_pricing_policy(config),
               "_mandatory_zone_floors": get_mandatory_zone_floors(config),
               "_mandatory_group_floors": get_mandatory_group_floors(config),
@@ -3828,6 +4237,19 @@ def apply_updates(
             })
             ignored["groups"] = sorted(set(ignored["groups"]) | affected_groups)
 
+    api_cap_blocked_targets = find_api_only_cap_blocked_targets(
+        ws, targets, config, allowed_groups, city_top1_airport_caps,
+        ignored_cap_cells, parity_minimum_rates,
+    )
+    for key, reason in api_cap_blocked_targets.items():
+        target = next(
+            target
+            for target in targets[key[0]][key[1]]
+            if int(target["rate_col"]) == key[2]
+        )
+        skipped_targets.append({**target, "skip_reason": reason})
+    group_price_parity_scope.difference_update(api_cap_blocked_targets)
+
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and expansion_summary.get("mode") != "source_ranges":
             if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
@@ -3862,50 +4284,36 @@ def apply_updates(
             continue
 
         for target in row_targets:
+            cap_key = (zone, pickup_start, int(target["rate_col"]))
+            if cap_key in api_cap_blocked_targets:
+                continue
             target = target_for_group(target, group)
             priority = priority_top1_applies(target, group, config)
             if target.get("priority_rule_id") and not priority:
                 continue
             if group_is_excluded(group, config) and not priority:
                 continue
-            cap_key = (zone, pickup_start, int(target["rate_col"]))
             cap_ignored = (*cap_key, normalize_code(group)) in ignored_cap_cells
             cell = ws.cell(row, int(target["rate_col"]))
             old_rate = parse_number(cell.value)
-            group_adjustment = get_group_rate_adjustment(group, config)
-            current_base_equivalent = None if old_rate is None else old_rate - group_adjustment
-            base_rate, suggested_rate, minimum_rate, minimum_reason = calculate_target_base_rate(
-                {**target, "group": group},
-                current_base_equivalent,
-                config,
-            )
             family_minimum = parity_minimum_rates.get(cap_key, 0) if normalize_code(group) in parity_groups else 0
-            if family_minimum > minimum_rate:
-                minimum_rate = family_minimum
-                base_rate = max(base_rate, family_minimum)
-                minimum_reason = "Minimum powiazanych klas parytetu ma pierwszenstwo."
-            uncapped_base_rate = base_rate
             cap_info = city_top1_airport_caps.get((zone, target["target_date"], int(target["rate_col"])))
-            city_airport_cap_active = cap_info is not None and not cap_ignored
-            city_airport_cap_applied = False
-            city_airport_max_rate = None
-            airport_reference_rate = None
-            if cap_info is not None:
-                base_rate_cap = float(cap_info["base_rate_cap_pln_day"])
-                city_airport_max_rate = round(base_rate_cap + group_adjustment, 2)
-                airport_reference_rate = (cap_info.get("airport_rates_by_group") or {}).get(normalize_code(group))
-                if not cap_ignored and minimum_rate > base_rate_cap + 0.001:
-                    raise ValueError(
-                        "Unresolved city Top1 airport cap/floor conflict; no workbook changes were saved. "
-                        f"{normalize_code(group)}/{zone}/{target['target_date'].isoformat()} "
-                        f"{target['duration_band']}: floor {format_rate_for_comment(minimum_rate)} > "
-                        f"cap {format_rate_for_comment(base_rate_cap)}."
-                    )
-                if not cap_ignored and base_rate > base_rate_cap:
-                    base_rate = base_rate_cap
-                    city_airport_cap_applied = True
-                    city_top1_airport_cap_applied_count += 1
-            new_rate = base_rate + group_adjustment
+            rate_details = calculate_effective_target_rate(
+                target, group, old_rate, config, family_minimum, cap_info, cap_ignored,
+            )
+            base_rate = rate_details["base_rate"]
+            suggested_rate = rate_details["suggested_rate"]
+            minimum_rate = rate_details["minimum_rate"]
+            minimum_reason = rate_details["minimum_reason"]
+            uncapped_base_rate = rate_details["uncapped_base_rate"]
+            group_adjustment = rate_details["group_adjustment"]
+            new_rate = rate_details["new_rate"]
+            city_airport_cap_active = rate_details["city_airport_cap_active"]
+            city_airport_cap_applied = rate_details["city_airport_cap_applied"]
+            city_airport_max_rate = rate_details["city_airport_max_rate"]
+            airport_reference_rate = rate_details["airport_reference_rate"]
+            if city_airport_cap_applied:
+                city_top1_airport_cap_applied_count += 1
             if old_rate is not None and abs(new_rate - old_rate) < min_change:
                 continue
 
