@@ -15,10 +15,10 @@ function decision(rates, { zone = 'GDLO', days = 3, date = '2026-11-02', mm = 15
   const view = { top_3: rates.map((rate, i) => offer(`Competitor ${i}`, rate)), mm_cars_rental: mm == null ? null : offer('MM Cars Rental', mm) };
   return buildPricingRecommendations({ locations: [location], scenarios: [{ start_date: date, rental_days: days,
     top_3_plus_mm_by_location: { [location]: view }, offer_views_by_location: { [location]: { automatic: view } } }] },
-  { ...pricing, excelPolicy: excel, locationRegistry: registry, brokerMarkupCalibration: markup || { enabled: false } }).decisions[0];
+  { ...pricing, recommendedFallbackToMinimum: false, excelPolicy: excel, locationRegistry: registry, brokerMarkupCalibration: markup || { enabled: false } }).decisions[0];
 }
 
-test('permanent production policy chooses the best feasible rank without a 10 PLN limit', () => {
+test('legacy best-rank policy chooses the best feasible rank without a 10 PLN limit', () => {
   for (const date of ['2026-11-02', '2027-06-01', '2028-02-01']) {
     for (const days of [2, 3, 4, 5, 7, 8, 14]) {
       for (const [rates, rank] of [[[60, 80, 100], 1], [[20, 60, 100], 2], [[20, 25, 60], 3]]) {

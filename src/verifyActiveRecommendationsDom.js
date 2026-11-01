@@ -2,7 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discovercars/scraper");
-const { buildPricingRecommendations, isMmCarsProvider } = require("./pricingRecommendations");
+const { buildPricingRecommendations, isMmCarsProvider, priceTop1Target } = require("./pricingRecommendations");
+const { resolveBrokerMarkupCalibration } = require('./brokerMarkupCalibration');
 
 const MAX_VERIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_CURRENT_RUN_AGE_MS = 12 * 60 * 60 * 1000;
@@ -67,6 +68,8 @@ function groupKeyOf(item) {
 }
 
 function isSourceVerified(item, sourceGeneratedAt, now = Date.now(), pricingOptions) {
+  if (item?.requires_popularity_verification
+    || (item?.recommendation_type === 'minimum_fallback' && !item.dom_repricing)) return false;
   if (pricingOptions !== undefined || item?.dom_repricing) {
     const record = item?.dom_repricing;
     const rebuilt = record?.input && rebuildDomRecommendation(record.input, record, pricingOptions);
@@ -169,15 +172,19 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
     generated_at: record.verified_at, source_run_id: item.source_run_id,
     top_3_plus_mm_by_location: { [item.location]: view },
     offer_views_by_location: { [item.location]: { automatic: view } },
+    recommended_ranking_by_location: { [item.location]: record.recommended_ranking },
     source_validation_by_location: { [item.location]: { status: "dom_recommendation_verified", reasons: [] } } };
   let decision;
   try {
     decision = buildPricingRecommendations({ generated_at: record.verified_at, run_id: item.source_run_id,
       locations: [item.location], scenarios: [scenario] }, pricingOptions).decisions[0];
   } catch { return null; }
-  if (!decision || (sorted.length < 3 && decision.action !== "hold" && decision.target_rank !== 1)) return null;
+  if (!decision || decision.requires_popularity_verification || decision.data_quality_status === 'popularity_unavailable'
+    || (sorted.length < 3 && decision.action !== "hold" && decision.target_rank !== 1
+      && decision.recommendation_type !== 'minimum_fallback')) return null;
   return { ...item, benchmark_provider: null, benchmark_rate_pln_day: null, target_rank: null,
     recommendation_type: null, site_target_rate_pln_day: null, predicted_site_rate_pln_day: null,
+    requires_popularity_verification: false,
     ...decision, dom_verification_status: "confirmed", dom_verification_reasons: [],
     dom_verified_at: record.verified_at, dom_repricing: record };
 }
@@ -247,6 +254,23 @@ async function verifyGroup(group, options) {
     ])),
     speedMode: options.speedMode,
     transmissionFilter: "automatic",
+    recommendedRankingLocations: options.pricingOptions?.recommendedFallbackToMinimum ? locations : [],
+    recommendedRankingNeeded: (location, offers) => {
+      const items = group.filter(item => item.location === location);
+      const policy = options.pricingOptions;
+      if (!policy?.recommendedFallbackToMinimum || !items.length) return false;
+      // Dated priority rules can carry their own floor/reserve; never skip their observation.
+      if (policy.priorityTop1Rules?.length) return true;
+      const automatic = offers.filter(offer => offer.currency === 'PLN' && offer.transmission === 'automatic');
+      if (!automatic.some(offer => isMmCarsProvider(offer.provider))) return false;
+      const competitor = automatic.filter(offer => !isMmCarsProvider(offer.provider))
+        .sort((a, b) => a.totalPrice - b.totalPrice)[0];
+      if (!competitor) return false;
+      const reserve = Math.max(0, ...Object.values(policy.excelPolicy?.group_price_parity?.premium_adjustments_pln_day || {}));
+      return items.some(item => priceTop1Target({ total_price: competitor.totalPrice, rental_days: rentalDays },
+        Number(item.mandatory_minimum_rate_pln_day || 0) + reserve,
+        resolveBrokerMarkupCalibration(item, policy.brokerMarkupCalibration), policy) == null);
+    },
     maxProvidersPerLocation: 30,
     artifactsDir: path.join(options.workDir, `date-${startDate}-${rentalDays}d`)
   });
@@ -275,6 +299,9 @@ async function verifyGroup(group, options) {
     const record = { version: 1, input, input_fingerprint: inputFingerprint(input),
       policy_fingerprint: inputFingerprint(options.pricingOptions || null), verified_at: new Date().toISOString(),
       offers: domOffers, evidence, previous_comparison_reasons: comparison.reasons };
+    if (options.pricingOptions?.recommendedFallbackToMinimum) {
+      record.recommended_ranking = output.recommendedRankingByLocation?.[item.location] || { status: 'failed', reason: 'missing_recommended_observation' };
+    }
     const rebuilt = rebuildDomRecommendation(item, record, options.pricingOptions);
     if (rebuilt) return rebuilt;
     if (options.pricingOptions !== undefined) {

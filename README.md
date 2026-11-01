@@ -20,6 +20,16 @@ Narzadzie CLI w Node.js + Playwright, ktore automatycznie:
 - obsluguje wiele opcji dat: domyslny tryb rolling i opcjonalny tryb weekday (czwartek/piatek).
 - w trybie konsolowym pokazuje jedna krotka tabele na scenariusz (Top1/Top2/Top3 + `MM Cars Rental`).
 
+## Kolejnosc rekomendacji cenowych
+
+Produkcyjna polityka `recommendedFallbackToMinimum` stosuje kolejno:
+
+1. Top1 cenowo wsrod automatow, jezeli pozwala na to minimum po uwzglednieniu stalego narzutu i parytetu klas.
+2. Gdy Top1 cenowo jest nieosiagalne: odczyt pierwszej rzeczywistej oferty w sortowaniu `Recommended` (Najpopularniejsze), nadal wsrod automatow. Jezeli jest to MM Cars Rental, cena bazowa zostaje bez zmian.
+3. Gdy pierwsza jest inna firma: obowiazujace minimum dla daty, lokalizacji i klasy. Nie jest to gwarancja Top1 ani Top3.
+
+Brak poprawnego odczytu Najpopularniejsze blokuje zmiane rynkowa, zamiast oznaczac brak Top1. Wstepny kandydat minimum (`popularity_pending`) wymaga niezaleznej weryfikacji DOM przed eksportem. Chronione daty, wykluczenia klas i obowiazkowe wyzsze minima pozostaja nadrzedne. Wspolna komorka przedzialu duration pozostaje bez zmian, jezeli ktorykolwiek objety scenariusz wymaga zachowania ceny.
+
 ## Struktura projektu
 
 - `package.json`

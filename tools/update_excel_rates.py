@@ -13,7 +13,7 @@ import re
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from copy import copy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from textwrap import wrap
@@ -797,7 +797,9 @@ def target_matches_recommendation_types(target: dict[str, Any], recommendation_t
 
 
 def get_force_top1_base_offset(target: dict[str, Any], config: dict[str, Any]) -> float:
-    if target.get("recommendation_type") not in {"force_top1_maintain", "force_top1_undercut", "priority_top3"}:
+    if target.get("recommendation_type") not in {
+        "force_top1_maintain", "force_top1_undercut", "minimum_fallback", "priority_top3",
+    }:
         return 0
     parity = get_group_price_parity(config)
     if parity is None:
@@ -991,6 +993,44 @@ def append_city_top1_airport_cap_reason(change: dict[str, Any], reason: str) -> 
     return f"{reason} {cap_text}".strip()
 
 
+def has_confirmed_competitor_recommended_evidence(item: dict[str, Any]) -> bool:
+    ranking = item.get("recommended_ranking")
+    if not isinstance(ranking, dict):
+        return False
+    if (ranking.get("status") != "confirmed" or ranking.get("sort") != "Recommended"
+            or ranking.get("transmission") != "automatic"):
+        return False
+
+    offer = ranking.get("top_offer")
+    if not isinstance(offer, dict) or offer.get("transmission") != "automatic" or offer.get("currency") != "PLN":
+        return False
+    raw_provider = offer.get("provider_name")
+    if not isinstance(raw_provider, str) or not raw_provider.strip():
+        return False
+    provider = re.sub(r"\s+", " ", raw_provider).strip()
+    normalized_provider = re.sub(r"[^a-z0-9]+", " ", provider.lower())
+    if "mm cars rental" in normalized_provider:
+        return False
+    raw_total_price = offer.get("total_price")
+    if isinstance(raw_total_price, bool) or not isinstance(raw_total_price, (int, float)):
+        return False
+    total_price = parse_number(raw_total_price)
+    if total_price is None or total_price <= 0:
+        return False
+
+    observed_at = ranking.get("observed_at")
+    if not isinstance(observed_at, str) or "T" not in observed_at:
+        return False
+    try:
+        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        return False
+    age_seconds = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
+    return 0 <= age_seconds <= 12 * 60 * 60
+
+
 def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
     benchmark_provider = change.get("benchmark_provider") or "konkurent"
@@ -1026,6 +1066,14 @@ def get_recommendation_reason_pl(change: dict[str, Any]) -> str:
             "MM Cars Rental nie jest top1. Cel jest ustawiony 1 PLN ponizej "
             f"aktualnego top1: {benchmark_provider} ({benchmark_rate} PLN)."
         )
+    elif recommendation_type == "minimum_fallback":
+        ranking = change.get("recommended_ranking") or {}
+        top_offer = ranking.get("top_offer") or {}
+        provider = str(top_offer.get("provider_name") or benchmark_provider)
+        reason = (
+            f"Fallback do minimum ceny: {provider} jest pierwszy w sortowaniu Recommended; "
+            "stawka wynika z obowiazujacego minimum, bez celu rankingowego."
+        )
     else:
         reason = str(change.get("reason") or "")
     return append_city_top1_airport_cap_reason(change, reason)
@@ -1042,6 +1090,8 @@ def get_recommendation_outcome_pl(change: dict[str, Any]) -> str:
     recommendation_type = change.get("recommendation_type")
     if recommendation_type == "group_parity":
         outcome = "spojnosc stawek grup bazowych oraz korekta skonfigurowanych grup premium."
+    elif recommendation_type == "minimum_fallback":
+        outcome = "stawka ograniczona do obowiazujacego minimum ceny; bez celu rankingowego."
     elif recommendation_type == "top1_gap":
         outcome = "utrzymanie top1 przy cenie 1 PLN ponizej top2."
     elif recommendation_type in {"top3_small_decrease", "priority_top3"}:
@@ -1506,6 +1556,10 @@ def build_rate_comment(change: dict[str, Any]) -> Comment:
         )
     if change.get("target_achievable") is False:
         lines.append("Cel rankingowy: wymaga kontroli")
+    if change.get("recommendation_type") == "minimum_fallback":
+        lines.append(f"Rekomendacja: {get_recommendation_label_pl(change)}.")
+        lines.append(f"Powod rekomendacji: {format_for_changed_positions(get_recommendation_reason_pl(change))}")
+        lines.append(f"Wynik: {get_recommendation_outcome_pl(change)}")
     return Comment("\n".join(lines), "Codex")
 
 
@@ -1977,6 +2031,8 @@ def get_recommendation_label_pl(change: dict[str, Any]) -> str:
         return "Obowiazkowe minimum strefowe"
     if recommendation_type == "mandatory_group_floor":
         return "Obowiazkowe minimum klasy"
+    if recommendation_type == "minimum_fallback":
+        return "Fallback do minimum ceny"
     if recommendation_type == "priority_top3":
         return f"Priorytet top{int(parse_number(change.get('target_rank')) or 3)} przy floor"
     if recommendation_type == "group_parity":
@@ -2734,6 +2790,21 @@ def build_targets(
         if not active:
             continue
 
+        invalid_fallback_evidence = [
+            item for item in candidates
+            if item.get("recommendation_type") == "minimum_fallback"
+            and not has_confirmed_competitor_recommended_evidence(item)
+        ]
+        if invalid_fallback_evidence:
+            skipped.append({
+                **active[0],
+                "skip_reason": (
+                    "Duration-band update blocked because minimum fallback lacks fresh, confirmed "
+                    "automatic Recommended evidence with a PLN competitor first."
+                ),
+            })
+            continue
+
         invalid_constraints = [
             item for item in candidates
             if item.get("data_quality_status") not in {None, "", "ok"}
@@ -2784,9 +2855,28 @@ def build_targets(
                 continue
         ranked_band = representative.get("priority_rule_id") or get_pricing_rules(config).get("bestAvailableRank") is True
         priority_rank = max((int(item.get("target_rank") or 1) for item in active), default=1) if ranked_band else None
+        has_minimum_fallback = "minimum_fallback" in source_types
+        if has_minimum_fallback:
+            aggregated_recommendation_type = "minimum_fallback"
+            aggregated_target_rank = None
+        elif priority_rank:
+            aggregated_recommendation_type = (
+                "priority_top3" if priority_rank > 1 else representative.get("recommendation_type")
+            )
+            aggregated_target_rank = priority_rank
+        else:
+            aggregated_recommendation_type = representative.get("recommendation_type")
+            aggregated_target_rank = representative.get("target_rank")
+        fallback_evidence = next(
+            (item.get("recommended_ranking") for item in candidates
+             if item.get("recommendation_type") == "minimum_fallback"),
+            None,
+        )
         targets[zone][target_date].append({
             **representative,
-            **({"target_rank": priority_rank, "recommendation_type": "priority_top3" if priority_rank > 1 else representative.get("recommendation_type")} if priority_rank else {}),
+            "target_rank": aggregated_target_rank,
+            "recommendation_type": aggregated_recommendation_type,
+            **({"recommended_ranking": fallback_evidence} if has_minimum_fallback else {}),
             "zone": zone,
             "target_date": target_date,
             "rate_col": representative["rate_col"],
@@ -3823,6 +3913,8 @@ def apply_updates(
                 "action": actual_action,
                 "recommendation_action": target["action"],
                 "recommendation_type": target.get("recommendation_type", ""),
+                **({"recommended_ranking": target.get("recommended_ranking")}
+                   if target.get("recommended_ranking") else {}),
                 "target_rank": target.get("target_rank", ""),
                 "reason": target.get("reason", ""),
                 "location": target.get("location", ""),

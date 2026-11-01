@@ -166,6 +166,13 @@ function listOfferCurrencies(offers) {
   )];
 }
 
+function priceTop1Target(competitor, minimumImport, calibration, options) {
+  const rate = toDailyRate(competitor);
+  if (rate == null) return null;
+  const target = roundRate(rate - options.undercutBufferPlnDay, options);
+  return roundRate(siteToImportRate(target, calibration), options) >= minimumImport ? target : null;
+}
+
 function buildRecommendationForLocation({ rootPayload, scenario, location, options, locationZones, zoneKinds, top1SignalIndex, markupEvidence }) {
   const priorityRule = (options.priorityTop1Rules || []).find((rule) =>
     (rule.locations.includes("*") || rule.locations.includes(location))
@@ -279,6 +286,20 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       options, null, 'markup_needs_review');
   }
 
+  if (options.recommendedFallbackToMinimum) {
+    const policy = options.excelPolicy;
+    const date = String(scenario.start_date || scenario.pickup_date || '').slice(0, 10);
+    if (!policy || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return buildNoopRecommendation(base, 'Brak konfiguracji ochrony cen.', options, null, 'missing_policy');
+    }
+    if (policy.protected_rate_periods?.some(period => period.start_date <= date && date <= period.end_date)) {
+      return buildNoopRecommendation(base, 'Chroniony termin: zachowaj stawke bazowa.', options, null, 'protected_date');
+    }
+    if (scenario.group && (!policy.apply_groups?.includes(scenario.group) || policy.excluded_groups?.includes(scenario.group))) {
+      return buildNoopRecommendation(base, 'Klasa nie jest dopuszczona do zmian rynkowych.', options, null, 'class_excluded');
+    }
+  }
+
   if (options.bestAvailableRank && (!mmOffer || mmRate == null)) {
     return buildNoopRecommendation(base, "Nie znaleziono MM Cars Rental dla tego scenariusza/lokalizacji.", options, null, "missing_mm");
   }
@@ -289,6 +310,49 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
       : Math.max(0, ...Object.values(options.excelPolicy?.group_price_parity?.premium_adjustments_pln_day || {}));
     const minimumImport = Math.max(locationTypeMinimum || priorityRule?.minimumRatePlnDay || 0, mandatoryMinimum) + reserve;
     const competitors = topOffers.filter((offer) => !isMmCarsProvider(offer.provider_name));
+    if (options.recommendedFallbackToMinimum) {
+      const competitor = competitors[0];
+      const rate = toDailyRate(competitor);
+      if (!competitor || rate == null) {
+        return buildNoopRecommendation(base, 'Brak benchmarku konkurencji.', options, null, 'missing_top1_benchmark');
+      }
+      const siteTarget = priceTop1Target(competitor, minimumImport, calibration, options);
+      if (siteTarget != null) {
+        return buildActiveRecommendation({ base, options,
+          action: siteTarget > mmRate ? 'increase' : 'decrease',
+          recommendationType: mmRank === 1 ? 'force_top1_maintain' : 'force_top1_undercut',
+          targetRank: 1, reason: 'Top1 cenowo w automatach przy obowiazujacym minimum.', benchmarkOffer: competitor, siteTarget });
+      }
+      if (mandatoryMinimum <= 0) {
+        return buildNoopRecommendation(base, 'Brak zatwierdzonego minimum.', options, null, 'missing_minimum');
+      }
+      const recommended = scenario.recommended_ranking_by_location?.[location];
+      if (recommended) {
+        const observed = Date.parse(recommended.observed_at);
+        const first = recommended.top_offer;
+        if (recommended.status !== 'confirmed' || recommended.sort !== 'Recommended'
+          || recommended.transmission !== 'automatic' || !Number.isFinite(observed)
+          || observed > Date.now() || Date.now() - observed > 12 * 60 * 60 * 1000
+          || typeof first?.provider_name !== 'string' || !first.provider_name.trim()
+          || first.currency !== 'PLN' || first.transmission !== 'automatic'
+          || !Number.isFinite(first.total_price) || first.total_price <= 0) {
+          return buildNoopRecommendation(base, 'Nie potwierdzono widoku Najpopularniejsze; zachowaj baze.', options, null, 'popularity_unavailable');
+        }
+        if (isMmCarsProvider(first.provider_name)) {
+          return { ...buildNoopRecommendation(base, 'MM jest Top1 w Najpopularniejsze; zachowaj stawke bazowa.', options, null, 'popular_top1_preserved'),
+            recommended_ranking: recommended };
+        }
+      }
+      const result = buildActiveRecommendation({ base, options,
+        action: importToSiteRate(minimumImport, calibration) > mmRate ? 'increase' : 'decrease',
+        recommendationType: 'minimum_fallback', targetRank: null,
+        reason: 'Top1 cenowo niemozliwe i MM nie jest pierwsze w Najpopularniejsze: ustaw obowiazujace minimum, bez gwarancji rankingu.',
+        benchmarkOffer: competitor, siteTarget: importToSiteRate(minimumImport, calibration) });
+      return { ...result, recommended_ranking: recommended || null,
+        requires_popularity_verification: !recommended,
+        data_quality_status: recommended ? 'ok' : 'popularity_pending',
+        ...(!recommended ? { reason: 'Oczekiwanie na sprawdzenie Najpopularniejsze; minimum nie jest jeszcze dopuszczone do Excela.' } : {}) };
+    }
     for (const [index, competitor] of competitors.entries()) {
       const rate = toDailyRate(competitor);
       if (rate == null) continue;
@@ -597,5 +661,6 @@ module.exports = {
   DEFAULT_OPTIONS,
   buildPricingRecommendations,
   isMmCarsProvider,
+  priceTop1Target,
   toDailyRate
 };
