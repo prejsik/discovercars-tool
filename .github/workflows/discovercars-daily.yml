@@ -570,6 +570,45 @@ jobs:
 
           echo "merge_source=$merge_source" >> "$GITHUB_OUTPUT"
 
+      - name: Setup optional verification planner Python
+        id: plan-python
+        timeout-minutes: 2
+        if: needs.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install optional verification planner dependencies
+        id: plan-dependencies
+        timeout-minutes: 3
+        if: steps.plan-python.outcome == 'success'
+        continue-on-error: true
+        run: timeout 120s python -m pip install "openpyxl>=3.1,<4"
+
+      - name: Plan Excel-relevant DOM verification
+        timeout-minutes: 4
+        if: steps.plan-dependencies.outcome == 'success' && steps.scrape-quality.outputs.status != 'failure'
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [[ ! -f output/final-pricing-recommendations.json ]]; then
+            exit 0
+          fi
+          if timeout --kill-after=10s 180s python tools/plan_recommendation_verification.py \
+            --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
+            --recommendations output/final-pricing-recommendations.json \
+            --config excel-rate-update.config.example.json \
+            --output output/planned-pricing-recommendations.tmp.json \
+            --summary output/recommendation-verification-plan.json \
+            && node src/validateVerificationPlan.js \
+              output/final-pricing-recommendations.json output/planned-pricing-recommendations.tmp.json; then
+            mv output/planned-pricing-recommendations.tmp.json output/final-pricing-recommendations.json
+          else
+            echo "::warning::Optional Excel planning unavailable; retaining unpruned recommendations for full verification."
+            rm -f output/planned-pricing-recommendations.tmp.json
+          fi
+
       - name: Forecast DOM workload and prepare shards
         id: workload
         if: needs.gate.outputs.should_run == 'true' && steps.scrape-quality.outputs.status != 'failure'
@@ -612,6 +651,7 @@ jobs:
             output/previous-full-final-pricing-recommendations.json
             output/broker-markup-calibration-input.json
             output/recommendation-workload.json
+            output/recommendation-verification-plan.json
             output/dom-shards
             output/run-log.txt
           if-no-files-found: warn

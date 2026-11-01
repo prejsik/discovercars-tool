@@ -1916,6 +1916,11 @@ def get_pricing_hierarchy_legend_text(config: dict[str, Any]) -> str:
         mandatory += ("Obowiazkowe minimum typu lokalizacji zastepuje zwykle minima, takze priorytetowe, "
                       "tylko dla wskazanych dopuszczonych i niewykluczonych klas oraz duration, poza chronionymi datami. "
                       "Nie wygasa z priorytetem Top1; wyzsze minima obowiazkowe pozostaja nadrzedne. ")
+    if get_pricing_rules(config).get("recommendedFallbackToMinimum"):
+        mandatory += ("Cel rynkowy: Top1 cenowo w automatach; gdy niemozliwy, tylko w pierwszych 20 dniach "
+                      "kalendarzowych zakresu scrapera sprawdzamy Najpopularniejsze. MM pierwsze: zachowaj baze; "
+                      "potwierdzony konkurent pierwszy: minimum bez gwarancji rankingu. Poza 20 dniami lub przy "
+                      "braku potwierdzenia zachowaj baze, jesli Top1 cenowo jest niemozliwe. ")
     return mandatory + "Hierarchia pozostalych zmian od nadrzednej: " + " > ".join(
         labels[rule] for rule in get_pricing_policy(config)["precedence"]
     ) + ". Konflikt floor/cap: pomin sprzeczny limit miasta, zachowaj minimum i realizuj rekomendacje."

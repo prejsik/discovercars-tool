@@ -86,6 +86,15 @@ The CSV contains:
 - A single Chromium process is reused within a scraper process, while every location still runs in a fresh isolated browser context.
 - DOM readiness uses a fast result signal first and automatically falls back to the previous full loading and network-idle checks.
 
+## Price verification scope
+
+- Collection still includes every rental duration from 2 through 14 days; shared Excel bands do not reduce source coverage.
+- Under the price Top1 / Recommended / minimum policy, final DOM verification needs a proven price-ordered automatic prefix containing MM and the cheapest competitor, not three suppliers. Default collection and report Top3 coverage are unchanged.
+- Recommended sorting is checked only when price Top1 is infeasible, and only for the first 20 calendar pickup dates of the run. The anchor is saved before sharding and reused during live repricing and retries.
+- Beyond that window, feasible price Top1 remains available; an infeasible price Top1 preserves the baseline instead of authorizing a minimum fallback.
+- Before verification sharding, an optional read-only Excel planner skips only checks proven unable to affect eligible workbook cells. A baseline already at its floor is not proof: a fresh price can still justify an increase.
+- If the planner is unavailable or times out, the existing full verification path runs. Unknown DOM evidence preserves rates. Protected dates, excluded classes and explicit mandatory-floor exceptions retain their existing precedence.
+
 ## Notes
 
 - Production location names, DiscoverCars identifiers, import zones, aliases, and the daily profile live in `locations.config.json`.

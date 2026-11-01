@@ -43,6 +43,19 @@ function normalizeScenarios(payload) {
   return payload ? [payload] : [];
 }
 
+function pickupDay(value) {
+  const date = String(value || '').slice(0, 10);
+  const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00Z`) : NaN;
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === date
+    ? timestamp / 86400000 : null;
+}
+
+function isRecommendedDateInScope(date, options) {
+  const first = pickupDay(options?.recommendedWindowStartDate);
+  const day = pickupDay(date);
+  return first !== null && day !== null && day >= first && day < first + 20;
+}
+
 function toDailyRate(offer) {
   const totalPrice = Number(offer?.total_price);
   if (!Number.isFinite(totalPrice)) {
@@ -323,6 +336,11 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
           recommendationType: mmRank === 1 ? 'force_top1_maintain' : 'force_top1_undercut',
           targetRank: 1, reason: 'Top1 cenowo w automatach przy obowiazujacym minimum.', benchmarkOffer: competitor, siteTarget });
       }
+      if (!isRecommendedDateInScope(scenario.start_date || scenario.pickup_date, options)) {
+        return buildNoopRecommendation(base,
+          'Top1 cenowo niemozliwe. Poza pierwszymi 20 dniami zakresu nie sprawdzamy Najpopularniejsze; zachowaj baze.',
+          options, null, 'popularity_outside_window');
+      }
       if (mandatoryMinimum <= 0) {
         return buildNoopRecommendation(base, 'Brak zatwierdzonego minimum.', options, null, 'missing_minimum');
       }
@@ -516,6 +534,14 @@ function buildRecommendationForLocation({ rootPayload, scenario, location, optio
 
 function buildPricingRecommendations(payload, rawOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...(rawOptions || {}) };
+  const scenarios = normalizeScenarios(payload);
+  if (options.recommendedFallbackToMinimum && options.recommendedWindowStartDate === undefined) {
+    // Persist the full run's anchor so isolated shards and DOM repricing cannot move the window.
+    const dates = [...(Array.isArray(payload?.start_dates) ? payload.start_dates : []),
+      ...scenarios.map(item => item.start_date || item.pickup_date)]
+      .filter(value => pickupDay(value) !== null).map(value => String(value).slice(0, 10)).sort();
+    options.recommendedWindowStartDate = dates[0] || null;
+  }
   if (options.bestAvailableRank && !options.excelPolicy) {
     options.excelPolicy = JSON.parse(fs.readFileSync(path.resolve(options.excelPolicyFile || path.join(__dirname, '..', 'excel-rate-update.config.example.json')), 'utf8'));
   }
@@ -536,7 +562,6 @@ function buildPricingRecommendations(payload, rawOptions = {}) {
   const evidence = options.brokerMarkupCalibration?.manualOnly === true
     ? new Map() : buildCurrentMarkupEvidence(payload, options.currentBaseline, options.calibrationNow);
   const top1SignalIndex = buildTop1RateSignalIndex(payload, options);
-  const scenarios = normalizeScenarios(payload);
   const recommendations = [];
   const decisions = [];
   const skipped = [];
@@ -661,6 +686,7 @@ module.exports = {
   DEFAULT_OPTIONS,
   buildPricingRecommendations,
   isMmCarsProvider,
+  isRecommendedDateInScope,
   priceTop1Target,
   toDailyRate
 };

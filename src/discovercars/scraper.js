@@ -394,7 +394,7 @@ class DiscoverCarsScraper {
   }
 
   async runSingleLocationWithBrowser(browser, location, options = {}) {
-    const domOnly = this.config.domOnly === true || options.domOnly === true;
+    const domOnly = this.isPriceTop1RankingGoal() || this.config.domOnly === true || options.domOnly === true;
     const captureRecommendedRanking = this.isRecommendedRankingRequested(location);
     const requiredProviders = options.requiredProviders || this.config.requiredDomProvidersByLocation?.[location] || [];
     const domEvidence = createDomEvidence();
@@ -502,7 +502,10 @@ class DiscoverCarsScraper {
       const cheapest = locationOffers[0];
       const domProviders = new Set(filterOffersByTransmission(allOffers, "automatic").map((offer) => normalizeProviderForComparison(offer.provider)));
       const provenSmallListing = domEvidence.listing_complete && domEvidence.ranking_complete;
-      const incompleteReasons = domProviders.size < 3 && !provenSmallListing ? ["dom_top3_incomplete"] : [];
+      const priceTop1Proven = this.isPriceTop1RankingGoal() && domEvidence.ranking_goal === "price_top1";
+      const incompleteReasons = this.isPriceTop1RankingGoal()
+        ? (priceTop1Proven ? [] : ["dom_price_top1_incomplete"])
+        : domProviders.size < 3 && !provenSmallListing ? ["dom_top3_incomplete"] : [];
       if (!domEvidence.automatic_filter_confirmed) incompleteReasons.push("dom_automatic_filter_unconfirmed");
       if (!domEvidence.price_sort_confirmed) incompleteReasons.push("dom_price_sort_unconfirmed");
       if (!domEvidence.ranking_complete) incompleteReasons.push("dom_ranking_incomplete");
@@ -545,7 +548,11 @@ class DiscoverCarsScraper {
   }
 
   isApiFirstEnabled() {
-    return this.config.apiFirst !== false && this.config.domOnly !== true;
+    return !this.isPriceTop1RankingGoal() && this.config.apiFirst !== false && this.config.domOnly !== true;
+  }
+
+  isPriceTop1RankingGoal() {
+    return this.config.domRankingGoal === "price_top1";
   }
 
   shouldValidateApiOutcome(location, offers) {
@@ -2234,11 +2241,13 @@ class DiscoverCarsScraper {
   }
 
   async extractOffersFromDomWithScroll(page, fallbackLocation, options = {}) {
+    const priceTop1Goal = this.isPriceTop1RankingGoal();
     const transmissionFilter = normalizeTransmissionFilter(this.config.transmissionFilter);
     const needsAutomaticEvidence = transmissionFilter === "automatic" || this.config.domOnly === true || options.domOnly === true;
     const evidence = options.domEvidence || createDomEvidence();
     const previousReadCount = evidence.read_pass_count;
     Object.assign(evidence, createDomEvidence(), { read_pass_count: previousReadCount });
+    delete evidence.ranking_goal;
     const maxPasses = needsAutomaticEvidence ? clampPositiveInteger(this.config.domReadMaxPasses, 24, 1, 60) : 1;
     const budget = options.domReadBudget || {};
     const deadline = budget.deadline
@@ -2269,6 +2278,8 @@ class DiscoverCarsScraper {
     let pageNumber = 1;
     let pageOffset = 0;
     let pendingPage = null;
+    let firstPageTopConfirmed = false;
+    let firstPageQuoteKey = null;
     let priorPageQuoteKeys = new Set();
 
     if (needsAutomaticEvidence && evidence.read_pass_count < maxPasses && Date.now() < deadline) {
@@ -2345,6 +2356,10 @@ class DiscoverCarsScraper {
         stableEndPasses = 0;
         stableRankingPasses = 0;
         previousRankingSignature = null;
+        if (priceTop1Goal) {
+          firstPageTopConfirmed = false;
+          firstPageQuoteKey = null;
+        }
       }
       previousExpected = state.expectedCount;
       // Indexed cards allow a lazy/virtual list to be read across passes without filling gaps from API data.
@@ -2375,17 +2390,42 @@ class DiscoverCarsScraper {
       const providers = new Set(prefix.map((offer) => normalizeProviderForComparison(offer.provider)));
       const requiredPresent = requiredProviders.every((provider) => providers.has(normalizeProviderForComparison(provider)));
       const controlsConfirmed = state.automaticConfirmed && state.priceConfirmed;
+      if (priceTop1Goal && pageOffset === 0 && observedPage === 1 && state.atTop && !state.pending
+        && controlsConfirmed && trustworthyRead && orderValid && prefix.length
+        && state.cards[0]?.index === 0 && state.cards[0]?.quoteKey
+        && state.cards[0]?.offer && identity(state.cards[0].offer) === identity(byIndex.get(0))) {
+        firstPageTopConfirmed = true;
+        firstPageQuoteKey = state.cards[0].quoteKey;
+      }
+      const currentPageOffersConfirmed = state.cards.length > 0 && state.cards.every(({ index, offer }) => {
+        const accumulatedOffer = byIndex.get(pageOffset + index);
+        return offer && accumulatedOffer && identity(offer) === identity(accumulatedOffer);
+      });
+      const priceTop1Covered = firstPageTopConfirmed && firstPageQuoteKey
+        && quoteKeysByIndex.get(0) === firstPageQuoteKey && currentPageOffersConfirmed && prefix.length > 1
+        && prefix.every((offer) => validAutomatic(offer) && normalizeCurrency(offer.currency) === "PLN")
+        && prefix.some((offer) => isMmCarsRentalProvider(offer.provider))
+        && prefix.some((offer) => !isMmCarsRentalProvider(offer.provider));
       const fullCount = state.expectedCount != null && state.expectedCount > 0
         && prefix.length === state.expectedCount && evidence.observed_offer_count === state.expectedCount
         && cards.some(({ index }) => index === state.expectedCount - 1);
       stableEndPasses = controlsConfirmed && trustworthyRead && orderValid && fullCount && state.atListEnd
         && !state.pagination?.nextAvailable && !state.pending ? stableEndPasses + 1 : 0;
       evidence.listing_complete = stableEndPasses >= 2;
-      const rankingEligible = controlsConfirmed && trustworthyRead && orderValid && !state.pending && requiredPresent && providers.size >= 3;
+      const rankingEligible = controlsConfirmed && trustworthyRead && orderValid && !state.pending && requiredPresent
+        && (priceTop1Goal ? priceTop1Covered : providers.size >= 3);
       const rankingSignature = JSON.stringify(prefix.map(identity));
       stableRankingPasses = rankingEligible ? (previousRankingSignature === rankingSignature ? stableRankingPasses + 1 : 1) : 0;
       previousRankingSignature = rankingEligible ? rankingSignature : null;
-      evidence.ranking_complete = stableRankingPasses >= 2 || (providers.size > 0 && evidence.listing_complete);
+      const stableRankingComplete = stableRankingPasses >= 2;
+      evidence.ranking_complete = priceTop1Goal
+        ? stableRankingComplete
+        : stableRankingComplete || (providers.size > 0 && evidence.listing_complete);
+      if (priceTop1Goal && stableRankingComplete && priceTop1Covered) {
+        evidence.ranking_goal = "price_top1";
+      } else {
+        delete evidence.ranking_goal;
+      }
       if (evidence.ranking_complete || evidence.listing_complete) break;
 
       if ((!controlsConfirmed || !prefix.length) && controlAttempts < retryLimit + 1) {
@@ -2412,6 +2452,7 @@ class DiscoverCarsScraper {
             else window.scrollTo(0, 0);
           }, unresolvedIndex).catch(() => {}));
         } else if (controlsConfirmed && trustworthyRead && orderValid && !state.pending && pageFullyRead && priorPagesIdentified
+          && (!priceTop1Goal || firstPageTopConfirmed)
           && state.atListEnd && state.pagination?.nextAvailable) {
           try {
             await bounded(page.locator(".Pagination-NavigationButton_next:visible").first().click({

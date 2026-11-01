@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discovercars/scraper");
-const { buildPricingRecommendations, isMmCarsProvider, priceTop1Target } = require("./pricingRecommendations");
+const { buildPricingRecommendations, isMmCarsProvider, priceTop1Target, isRecommendedDateInScope } = require("./pricingRecommendations");
 const { resolveBrokerMarkupCalibration } = require('./brokerMarkupCalibration');
 
 const MAX_VERIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
@@ -161,7 +161,11 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
   const completeSmallMarket = evidence.listing_complete === true
     && Number.isSafeInteger(evidence.expected_offer_count) && evidence.expected_offer_count > 0
     && evidence.observed_offer_count === evidence.expected_offer_count;
-  if (sorted.length < 3 && (!completeSmallMarket || sorted.length < 2)) return null;
+  const completePriceTop1 = pricingOptions.recommendedFallbackToMinimum === true
+    && evidence.ranking_goal === 'price_top1'
+    && sorted.some(offer => isMmCarsProvider(offer.provider))
+    && sorted.some(offer => !isMmCarsProvider(offer.provider));
+  if (sorted.length < 3 && ((!completeSmallMarket && !completePriceTop1) || sorted.length < 2)) return null;
   const days = Number(item.rental_days);
   if (!Number.isSafeInteger(days) || days < 1 || days > 14) return null;
   const formatted = sorted.map((offer) => ({ provider_name: offer.provider, total_price: offer.totalPrice,
@@ -230,6 +234,8 @@ async function verifyGroup(group, options) {
   const startDate = String(first.start_date || first.pickup_date).slice(0, 10);
   const rentalDays = Number(first.rental_days) || 1;
   const locations = [...new Set(group.map((item) => item.location))];
+  const priceTop1Only = options.pricingOptions?.recommendedFallbackToMinimum === true;
+  const recommendedInScope = priceTop1Only && isRecommendedDateInScope(startDate, options.pricingOptions);
   const scraper = new DiscoverCarsScraper({
     baseUrl: "https://www.discovercars.com",
     locations,
@@ -248,17 +254,18 @@ async function verifyGroup(group, options) {
     apiFirst: false,
     domOnly: true,
     browserProvider: options.browserProvider,
+    domRankingGoal: priceTop1Only ? 'price_top1' : undefined,
     requiredDomProvidersByLocation: Object.fromEntries(locations.map((location) => [location,
-      [...new Set(group.filter((item) => item.location === location)
+      priceTop1Only ? [] : [...new Set(group.filter((item) => item.location === location)
         .flatMap((item) => [item.top1_provider, item.top2_provider, item.top3_provider, item.mm_provider]).filter(Boolean))]
     ])),
     speedMode: options.speedMode,
     transmissionFilter: "automatic",
-    recommendedRankingLocations: options.pricingOptions?.recommendedFallbackToMinimum ? locations : [],
+    recommendedRankingLocations: recommendedInScope ? locations : [],
     recommendedRankingNeeded: (location, offers) => {
       const items = group.filter(item => item.location === location);
       const policy = options.pricingOptions;
-      if (!policy?.recommendedFallbackToMinimum || !items.length) return false;
+      if (!recommendedInScope || !items.length) return false;
       // Dated priority rules can carry their own floor/reserve; never skip their observation.
       if (policy.priorityTop1Rules?.length) return true;
       const automatic = offers.filter(offer => offer.currency === 'PLN' && offer.transmission === 'automatic');
