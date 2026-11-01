@@ -2483,8 +2483,14 @@ class DiscoverCarsScraper {
       ]));
       return { state, identitySignature, textSignature: await bounded(getCardTextSignature()) };
     };
-    const firstListPositionConfirmed = (state) => state.atTop && state.indexed
-      && state.cards?.[0]?.index === 0
+    const firstQuoteIdentity = (state) => {
+      const firstCard = state.cards?.[0];
+      if (firstCard?.quoteKey) return firstCard.quoteKey;
+      const offerId = firstCard?.offer?.offerId;
+      return offerId == null ? null : `id:${offerId}`;
+    };
+    const indexedTopConfirmed = (state) => state.atTop && state.indexed && state.cards?.[0]?.index === 0;
+    const firstListPositionConfirmed = (state) => indexedTopConfirmed(state) && state.cards?.[0]?.index === 0
       && (!state.pagination || state.pagination.page === 1);
     let sort = null;
     let sortChanged = false;
@@ -2496,6 +2502,88 @@ class DiscoverCarsScraper {
         return failed("recommended_sort_unavailable");
       }
       await bounded(page.evaluate(() => window.scrollTo(0, 0)));
+
+      const topDeadline = Math.min(deadline - 3000, Date.now() + 800);
+      let initialSnapshot = null;
+      while (Date.now() < topDeadline) {
+        initialSnapshot = await readDomSnapshot();
+        if (indexedTopConfirmed(initialSnapshot.state)) break;
+        await bounded(page.waitForTimeout(Math.min(100, Math.max(1, topDeadline - Date.now()))));
+      }
+      if (!initialSnapshot || !indexedTopConfirmed(initialSnapshot.state)) {
+        return failed("recommended_list_position_unconfirmed");
+      }
+      if (!initialSnapshot.state.automaticConfirmed) {
+        return failed("automatic_filter_unconfirmed");
+      }
+      if (!initialSnapshot.state.priceConfirmed) {
+        return failed("price_sort_unconfirmed");
+      }
+
+      let firstPageIdentitySignature = null;
+      if (initialSnapshot.state.pagination) {
+        const pageNumber = initialSnapshot.state.pagination.page;
+        if (pageNumber == null) {
+          return failed("recommended_list_position_unconfirmed");
+        }
+        if (pageNumber > 1) {
+          const pageOneButton = page.locator(".Pagination .Pagination-Pages button.Pagination-Button")
+            .filter({ hasText: /^1$/ }).first();
+          if (!(await bounded(pageOneButton.isVisible().catch(() => false)))
+            || !(await bounded(pageOneButton.isEnabled().catch(() => false)))) {
+            return failed("recommended_page_one_unavailable");
+          }
+
+          const pageTwoFirstQuoteIdentity = firstQuoteIdentity(initialSnapshot.state);
+          if (!pageTwoFirstQuoteIdentity) {
+            return failed("recommended_page_refresh_unconfirmed");
+          }
+          await bounded(pageOneButton.click({ timeout: actionTimeout() }));
+          await bounded(page.evaluate(() => window.scrollTo(0, 0)));
+
+          const pageOneDeadline = Math.min(deadline - 3000, Date.now() + 2500);
+          let previousPageOneIdentity = null;
+          let previousPageOneText = null;
+          let stablePageOneReads = 0;
+          while (Date.now() < pageOneDeadline) {
+            const snapshot = await readDomSnapshot();
+            if (!snapshot.state.automaticConfirmed) {
+              return failed("automatic_filter_unconfirmed");
+            }
+            if (!snapshot.state.priceConfirmed) {
+              return failed("price_sort_unconfirmed");
+            }
+            const currentFirstQuoteIdentity = firstQuoteIdentity(snapshot.state);
+            if (!snapshot.state.pagination || snapshot.state.pagination.page !== 1
+              || !firstListPositionConfirmed(snapshot.state) || snapshot.state.pending
+              || !currentFirstQuoteIdentity || currentFirstQuoteIdentity === pageTwoFirstQuoteIdentity) {
+              previousPageOneIdentity = null;
+              previousPageOneText = null;
+              stablePageOneReads = 0;
+            } else if (snapshot.identitySignature === previousPageOneIdentity
+              && snapshot.textSignature === previousPageOneText) {
+              stablePageOneReads += 1;
+            } else {
+              previousPageOneIdentity = snapshot.identitySignature;
+              previousPageOneText = snapshot.textSignature;
+              stablePageOneReads = 1;
+            }
+
+            if (stablePageOneReads >= 2) {
+              firstPageIdentitySignature = snapshot.identitySignature;
+              break;
+            }
+            await bounded(page.waitForTimeout(Math.min(100, Math.max(1, pageOneDeadline - Date.now()))));
+          }
+          if (!firstPageIdentitySignature) {
+            return failed("recommended_page_refresh_unconfirmed");
+          }
+        } else if (pageNumber !== 1 || !firstListPositionConfirmed(initialSnapshot.state)) {
+          return failed("recommended_list_position_unconfirmed");
+        }
+      } else if (!firstListPositionConfirmed(initialSnapshot.state)) {
+        return failed("recommended_list_position_unconfirmed");
+      }
 
       let baselineIdentitySignature = null;
       let previousBaselineTextSignature = null;
@@ -2510,6 +2598,9 @@ class DiscoverCarsScraper {
         }
         if (!firstListPositionConfirmed(state)) {
           return failed("recommended_list_position_unconfirmed");
+        }
+        if (firstPageIdentitySignature && identitySignature !== firstPageIdentitySignature) {
+          return failed("recommended_page_refresh_unconfirmed");
         }
         if (state.pending) {
           previousBaselineTextSignature = null;
