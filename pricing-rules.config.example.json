@@ -12,7 +12,7 @@
       "minDays": 1,
       "maxDays": 20,
       "minimumRatesByKind": {
-        "city": 70,
+        "city": 50,
         "airport": 30
       }
     },
@@ -286,7 +286,11 @@
       }
     ],
     "bestAvailableRank": true,
-    "apiOnlyConstraintRentalDays": [9, 11, 12],
+    "apiOnlyConstraintRentalDays": [
+      9,
+      11,
+      12
+    ],
     "recommendedFallbackToMinimum": true
   }
 }
