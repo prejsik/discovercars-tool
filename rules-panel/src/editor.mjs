@@ -39,7 +39,7 @@ export function floorRequest({ groups, zones, startDate = "", endDate = "", amou
   if (!zones.length) throw new Error("Wybierz przynajmniej jedną lokalizację.");
   if (startDate && endDate && startDate > endDate) throw new Error("Koniec okresu nie może poprzedzać początku.");
   const bands = DURATION_BANDS.flatMap(([minDays, maxDays], index) => {
-    if (amounts[index] === "" || amounts[index] == null) throw new Error("Podaj stawki dla wszystkich sześciu przedziałów najmu.");
+    if (amounts[index] === "" || amounts[index] == null) return [];
     const amount = Number(amounts[index]);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) throw new Error("Podaj dodatnią stawkę nie większą niż 100 000 PLN.");
     return [{ minDays, maxDays, amount }];

@@ -19,7 +19,8 @@ wygenerowanych Exceli do pliku bazowego.
 
 1. Sprawdz dane zrodla i pliku bazowego w widoku stanu.
 2. Wybierz klasy dopuszczone do zmian lub minima dla lokalizacji, klas,
-   okresu startu i szesciu przedzialow dlugosci najmu.
+   okresu startu i wybranych przedzialow dlugosci najmu. W nowej regule wypelnij
+   co najmniej jedno pasmo; puste pola "Bez zmian" nie dodaja ani nie usuwaja minimow.
 3. Zapisz szkic z uzasadnieniem. Konflikt wersji wymaga odswiezenia,
    nie nadpisuje automatycznie zmian drugiej osoby.
 4. Opcjonalnie uruchom podglad. Porownanie uzywa istniejacego silnika i danych cenowych,

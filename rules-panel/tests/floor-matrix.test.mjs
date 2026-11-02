@@ -56,6 +56,27 @@ test('scopes, dates, all six bands and higher baselines are honored without mark
   assert.deepEqual(model.excel, original.excel);
 });
 
+test('a single 8-20 minimum preserves other bands, locations, classes and protected dates', () => {
+  const fields = { ...input(), groups: ['CDMV'], zones: ['WALO'], startDate: '2026-11-02', endDate: '2027-02-10',
+    bands: [{ minDays: 8, maxDays: 20, amount: 60 }] };
+  const model = policy.addFloorMatrix(original, fields);
+  const added = policy.toDocuments(model).pricing.pricing.mandatoryScopedFloorsPlnDay;
+  assert.equal(added.length, 1);
+  assert.equal(preview(model, { zone: 'WALO', group: 'CDMV', duration: 8, pickupDate: '2026-11-02' }).floor, 60);
+  assert.equal(preview(model, { zone: 'WALO', group: 'CDMV', duration: 20, pickupDate: '2027-02-10' }).floor, 60);
+  for (const patch of [
+    { duration: 1 }, { duration: 2 }, { duration: 4 }, { duration: 7 }, { duration: 21 },
+    { zone: 'WA1' }, { group: 'CFAV' }, { pickupDate: '2026-11-01' },
+    { pickupDate: '2027-02-11' }, { pickupDate: '2026-12-25' }, { pickupDate: '2027-01-10' },
+  ]) {
+    const query = { zone: 'WALO', group: 'CDMV', duration: 8, pickupDate: '2026-11-02', ...patch };
+    assert.deepEqual(preview(model, query), preview(original, query), JSON.stringify(patch));
+  }
+  const docs = policy.toDocuments(model);
+  delete docs.pricing.pricing.mandatoryScopedFloorsPlnDay;
+  assert.deepEqual(docs, policy.toDocuments(original));
+});
+
 test('protected dates require an explicit override and higher existing holiday minima still win', () => {
   const fields = { ...input(), groups: ['FVMD'], startDate: '2026-12-15', endDate: '2027-01-10' };
   const model = policy.addFloorMatrix(original, fields);
@@ -85,7 +106,8 @@ test('invalid matrix input is rejected atomically, without silent scope or prote
     { groups: [] }, { groups: ['ZZZZ'] }, { groups: ['*'] }, { groups: ['CDMV', 'CDMV'] },
     { zones: [] }, { zones: ['FAKE'] }, { zones: ['*'] }, { zones: ['WA1', 'WA1'] },
     { startDate: '2026-02-30' }, { endDate: '2026-10-01' }, { overrideProtected: 'false' },
-    { bands: [] }, { bands: input().bands.slice(1) },
+    { bands: [] }, { bands: [input().bands[0], input().bands[0]] },
+    { bands: [{ minDays: 9, maxDays: 20, amount: 60 }] },
     { bands: input().bands.map((band) => ({ ...band, amount: 0 })) },
     { bands: input().bands.map((band) => ({ ...band, amount: Infinity })) },
     { kind: 'city' },
@@ -123,6 +145,9 @@ test('overlapping matrices use the maximum and cannot erase a higher existing pr
 
 test('matrix preview agrees with real Python mandatory and correction functions over a boundary grid', () => {
   let model = policy.addFloorMatrix(original, input());
+  model = policy.addFloorMatrix(model, { ...input(), groups: ['CDMV'], zones: ['WR1'],
+    bands: [{ minDays: 8, maxDays: 20, amount: 90 }],
+  });
   model = policy.addFloorMatrix(model, {
     ...input(), groups: ['EDAV'], bands: input().bands.map((band) => ({ ...band, amount: 60.5 })),
   });

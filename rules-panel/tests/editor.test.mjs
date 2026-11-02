@@ -30,14 +30,25 @@ test("default view omits expired rules but keeps today and future", () => {
   assert.deepEqual(filterRules(rows, { today: "2026-10-15", period: "expired" }).map(({ id }) => id), [1]);
 });
 
-test("matrix requires six complete bands and never widens selected scopes", () => {
+test("matrix preserves all six populated bands and never widens selected scopes", () => {
   const request = floorRequest({ groups: ["CDMV", "EDAV"], zones: ["GDLO", "WRDW"], startDate: "2026-11-01", endDate: "2026-11-30", amounts: ["70", "80", "90", "100", "120", "150"] });
   assert.deepEqual(request, { groups: ["CDMV", "EDAV"], zones: ["GDLO", "WRDW"], startDate: "2026-11-01", endDate: "2026-11-30", bands: [{ minDays: 1, maxDays: 1, amount: 70 }, { minDays: 2, maxDays: 2, amount: 80 }, { minDays: 3, maxDays: 4, amount: 90 }, { minDays: 5, maxDays: 7, amount: 100 }, { minDays: 8, maxDays: 20, amount: 120 }, { minDays: 21, maxDays: 35, amount: 150 }], overrideProtected: false });
   assert.throws(() => floorRequest({ groups: [], zones: ["GDLO"], amounts: ["70"] }), /klas/);
   assert.throws(() => floorRequest({ groups: ["CDMV"], zones: [], amounts: ["70"] }), /lokalizac/);
   assert.throws(() => floorRequest({ groups: ["CDMV"], zones: ["GDLO"], amounts: [""] }), /stawk/);
   assert.throws(() => floorRequest({ groups: ["CDMV"], zones: ["GDLO"], amounts: ["-1"] }), /stawk/);
-  assert.throws(() => floorRequest({ groups: ["CDMV"], zones: ["GDLO"], amounts: ["70", "80", "90", "100", "", "150"] }), /sześciu/);
+});
+
+test("only populated duration bands are included and empty values never become zero minima", () => {
+  const fields = { groups: ["CDMV"], zones: ["GDLO"], startDate: "2026-11-02", endDate: "2027-12-31" };
+  const single = floorRequest({ ...fields, amounts: ["", "", "", "", "60", ""] });
+  assert.deepEqual(single, { ...fields, bands: [{ minDays: 8, maxDays: 20, amount: 60 }], overrideProtected: false });
+  const multiple = floorRequest({ ...fields, amounts: [null, "35", undefined, "40", "", ""] });
+  assert.deepEqual(multiple.bands, [{ minDays: 2, maxDays: 2, amount: 35 }, { minDays: 5, maxDays: 7, amount: 40 }]);
+  assert.throws(() => floorRequest({ ...fields, amounts: ["", "", "", "", "", ""] }), /przynajmniej jednego/);
+  for (const value of ["0", "-1", "abc", "Infinity", "100001"]) {
+    assert.throws(() => floorRequest({ ...fields, amounts: ["", "", "", "", value, ""] }), /stawk/);
+  }
 });
 
 test("new scoped minimum requires an explicit start and end date", () => {

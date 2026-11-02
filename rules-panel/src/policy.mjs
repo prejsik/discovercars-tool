@@ -239,10 +239,11 @@ export function addRule(model, fields) {
 export function addFloorMatrix(model, fields) {
   const allowed = ['groups', 'zones', 'startDate', 'endDate', 'bands', 'overrideProtected'];
   if (!object(fields) || Object.keys(fields).some((key) => !allowed.includes(key))
-    || !Array.isArray(fields.bands) || fields.bands.length !== DURATION_BANDS.length
-    || DURATION_BANDS.some(([low, high]) => fields.bands.filter((band) => band?.minDays === low && band?.maxDays === high).length !== 1)
+    || !Array.isArray(fields.bands) || !fields.bands.length || fields.bands.length > DURATION_BANDS.length
+    || fields.bands.some((band) => !DURATION_BANDS.some(([low, high]) => band?.minDays === low && band?.maxDays === high))
+    || DURATION_BANDS.some(([low, high]) => fields.bands.filter((band) => band?.minDays === low && band?.maxDays === high).length > 1)
     || fields.bands.some((band) => !object(band) || !sameKeys(Object.keys(band).sort(), ['amount', 'maxDays', 'minDays']))) {
-    throw new Error('Podaj jawne minima dla wszystkich szesciu obslugiwanych pasm czasu najmu, bez dodatkowych pol');
+    throw new Error('Wybierz co najmniej jedno obslugiwane pasmo czasu najmu, bez powtorzen i dodatkowych pol');
   }
   const next = createModel(model);
   const rules = pricingOf(next).mandatoryScopedFloorsPlnDay ??= [];
