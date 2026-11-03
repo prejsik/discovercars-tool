@@ -1,8 +1,9 @@
 import { zipSync, strToU8 } from 'fflate';
-import { loadPriceEvidence } from '../server/reports.mjs';
+import { loadPriceContext, loadPriceSource } from '../server/reports.mjs';
+import { loadPriceEvidence } from '../src/price-loader.mjs';
 
-export async function priceFixture({changeDuringRead=false,wrongBaseline=false,wrongWorkbook=false}={}) {
-  const sheet=(rate)=>`<worksheet><sheetData><row r="5"><c r="A5" t="inlineStr"><is><t>CDMV</t></is></c><c r="D5" t="inlineStr"><is><t>KRLO</t></is></c><c r="G5" t="inlineStr"><is><t>2026-11-04</t></is></c><c r="H5" t="inlineStr"><is><t>2027-12-31</t></is></c><c r="K5"><v>${rate}</v></c></row></sheetData></worksheet>`;
+export async function priceFixture({changeDuringRead=false,wrongBaseline=false,wrongWorkbook=false,transportOnly=false,rowCount=1}={}) {
+  const sheet=(rate)=>`<worksheet><sheetData>${Array.from({length:rowCount},(_,i)=>`<row r="${i+5}"><c r="A${i+5}" t="inlineStr"><is><t>${i?'OTHER':'CDMV'}</t></is></c><c r="D${i+5}" t="inlineStr"><is><t>KRLO</t></is></c><c r="G${i+5}" t="inlineStr"><is><t>2026-11-04</t></is></c><c r="H${i+5}" t="inlineStr"><is><t>2027-12-31</t></is></c><c r="K${i+5}"><v>${rate}</v></c></row>`).join('')}</sheetData></worksheet>`;
   const workbook=rate=>zipSync(Object.fromEntries(Object.entries({
     'xl/workbook.xml':'<workbook xmlns:r="urn:r"><sheets><sheet name="Sheet1" r:id="r1"/></sheets></workbook>',
     'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
@@ -25,5 +26,12 @@ export async function priceFixture({changeDuringRead=false,wrongBaseline=false,w
     throw new Error(`Unexpected request ${path}`);
   };
   const repository={json:async()=>({locations:[{zones:['KRLO'],scraper_label:'Krakow Airport (KRK)'}]}),baselineBytes:async()=>wrongBaseline?final:base};
-  return loadPriceEvidence({zone:'KRLO',group:'CDMV',duration:3,transmission:'automatic',reportRunId:'123',excelRunId:'123'},repository,fetcher);
+  const query={zone:'KRLO',group:'CDMV',duration:3,transmission:'automatic',reportRunId:'123',excelRunId:'123'};
+  const transport=async url=>{
+    const search=new URL(url,'https://panel.example').searchParams;
+    const input={...Object.fromEntries(search),duration:Number(search.get('duration'))};
+    try {return input.kind?new Response(await loadPriceSource(input,repository,fetcher)):Response.json(await loadPriceContext(input,repository,fetcher));}
+    catch(error){return Response.json({error:error.message},{status:error.status??500});}
+  };
+  return transportOnly?transport:loadPriceEvidence(query,transport);
 }

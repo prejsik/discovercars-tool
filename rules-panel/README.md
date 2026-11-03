@@ -12,6 +12,10 @@ Cena MM i konkurencji oznacza najtansza oferte w wybranym widoku skrzyn,
 nie oferte konkretnej klasy. Klasa filtruje stawki Excel. Baza pochodzi
 z wersji repozytorium uzytej w danym przebiegu, z kontrola SHA256; brak
 zgodnosci nie jest uzupelniany dzisiejsza baza. Oba uruchomienia sa jawne.
+XLSX i JSON sa analizowane w osobnym Web Workerze w przegladarce; prywatne
+endpointy Cloudflare weryfikuja dostep, identyfikatory przebiegow i hashe.
+Nie dekompresujemy duzych arkuszy w limicie CPU Cloudflare Free. Test UI
+obejmuje 35 tys. wierszy i nie wysyla zapisow ani uruchomien scrapera.
 
 `Dlaczego?` pokazuje zapisany arkusz Recommendations Review i dokladne
 szczegoly z powiazanego hashem podsumowania, jesli istnieja. Podsumowanie

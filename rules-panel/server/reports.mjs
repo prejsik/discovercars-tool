@@ -1,7 +1,6 @@
 import { readLimited } from './http.mjs';
 import { PanelError } from './workspace-service.mjs';
 import { describeIncident } from './incident.mjs';
-import { workbookRows, selectRates, selectReviews, readMarket, combineEvidence } from './price-evidence.mjs';
 
 const PAGE = 'https://prejsik.github.io/discovercars-tool';
 const RUN = 'https://github.com/prejsik/discovercars-tool/actions/runs/';
@@ -102,7 +101,7 @@ export function workbookInput(file) {
   return { filename: file.filename, content };
 }
 
-export async function loadPriceEvidence(input, repository, fetcher = (...args) => fetch(...args)) {
+export async function loadPriceContext(input, repository, fetcher = (...args) => fetch(...args)) {
   if (!/^[A-Z0-9]{2,8}$/.test(input.zone??'') || !/^[A-Z0-9]{4}$/.test(input.group??'') ||
     !Number.isInteger(input.duration) || input.duration<1 || input.duration>35 || !['all','automatic'].includes(input.transmission) ||
     !/^\d{1,20}$/.test(input.reportRunId??'') || !/^\d{1,20}$/.test(input.excelRunId??'')) throw new PanelError(422,'Nieprawidłowe filtry cen.');
@@ -110,39 +109,30 @@ export async function loadPriceEvidence(input, repository, fetcher = (...args) =
   const excelManifest=await manifest('latest-excel',fetcher);
   if(String(reportManifest.run_id)!==input.reportRunId || String(excelManifest.run_id)!==input.excelRunId) throw new PanelError(409,'Opublikowano nowszy wynik. Odśwież panel.');
   if(excelManifest.status==='failure') throw new PanelError(409,'Ten przebieg nie opublikował poprawnego Excela.');
-  const report=normalize(reportManifest);const excel=normalize(excelManifest);const warnings=[];
+  const report=normalize(reportManifest);const excel=normalize(excelManifest);
   const locations=await repository.json('locations.config.json',excel.revision);
   const location=locations?.locations?.find(row=>row.zones?.includes(input.zone));
   if(!location) throw new PanelError(422,'Nie ma tej lokalizacji w konfiguracji użytej przez Excel.');
-  const file=await loadPublishedWorkbook({kind:'recommendations',runId:excel.runId,sha256:excel.files?.['rates-updated.xlsx']},fetcher);
-  const final=selectRates(workbookRows(file.bytes,'Sheet1'),input);
-  const reviews=selectReviews(workbookRows(file.bytes,'Recommendations Review'),input);
-  let base=[];let market=[];let changes=[];
+  return {query:input,report,excel,location:location.scraper_label,summarySha256:excelManifest.excel_summary_sha256,
+    signature:signature(reportManifest)+signature(excelManifest)};
+}
+
+// Binary sources only: parsing large XLSX files belongs in the browser worker,
+// not in the Cloudflare Free request CPU budget.
+export async function loadPriceSource(input,repository,fetcher=(...args)=>fetch(...args)) {
+  if(!['baseline','summary','market','workbook'].includes(input.kind)) throw new PanelError(422,'Nieprawidłowe źródło cen.');
+  const context=await loadPriceContext(input,repository,fetcher);
+  const {excel,report}=context;
+  let bytes;
+  let expected;
+  if(input.kind==='workbook') return (await loadPublishedWorkbook({kind:'recommendations',runId:excel.runId,sha256:excel.files?.['rates-updated.xlsx']},fetcher)).bytes;
+  if(input.kind==='market') return loadPublishedReport(report.runId,repository,fetcher);
+  if(input.kind==='baseline') {bytes=await repository.baselineBytes(excel.revision);expected=excel.baselineSha256;}
+  if(input.kind==='summary') {
+    if(!sha(context.summarySha256)) throw new PanelError(404,'Brak zapisanych szczegółów liczbowych.');
+    bytes=await published('latest-excel/excel-rate-update-summary.json',fetcher,8*1024*1024);expected=context.summarySha256;
+  }
   const digest=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
-  try {
-    const bytes=await repository.baselineBytes(excel.revision);
-    if(await digest(bytes)!==excel.baselineSha256) throw new Error('different baseline');
-    base=selectRates(workbookRows(bytes,'Sheet1'),input);
-  } catch {warnings.push('Nie potwierdzono historycznej bazy tego Excela. Nie zastąpiono jej obecną bazą.');}
-  try {
-    market=readMarket(await loadPublishedReport(report.runId,repository,fetcher),{...input,location:location.scraper_label});
-  } catch(error) {
-    if(error.status===409)throw error;
-    warnings.push('Nie można odczytać cen rynkowych. Stawki i uzasadnienia z Excela są nadal dostępne.');
-  }
-  if(sha(excelManifest.excel_summary_sha256)) {
-    try {
-      const bytes=await published('latest-excel/excel-rate-update-summary.json',fetcher,8*1024*1024);
-      if(await digest(bytes)!==excelManifest.excel_summary_sha256)throw new Error('summary changed');
-      const summary=JSON.parse(new TextDecoder().decode(bytes));
-      if(summary.input_workbook_sha256!==excel.baselineSha256)throw new Error('different baseline');
-      changes=Array.isArray(summary.changes)?summary.changes:[];
-    } catch {warnings.push('Szczegóły liczbowe decyzji są niedostępne. Dostępne uzasadnienia pochodzą z arkusza rekomendacji.');}
-  }
-  // Never combine a newer market with an old Excel without displaying both run identities.
-  if(signature(reportManifest)!==signature(await manifest('latest-full',fetcher)) || signature(excelManifest)!==signature(await manifest('latest-excel',fetcher))) throw new PanelError(409,'Wyniki zmieniły się podczas odczytu. Odśwież panel.');
-  const dates=[...new Set([...report.startDates,...excel.startDates,...market.map(row=>row.date)])].sort();
-  return {query:input,report,excel,warnings,location:location.scraper_label,
-    rows:combineEvidence({dates,base,final,reviews,changes,market,sameRun:report.runId===excel.runId,query:input}),
-    baselineVerified:base.length>0,reviewCount:reviews.length};
+  if(await digest(bytes)!==expected) throw new PanelError(502,'Nie potwierdzono zgodności źródła z manifestem Excela.');
+  return bytes;
 }

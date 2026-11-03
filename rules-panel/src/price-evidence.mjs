@@ -1,8 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import { SaxesParser } from 'saxes';
-import { PanelError } from './workspace-service.mjs';
-
-const fail = text => { throw new PanelError(502, text); };
+const fail = text => { throw Object.assign(new Error(text), {status:502}); };
 const attr = (node,name) => Object.values(node.attributes).find(a=>a.name===name)?.value;
 const number = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
 const bands = [[1,1,'I'],[2,2,'J'],[3,4,'K'],[5,7,'L'],[8,20,'M'],[21,35,'N']];

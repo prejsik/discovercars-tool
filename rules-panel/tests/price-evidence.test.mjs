@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
-import { workbookRows, selectRates, readMarket, combineEvidence } from '../server/price-evidence.mjs';
+import { workbookRows, selectRates, readMarket, combineEvidence } from '../src/price-evidence.mjs';
 import { priceFixture } from './price-fixture.mjs';
 
-test('price endpoint binds workbook, report, original baseline and summary hashes',async()=>{
+test('browser reader and private source endpoints bind workbook, report, baseline and summary hashes',async()=>{
   const result=await priceFixture();
   assert.equal(result.rows[0].baseline,65);assert.equal(result.rows[0].importRate,63);
   assert.equal(result.rows[0].competitor,74);assert.equal(result.rows[0].predicted,73);

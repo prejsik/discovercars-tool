@@ -17,13 +17,18 @@ try {
   const workspace={snapshot,capabilities:{publish:true},draft:null,history:[],status:{report:proof.report,excel:proof.excel}};
   await page.route('**/api/workspace',route=>route.fulfill({json:workspace}));
   let calls=0;let writes=0;
-  page.on('request',request=>{if(request.method()==='POST')writes++;});
-  await page.route('**/api/report/prices?*',route=>{calls++;const q=new URL(route.request().url()).searchParams;assert.equal(q.get('zone'),'KRLO');return route.fulfill({json:proof});});
+  context.on('request',request=>{if(request.method()==='POST')writes++;});
+  const transport=await priceFixture({transportOnly:true,rowCount:35000});
+  await context.route(/\/api\/report\/(prices|price-source)\?/,async route=>{
+    calls++;const q=new URL(route.request().url()).searchParams;assert.equal(q.get('zone'),'KRLO');
+    const response=await transport(route.request().url());
+    return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
+  });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
   assert.equal(calls,0,'No implicit scrape or expensive reads');
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
-  await page.getByRole('button',{name:'Dlaczego?',exact:true}).click();
+  await page.getByRole('button',{name:'Dlaczego?',exact:true}).click({timeout:60000});
   await page.getByText('Zapisana decyzja',{exact:true}).waitFor();
   assert.match(await page.locator('.prices-table').innerText(),/63,00/);
   assert.match(await page.locator('.decision-evidence').innerText(),/30,00/);
@@ -60,4 +65,8 @@ try {
   assert.equal(writes,0,'Read-only views must not write, dispatch, change rules or baseline');
   assert.deepEqual(errors,[]);
   console.log('Price and calendar UI PASS: source-bound explanation, filters, 4 widths, protected dates, future months, existing editor, no mutations.');
+} catch(error) {
+  console.error(await page.locator('main').innerText());
+  console.error(errors);
+  throw error;
 } finally {await browser.close();}

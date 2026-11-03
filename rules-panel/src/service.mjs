@@ -42,7 +42,14 @@ export function createService(fetcher = (...args) => fetch(...args)) {
   return {
     workspace,
     diagnostics: runId => request(`/api/report/diagnostics?runId=${encodeURIComponent(runId)}`),
-    prices: query => request(`/api/report/prices?${new URLSearchParams(query)}`),
+    prices: query => new Promise((resolve,reject)=>{
+      const worker=new Worker(new URL('./price-reader.worker.mjs',import.meta.url),{type:'module'});
+      const timer=setTimeout(()=>{worker.terminate();reject(new Error('Odczyt trwał zbyt długo. Ponów próbę.'));},180000);
+      const finish=()=>{clearTimeout(timer);worker.terminate();};
+      worker.onmessage=({data})=>{finish();data.error?reject(Object.assign(new Error(data.error),{status:data.status})):resolve(data.result);};
+      worker.onerror=()=>{finish();reject(new Error('Nie udało się odczytać plików w przeglądarce. Odśwież panel.'));};
+      worker.postMessage(query);
+    }),
     async save(input) {
       const reason = input.reason?.trim() ?? "";
       if (reason.length < 3 || reason.length > 500) throw new Error("Powód zmiany musi mieć od 3 do 500 znaków.");

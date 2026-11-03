@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { GitHubRepository, githubConfigured, readLimited, readOperationalStatus, REPOSITORY } from './github.mjs';
-import { loadPublishedWorkbook, loadPublishedReport, loadPriceEvidence } from '../server/reports.mjs';
+import { loadPublishedWorkbook, loadPublishedReport, loadPriceContext, loadPriceSource } from '../server/reports.mjs';
 import { protectedReportHtml } from '../server/report-viewer.mjs';
 import schedule from '../../src/discovercarsScheduleConfig.js';
 
@@ -76,10 +76,15 @@ export function createWorker({ resolveKeys } = {}) {
 
       const url = new URL(request.url);
       const connected = env.PANEL_WRITES_ENABLED === 'true' && githubConfigured(env) && Boolean(env.RULES_WORKSPACE);
-      if (url.pathname === '/api/report/prices') {
+      if (['/api/report/prices','/api/report/price-source'].includes(url.pathname)) {
         if(request.method !== 'GET') return deny('Method not allowed.',405);
         if(!connected) return json({error:'Odczyt cen wymaga aktywnej integracji GitHub.'},503);
-        try {return json(await loadPriceEvidence({...Object.fromEntries(url.searchParams),duration:Number(url.searchParams.get('duration'))},new GitHubRepository(env)));}
+        try {
+          const input={...Object.fromEntries(url.searchParams),duration:Number(url.searchParams.get('duration'))};
+          const repository=new GitHubRepository(env);
+          return url.pathname.endsWith('/prices')?json(await loadPriceContext(input,repository)):
+            secured(new Response(await loadPriceSource(input,repository),{headers:{'Content-Type':'application/octet-stream'}}));
+        }
         catch(error) {return json({error:error.status?error.message:'Nie można odczytać cen. Odśwież panel lub otwórz Excel.'},error.status??502);}
       }
       if (url.pathname === '/api/report/diagnostics') {

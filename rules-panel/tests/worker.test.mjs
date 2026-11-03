@@ -81,8 +81,10 @@ test('missing server configuration denies before asset lookup', async () => {
 
 test('price evidence endpoint remains private and read-only',async()=>{
   const {env,requests}=setup();
-  assert.equal((await worker.fetch(await request('/api/report/prices'),env)).status,401);
-  assert.equal((await worker.fetch(await request('/api/report/prices',await token(),{method:'POST'}),env)).status,405);
+  for(const path of ['/api/report/prices','/api/report/price-source']) {
+    assert.equal((await worker.fetch(await request(path),env)).status,401);
+    assert.equal((await worker.fetch(await request(path,await token(),{method:'POST'}),env)).status,405);
+  }
   assert.equal(requests.length,0);
 });
 
