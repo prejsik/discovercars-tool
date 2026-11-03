@@ -15,7 +15,7 @@ const output = new URL('../../output/playwright/simple-panel/', import.meta.url)
 await mkdir(output, { recursive: true });
 try {
   await page.route('**/api/workspace', route => route.fulfill({ status: 404, json: {} }));
-  await page.goto(origin);
+  await page.goto(`${origin}/?view=rules`);
   await page.getByRole('heading', { name: 'Zasady cenowe', exact: true }).waitFor();
   assert.equal(await page.locator('.topbar').count(), 0, 'No duplicate technical header');
   assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).count(), 0, 'Publication belongs to review only');
@@ -53,9 +53,9 @@ try {
     assert.deepEqual(overflowingCells, [], `cell overflow ${width}`);
     await page.screenshot({ path: fileURLToPath(new URL(`rules-${width}.png`, output)) });
   }
-  await page.getByRole('button', { name: /Podgląd zmian/ }).click();
+  await page.goto(`${origin}/?view=review`);
   assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).isDisabled(), true);
-  await page.getByRole('button', { name: 'Źródła i publikacja', exact: true }).click();
+  await page.getByRole('button', { name: 'Pulpit', exact: true }).click();
   assert.equal(await page.getByText('pricing-rules.config.example.json', { exact: true }).isVisible(), false);
   await page.getByText('Konfiguracja techniczna', { exact: true }).click();
   await page.getByText('pricing-rules.config.example.json', { exact: true }).waitFor();
@@ -70,7 +70,7 @@ try {
     for (const width of [1440, 320]) {
       await page.setViewportSize({ width, height: 960 });
       await page.reload();
-      await page.getByRole('button', { name: 'Źródła i publikacja', exact: true }).click();
+      await page.getByRole('button', { name: 'Pulpit', exact: true }).click();
       await page.getByText('Konfiguracja techniczna', { exact: true }).click();
       const horizon = page.locator('.source-list > div').filter({
         has: page.getByText('Zakres pliku importowego', { exact: true }),
@@ -96,7 +96,7 @@ try {
     return route.fulfill({ json: { revision: 'ui-test-commit' } });
   });
   await page.reload();
-  await page.getByRole('button', { name: 'Podgląd zmian', exact: true }).click();
+  await page.getByRole('button', { name: /Zmiany do publikacji:/ }).click();
   const publish = page.getByRole('button', { name: 'Opublikuj', exact: true });
   assert.equal(await publish.isEnabled(), true);
   page.once('dialog', dialog => dialog.dismiss());

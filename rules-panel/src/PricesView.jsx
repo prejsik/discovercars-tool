@@ -9,20 +9,20 @@ const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocal
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
 const list=value=>Array.isArray(value)?value.length?value.join(', '):'Brak':'Brak danych';
 
-export function PricesView({model,workspace,service,initialSelection}) {
+export function PricesView({model,workspace,service,selection,onSelectionChange}) {
   const zones=useMemo(()=>locationOptions(model),[model]);
   const groups=useMemo(()=>knownGroups(model),[model]);
-  const [zone,setZone]=useState(initialSelection?.zone??zones.find(item=>item.value==='KRLO')?.value??zones[0]?.value??'');
+  const {zone,duration,transmission,from,to}=selection;
+  const setZone=zone=>onSelectionChange({zone});const setDuration=duration=>onSelectionChange({duration});
+  const setTransmission=transmission=>onSelectionChange({transmission});const setFrom=from=>onSelectionChange({from});const setTo=to=>onSelectionChange({to});
   const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
-  const [duration,setDuration]=useState(initialSelection?.duration??3);
-  const [transmission,setTransmission]=useState(initialSelection?.transmission??'automatic');
   const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
-  const [selected,setSelected]=useState('');const [from,setFrom]=useState(initialSelection?.date??'');const [to,setTo]=useState(initialSelection?.date??'');const [limit,setLimit]=useState(20);
+  const [selected,setSelected]=useState('');const [limit,setLimit]=useState(20);
   const report=workspace?.status?.report;const excel=workspace?.status?.excel;
   const query={zone,group,duration,transmission,reportRunId:report?.runId,excelRunId:excel?.runId};
-  const key=JSON.stringify(query);
+  const key=JSON.stringify([query,report?.reportSha256,excel?.files,excel?.baselineSha256]);
   const requestKey=React.useRef(key);requestKey.current=key;
-  useEffect(()=>{setData(null);setError('');setSelected('');setLimit(20);},[key,workspace?.status?.checkedAt]);
+  useEffect(()=>{setData(null);setError('');setSelected('');setLimit(20);},[key]);
   async function load() {
     setBusy(true);setError('');setData(null);const current=key;
     try {const result=await service.prices(query);if(requestKey.current===current){setData(result);setSelected('');setLimit(20);}}
@@ -32,13 +32,13 @@ export function PricesView({model,workspace,service,initialSelection}) {
   const rows=(data?.rows??[]).filter(row=>(!from||row.date>=from)&&(!to||row.date<=to));
   return <section className="prices-view" aria-label="Ceny i rynek">
     <form className="price-filters" onSubmit={event=>{event.preventDefault();load();}}>
-      <label>Lokalizacja<select value={zone} onChange={e=>setZone(e.target.value)}>{zones.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label>Lokalizacja<select value={zone} onChange={e=>setZone(e.target.value)}><option value="">Wybierz lokalizację</option>{zones.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Długość najmu<select value={duration} onChange={e=>setDuration(Number(e.target.value))}>{Array.from({length:14},(_,i)=>i+1).map(day=><option key={day} value={day}>{day} dni · Excel {bandLabel(day)}</option>)}</select></label>
-      <label>Porównanie rynku<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="automatic">Automaty</option><option value="all">Wszystkie skrzynie</option></select></label>
+      <label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
       <button className="button primary" disabled={busy||!report||!excel||!zone||!group}><Search size={17}/>{busy?'Odczytywanie plików…':'Pokaż ceny'}</button>
     </form>
-    {!report||!excel?<p className="freshness-warning">Do porównania potrzebny jest potwierdzony raport i poprawny Excel. Sprawdź Ostatnie wyniki.</p>:null}
+    {!report||!excel?<p className="freshness-warning">Do porównania potrzebny jest potwierdzony raport i poprawny Excel. Sprawdź Pulpit.</p>:null}
     {error&&<div className="alert error" role="alert">{error}<button className="button" disabled={busy} onClick={load}><RotateCcw size={16}/>Ponów odczyt</button></div>}
     {busy&&<p role="status">Odczytywanie opublikowanych wyników. Bez uruchamiania scrapera.</p>}
     {data&&<>
@@ -63,18 +63,23 @@ export function PricesView({model,workspace,service,initialSelection}) {
 
 function DecisionEvidence({row,data,duration}) {
   const detail=row.detail;const decision=row.decision;
+  const has=value=>value!==null&&value!==undefined&&value!=='';
+  const benchmark=decision?.benchmark??detail?.benchmark_rate;
+  const entries=[
+    ['Minimum zapisane w decyzji',has(detail?.minimum_rate_pln_day)?money(detail.minimum_rate_pln_day):null],
+    ['Narzut użyty w decyzji',decision?.markup || (detail?.broker_markup_model==='fixed_amount'&&has(detail?.broker_markup_amount_pln_day)?`${money(detail.broker_markup_amount_pln_day)} PLN / dobę`:has(detail?.broker_markup_percent)?`${detail.broker_markup_percent}%`:null)],
+    ['Cel zapisany w Excelu',decision?.outcome?`${decision.outcome} · prognoza, nie potwierdzenie po imporcie`:null],
+    ['Oferta odniesienia',has(benchmark)?`${decision?.benchmarkProvider||detail?.benchmark_provider||'Brak nazwy konkurenta'} · ${money(benchmark)} PLN / dobę`:null],
+    ['Kontrolująca długość najmu',has(detail?.controlling_duration_days)?`${detail.controlling_duration_days} dni · przedział Excel ${bandLabel(duration)}`:null],
+    ['Sprawdzone / wymagane brakujące długości najmu',Array.isArray(detail?.covered_duration_days)||Array.isArray(detail?.required_missing_duration_days)?`${list(detail?.covered_duration_days)} / ${list(detail?.required_missing_duration_days)}`:null],
+    ['Czas danych zapisany w decyzji',detail?.source_generated_at?timestamp(detail.source_generated_at):null],
+    ['Uwagi kontroli',decision?.notes],
+  ].filter(([,value])=>has(value));
   return <section id={`decision-${row.date}`} className="decision-evidence" aria-label={`Decyzja ${row.date}`}>
     <h3>Dlaczego taka cena? · {row.date}</h3>
     <p>{decision?.reason || (row.changed===false?'Stawka pozostała taka jak w bazie. Brak zapisanego uzasadnienia pozostawienia tej pozycji.':'Brak zapisanego uzasadnienia dla tej pozycji.')}</p>
     {decision?.groups&&<p className="evidence-note">Uzasadnienie zbiorcze z Excela: {decision.groups}. Nie jest osobnym odczytem rynku dla każdej klasy.</p>}
-    <dl className="source-list"><div><dt>Minimum zapisane w decyzji</dt><dd>{money(detail?.minimum_rate_pln_day)}</dd></div>
-      <div><dt>Narzut użyty w decyzji</dt><dd>{decision?.markup || (detail?.broker_markup_model==='fixed_amount'?`${money(detail.broker_markup_amount_pln_day)} PLN / dobę`:detail?.broker_markup_percent!=null?`${detail.broker_markup_percent}%`:'Brak danych')}</dd></div>
-      <div><dt>Cel zapisany w Excelu</dt><dd>{decision?.outcome || 'Brak danych'} · prognoza, nie potwierdzenie po imporcie</dd></div>
-      <div><dt>Oferta odniesienia użyta w decyzji</dt><dd>{decision?.benchmarkProvider||detail?.benchmark_provider||'Brak danych'} · {money(decision?.benchmark??detail?.benchmark_rate)} PLN / dobę</dd></div>
-      <div><dt>Kontrolująca długość najmu</dt><dd>{detail?.controlling_duration_days?`${detail.controlling_duration_days} dni`: 'Brak zapisu'} · przedział Excel {bandLabel(duration)}</dd></div>
-      <div><dt>Sprawdzone / wymagane brakujące duration</dt><dd>{list(detail?.covered_duration_days)} / {list(detail?.required_missing_duration_days)}</dd></div>
-      <div><dt>Czas danych zapisany w decyzji</dt><dd>{timestamp(detail?.source_generated_at)}</dd></div>
-      <div><dt>Uwagi kontroli</dt><dd>{decision?.notes || 'Brak zapisanych uwag'}</dd></div></dl>
+    {entries.length>0&&<dl className="source-list">{entries.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
     <p className="evidence-note">Zapis z Excela uruchomienia {data.excel.runId}. Brakujące szczegóły nie są odtwarzane na podstawie aktualnych reguł. Brak danych nie oznacza braku kontroli.</p>
   </section>;
 }

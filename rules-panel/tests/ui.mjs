@@ -15,7 +15,7 @@ await mkdir(new URL("../.impeccable/review/", import.meta.url), {
 });
 try {
   await context.route("**/api/workspace", route => route.fulfill({ status: 404, json: {} }));
-  await page.goto(origin);
+  await page.goto(`${origin}/?view=rules`);
   await page
     .getByRole("heading", { name: "Zasady cenowe", exact: true })
     .waitFor();
@@ -43,7 +43,7 @@ try {
     ),
     true,
   );
-  await page.getByRole('button', { name: 'Podgląd zmian', exact: true }).click();
+  await page.goto(`${origin}/?view=review`);
   assert.equal(
     await page
       .getByRole("button", { name: "Opublikuj", exact: true })
@@ -71,13 +71,13 @@ try {
     /75/,
   );
   await page
-    .getByRole("button", { name: "Sprawdź reguły", exact: true })
+    .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
     .click();
   await page.getByLabel("Lokalizacja", { exact: true }).selectOption("WR1");
   assert.match(await page.locator(".result-primary").innerText(), /75 PLN/);
   await page.getByLabel("Lokalizacja", { exact: true }).selectOption("SZLO");
   assert.match(await page.locator(".result-primary").innerText(), /130 PLN/);
-  await page.getByRole("button", { name: /Podgląd zmian/ }).click();
+  await page.getByRole("button", { name: /Zmiany do publikacji:/ }).click();
   await page.getByText('Eksport i przywracanie szkicu', { exact: true }).click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -116,7 +116,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[aria-label="Rekomendacje dla CDMV"]').checked === false);
   assert.equal(await toggle.isChecked(), false);
   await page
-    .getByRole("button", { name: "Historia szkicu", exact: true })
+    .getByRole("button", { name: "Historia zmian", exact: true })
     .click();
   assert.ok((await page.locator(".history-list li").count()) >= 2);
   await page
@@ -131,7 +131,7 @@ try {
   await page.getByRole("button", { name: "Zapisz w szkicu" }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page
-    .getByRole("button", { name: "Podgląd zmian", exact: false })
+    .getByRole("button", { name: /Zmiany do publikacji:/ })
     .click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByText('Eksport i przywracanie szkicu', { exact: true }).click();
@@ -161,7 +161,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "Sprawdź reguły", exact: true })
+    .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
     .click();
   await page.getByLabel("Stawka z bazy (PLN / dobę)").fill("30");
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -199,7 +199,7 @@ try {
       `rules overflow at ${width}`,
     );
     await page
-      .getByRole("button", { name: "Sprawdź reguły", exact: true })
+      .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
       .click();
   }
   const badWrite = await context.request.post(

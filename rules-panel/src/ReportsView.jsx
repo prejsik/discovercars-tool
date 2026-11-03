@@ -45,6 +45,7 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
   };
   return <section className="reports-view" aria-labelledby="results-heading">
     <div className="section-title"><h2 id="results-heading">Wyniki scrapera</h2><button className="icon-button" title="Odśwież wyniki" aria-label="Odśwież wyniki" disabled={busy} onClick={onRefresh}><RotateCcw size={18}/></button></div>
+    <div className="schedule-summary" aria-label="Plan harmonogramu"><span>Planowany start · czas polski</span>{__SCRAPER_PLAN__.map(slot=><span key={slot.slot}><strong>{slot.time}</strong> · rolling {slot.rollingDays} dni</span>)}</div>
     {status.error && <div className="alert error" role="alert">{status.error}</div>}
     {status.warnings?.map((warning,index)=><p className="freshness-warning" key={index}>{warning}</p>)}
     <h3>{requestedId ? 'Wybrane uruchomienie' : 'Ostatni faktyczny przebieg'}</h3>
@@ -64,12 +65,12 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
     {excel ? <>
       {report && report.runId !== excel.runId && <p className="freshness-warning">Excel i raport pochodzą z różnych uruchomień. Zakres i czas Excela podano poniżej.</p>}
       <ResultFacts record={excel}/>
-      <dl className="source-list">
+      <details className="technical-details"><summary>Zmiany stawek i użyta baza</summary><dl className="source-list">
         <div><dt>Podwyżki / obniżki</dt><dd>{excel.statistics?.increases ?? 'Brak danych'} / {excel.statistics?.decreases ?? 'Brak danych'}</dd></div>
         <div><dt>Średnia podwyżka</dt><dd>{amount(excel.statistics?.averageIncrease)}</dd></div>
         <div><dt>Średnia obniżka</dt><dd>{amount(excel.statistics?.averageDecrease)}</dd></div>
         <div><dt>Użyty plik bazowy</dt><dd>{excel.baselineFilename ?? 'Nie potwierdzono nazwy'}<small>{excel.baselineMatchesCurrent === true ? 'Ta sama baza co obecnie w panelu' : excel.baselineMatchesCurrent === false ? 'Inna baza niż obecnie w panelu' : 'Nie potwierdzono zgodności bazy'}</small></dd></div>
-      </dl>
+      </dl></details>
       <div className="review-actions">{links.import && <a className="button primary" href={links.import}><Download size={18}/>Pobierz import</a>}{links.recommendations && <a className="button" href={links.recommendations}><Download size={18}/>Pobierz rekomendacje</a>}</div>
       {links.import && <div className="report-baseline">
         <label className="baseline-confirm"><input type="checkbox" checked={confirmed} disabled={busy || !workspace.capabilities.publish} onChange={event=>setConfirmed(event.target.checked)}/>Wgrałem powyższy plik importowy do DiscoverCars</label>
@@ -78,6 +79,7 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
     </> : <p>Brak potwierdzonych plików Excel.</p>}
     {error && <div className="alert error" role="alert">{error}</div>}
     {saved && <div className="alert" role="status">Plik importowy ustawiony jako nowa baza.{saved.url && <> <a href={saved.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}
+    <details className="technical-details"><summary>Wersje raportu i Excela</summary><dl className="source-list">{[['Raport',report],['Excel',excel]].map(([label,record])=><div key={label}><dt>{label}</dt><dd>{record?.runId ?? 'Brak przebiegu'}<small>{record?.revision ?? 'Brak wersji'}</small></dd></div>)}</dl></details>
     {executions?.latest && <details className="technical-details"><summary>Ostatnia próba uruchomienia</summary><p>{runLabel(executions.latest)} · {timestamp(executions.latest.createdAt)} · <a href={executions.latest.url} target="_blank" rel="noreferrer">GitHub Actions</a></p></details>}
   </section>;
 }

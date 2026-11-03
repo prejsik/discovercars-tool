@@ -8,16 +8,29 @@ import './market.css';
 
 const dayLabel=day=>`${day.slice(8)}.${day.slice(5,7)}.${day.slice(0,4)}`;
 const shortMoney=value=>value===null?'—':new Intl.NumberFormat('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}).format(value);
-const tabs=[['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['attention','Do sprawdzenia',ListFilter],['excel','Stawki w Excelu',FileSpreadsheet],['events','Wydarzenia i święta',CalendarDays]];
+const tabs=[['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['attention','Do sprawdzenia',ListFilter],['excel','Stawki w Excelu',FileSpreadsheet]];
 
 export function MarketWorkspace({model,workspace,service,calendar}) {
   const [view,setView]=useState('chart');const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [kind,setKind]=useState('airport');const [location,setLocation]=useState('Krakow Airport (KRK)');const [transmission,setTransmission]=useState('all');
   const [durations,setDurations]=useState([3]);const [from,setFrom]=useState('');const [to,setTo]=useState('');const [month,setMonth]=useState(warsawToday().slice(0,7));
-  const [selected,setSelected]=useState(null);const [reason,setReason]=useState('all');const [sort,setSort]=useState('priority');const [limit,setLimit]=useState(20);const [excelSelection,setExcelSelection]=useState(null);
-  const report=workspace?.status?.report;const runRef=useRef(report?.runId);runRef.current=report?.runId;
-  useEffect(()=>{setData(null);setError('');setSelected(null);},[report?.runId,report?.reportSha256]);
-  async function load(){const runId=report?.runId;setBusy(true);setError('');try{const next=await service.market({reportRunId:runId});if(runRef.current!==runId)return;setData(next);const dates=[...new Set(next.rows.map(r=>r.date))].sort();const first=dates.find(d=>d>=warsawToday())??dates[0];if(first){setFrom(first);setTo(plusDays(first,13)>dates.at(-1)?dates.at(-1):plusDays(first,13));setMonth(first.slice(0,7));}const airports=next.rows.filter(r=>r.type==='airport');if(!next.rows.some(r=>r.location===location))setLocation(airports[0]?.location??next.rows[0]?.location??'');setSelected(null);}catch(e){if(runRef.current===runId)setError(e.message);}finally{setBusy(false);}}
+  const [selected,setSelected]=useState(null);const [reason,setReason]=useState('all');const [sort,setSort]=useState('priority');const [limit,setLimit]=useState(20);
+  const [excelVisited,setExcelVisited]=useState(false);const [excelZone,setExcelZone]=useState('KRLO');const [excelDuration,setExcelDuration]=useState(3);
+  const marketLocations=model.locations.locations??model.locations;
+  useEffect(()=>{if(view==='excel')setExcelVisited(true);},[view]);
+  useEffect(()=>{const zones=marketLocations.find(l=>l.scraper_label===location)?.zones??[];setExcelZone(old=>zones.includes(old)?old:zones[0]??'');},[location,model.locations]);
+  const excelSelection={zone:excelZone,duration:durations.includes(excelDuration)?excelDuration:durations[0]??3,transmission,from,to};
+  function changeExcel(patch) {
+    if ('zone' in patch) {setExcelZone(patch.zone);const item=marketLocations.find(l=>l.zones.includes(patch.zone));if(item){setLocation(item.scraper_label);setKind(item.kind==='airport'?'airport':'branch');}}
+    if ('duration' in patch) {setExcelDuration(patch.duration);setDurations([patch.duration]);}
+    if ('transmission' in patch) setTransmission(patch.transmission);
+    if ('from' in patch) {setFrom(patch.from);if(validDate(patch.from))setMonth(patch.from.slice(0,7));}
+    if ('to' in patch) setTo(patch.to);
+  }
+  const report=workspace?.status?.report;const sourceKey=JSON.stringify([report?.runId,report?.reportSha256]);
+  const sourceRef=useRef(sourceKey);sourceRef.current=sourceKey;
+  useEffect(()=>{setData(null);setError('');setSelected(null);},[sourceKey]);
+  async function load(){const current=sourceKey;setBusy(true);setError('');try{const next=await service.market({reportRunId:report?.runId});if(sourceRef.current!==current)return;setData(next);const dates=[...new Set(next.rows.map(r=>r.date))].sort();const first=dates.find(d=>d>=warsawToday())??dates[0];if(first&&!from&&!to){setFrom(first);setTo(plusDays(first,13)>dates.at(-1)?dates.at(-1):plusDays(first,13));setMonth(first.slice(0,7));}if(location!=='*'&&!next.rows.some(r=>r.location===location))setLocation('*');setSelected(null);}catch(e){if(sourceRef.current===current)setError(e.message);}finally{setBusy(false);}}
   const locations=useMemo(()=>[...new Set((data?.rows??[]).filter(r=>kind==='all'||r.type===kind).map(r=>r.location))].sort(),[data,kind]);
   const rangeValid=validDate(from)&&validDate(to)&&from<=to&&Date.parse(to)-Date.parse(from)<366*86400000;
   const rows=useMemo(()=>rangeValid?(data?.rows??[]).filter(r=>r.transmission===transmission&&(kind==='all'||r.type===kind)&&(location==='*'||r.location===location)&&durations.includes(r.duration)&&r.date>=from&&r.date<=to):[],[data,kind,location,transmission,durations,from,to,rangeValid]);
@@ -29,11 +42,12 @@ export function MarketWorkspace({model,workspace,service,calendar}) {
   function preset(count){const dates=[...new Set(data.rows.map(r=>r.date))].sort();const start=dates.find(d=>d>=warsawToday())??dates[0];setFrom(start);setTo(count?([plusDays(start,count-1),dates.at(-1)].sort()[0]):dates.at(-1));setMonth(start.slice(0,7));}
   function changeMonth(value){const dates=monthDates(value);if(dates.length){setMonth(value);setFrom(dates[0]);setTo(dates.at(-1));}}
   function shiftMonth(step){const [y,m]=month.split('-').map(Number);changeMonth(new Date(Date.UTC(y,m-1+step,1)).toISOString().slice(0,7));}
-  function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){setExcelSelection({zone:zones[0],date:row.date,duration:row.duration,transmission:row.transmission});setView('excel');}}
+  function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){changeExcel({zone:zones[0],duration:row.duration,transmission:row.transmission,from:row.date,to:row.date});setView('excel');}}
   const reportLink=report?`/api/report/open?runId=${report.runId}`:null;
   return <section className="market-workspace">
     <div className="market-toolbar"><div className="market-tabs" role="group" aria-label="Widok cen">{tabs.map(([id,label,Icon])=><button className="button" key={id} aria-pressed={view===id} onClick={()=>setView(id)}><Icon size={16}/>{label}</button>)}</div>{reportLink&&<a className="text-button" href={reportLink} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Pełny raport HTML</a>}</div>
-    {view==='excel'?<PricesView key={JSON.stringify(excelSelection)} initialSelection={excelSelection} model={model} workspace={workspace} service={service}/>:view==='events'?<CalendarEvents calendar={calendar} model={model}/>:<>
+    {excelVisited&&<div hidden={view!=='excel'}><PricesView selection={excelSelection} onSelectionChange={changeExcel} model={model} workspace={workspace} service={service}/></div>}
+    <div hidden={view==='excel'}>
       <div className="market-source"><span>{data?`Raport: ${timestamp(data.report.generatedAt)} · zbieranie danych od ${timestamp(data.report.sourceStartedAt)}`:report?`Dostępny raport: ${timestamp(report.generatedAt)}`:'Brak potwierdzonego raportu cenowego.'}</span><button className="button primary" disabled={busy||!report} onClick={load}><Search size={16}/>{busy?'Odczytywanie…':data?'Odśwież ceny':'Pokaż ceny'}</button></div>
       {error&&<div className="alert error" role="alert">{error}</div>}
       {busy&&<p role="status">Odczytywanie raportu cenowego…</p>}
@@ -53,12 +67,13 @@ export function MarketWorkspace({model,workspace,service,calendar}) {
           {durations.map(duration=><PriceCalendar key={duration} month={month} rows={series(duration)} duration={duration} events={calendar.items} zones={applicableZones} onSelect={setSelected}/>)}
           <p className="evidence-note">Cena MM: PLN/dobę, zaokrąglona. Różnica % względem najtańszego konkurenta. Zielony: MM tańsze. Czerwony: MM droższe. Kreska: brak danych. Puste dni: poza filtrem dat.</p>
           {calendar.error&&<p className="freshness-warning">Nie potwierdzono oznaczeń wydarzeń. {calendar.error}</p>}
+          <details className="technical-details"><summary>Wydarzenia i święta</summary><CalendarEvents calendar={calendar} model={model}/></details>
         </>:null}
         {view==='attention'&&<><div className="market-filters"><label>Powód sprawdzenia<select value={reason} onChange={e=>setReason(e.target.value)}><option value="all">Wszystkie powody</option>{Object.entries(marketSignalLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label><label>Sortowanie<select value={sort} onChange={e=>setSort(e.target.value)}><option value="priority">Brak MM, potem najbliższe daty</option><option value="gap">Największy zapas do konkurenta</option><option value="date">Najbliższa data</option></select></label></div>
           <p>{attention.length} pozycji do sprawdzenia</p><table className="attention-table"><thead><tr><th>Data / najem</th><th>Lokalizacja</th><th>MM / konkurencja</th><th>Powód</th><th></th></tr></thead><tbody>{attention.slice(0,limit).map(row=><tr key={row.key}><td data-label="Data / najem">{dayLabel(row.date)}<small>{row.duration} dni</small></td><td data-label="Lokalizacja">{row.location}</td><td data-label="MM / konkurencja">{money(row.mm)} / {money(row.competitor)}<small>{row.provider}</small></td><td data-label="Powód">{row.signals.map(s=>marketSignalLabels[s]).join(' · ')}</td><td><button className="text-button" onClick={()=>setSelected(row)}>Szczegóły</button></td></tr>)}</tbody></table>{!attention.length&&<p>Brak pozycji spełniających wybrane kryteria.</p>}{attention.length>limit&&<button className="button" onClick={()=>setLimit(n=>n+20)}>Pokaż kolejne 20</button>}</>}
         {selected&&<MarketDetail row={selected} data={data} calendar={calendar} canExplain={Boolean(workspace?.status?.excel&&data.locations.some(l=>l.scraper_label===selected.location&&l.zones?.length))} onExcel={()=>openExcel(selected)}/>}
       </>}
-    </>}
+    </div>
   </section>;
 }
 

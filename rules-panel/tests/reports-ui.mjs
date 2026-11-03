@@ -24,7 +24,7 @@ try {
     return route.fulfill({json:{revision:'new-base-commit'}});
   });
   await page.goto(`${origin}/?view=results`);
-  await page.getByRole('heading',{name:'Ostatnie wyniki',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
   await page.getByText('Oczekuje na uruchomienie',{exact:true}).waitFor();
   await page.getByText('Excel i raport pochodzą z różnych uruchomień. Zakres i czas Excela podano poniżej.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('link',{name:'Pobierz import',exact:true}).getAttribute('href'),workspace.status.links.import);

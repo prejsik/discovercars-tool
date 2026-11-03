@@ -60,7 +60,7 @@ try {
   assert.equal(await page.locator('.market-calendar-grid button').count(),60);
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
-  await page.getByRole('button',{name:'Wydarzenia i święta',exact:true}).click();
+  await page.locator('.market-workspace summary').filter({hasText:'Wydarzenia i święta'}).click();
   await page.getByRole('button',{name:'Dodaj wydarzenie',exact:true}).click();
   await page.getByLabel('Nazwa wydarzenia').fill('Targi listopadowe');
   await page.getByLabel('Początek wydarzenia').fill('2026-11-06');await page.getByLabel('Koniec wydarzenia').fill('2026-11-08');
@@ -74,12 +74,32 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByRole('button',{name:'Wydarzenia i święta',exact:true}).click();
+  // Event management remains inside the price calendar, not a separate main tab.
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
   await page.getByLabel('Pokaż zarchiwizowane').check();
   await page.getByRole('button',{name:'Przywróć Targi listopadowe'}).click();
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).waitFor();
   assert.equal((await readCalendarEvents(storage)).items[0].active,true);
+  await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
+  const reads=requests.filter(url=>url.includes('/api/report/')).length;
+  await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
+  assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+  await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
+  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  assert.equal(await page.locator('.market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
+  assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+  await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
+  assert.equal(await page.locator('.market-chart').count(),2,'Returning does not clear loaded data');
+  assert.equal(requests.filter(url=>url.includes('/api/report/')).length,reads,'Returning does not re-download prices');
+  const selectedFrom=await page.locator('.market-filters').getByLabel('Start od',{exact:true}).inputValue();
+  meta.report.reportSha256='f'.repeat(64);
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+  await page.getByRole('button',{name:'Odśwież wyniki',exact:true}).click();
+  await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
+  await page.locator('.market-chart').waitFor({state:'detached'});
+  assert.equal(await page.locator('.market-filters').count(),0,'Changed source clears the old market result');
+  assert.ok(selectedFrom,'The previous report had a selected date range');
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
   await page.getByLabel('Miesiąc',{exact:true}).fill('2026-11');

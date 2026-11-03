@@ -26,7 +26,7 @@ try {
     workspace.snapshot={...snapshot,baseline:{...snapshot.baseline,filename:input.filename,sha256:'new-hash',importConfirmed:true}};
     return route.fulfill({json:{revision:'commit-a',sha256:'new-hash'}});
   });
-  await page.goto(origin); await page.getByRole('button',{name:'Plik bazowy',exact:true}).click();
+  await page.goto(`${origin}/?view=rules`); await page.getByRole('button',{name:'Baza i lokalizacje',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Sprawdź plik',exact:true}).isDisabled(),true);
   await page.getByLabel('Nowy plik bazowy').setInputFiles(fileURLToPath(new URL('../../input/mm-cars-rental-rates-inclusive-fp.xlsx',import.meta.url)));
   await page.getByRole('button',{name:'Sprawdź plik',exact:true}).click();
@@ -58,6 +58,7 @@ try {
   workspace.draft={revision:'published-draft',sourceRevision:'old-source',sourceHash:'old-policy',model:snapshot.documents};
   workspace.publication={draftRevision:'published-draft',policyMatchesCurrent:true};
   await page.reload();
+  await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('heading',{name:'Zasady cenowe',exact:true}).waitFor();
   assert.equal(await page.getByText('Poprzedni szkic ma inną wersję źródła',{exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Dodaj regułę',exact:true}).isEnabled(),true);

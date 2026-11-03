@@ -13,8 +13,8 @@ for (const page of [a, b])
   page.on("pageerror", (error) => errors.push(error.message));
 try {
   await context.route("**/api/workspace", route => route.fulfill({ status: 404, json: {} }));
-  await a.goto(origin);
-  await b.goto(origin);
+  await a.goto(`${origin}/?view=rules`);
+  await b.goto(`${origin}/?view=rules`);
   await b
     .locator('[data-rule-id="location:airport"]')
     .getByRole("button")

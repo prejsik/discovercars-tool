@@ -23,6 +23,7 @@ export function RunDiagnostics({ record, run, locations, unavailable }) {
       <div className="incident-heading"><TriangleAlert size={21}/><h3>{incident.title}</h3></div>
       <p>{incident.explanation}</p>
       <p className="incident-next"><strong>{incident.owner === 'configuration' ? 'Do decyzji osoby zarządzającej zasadami.' : 'Do sprawdzenia technicznego.'}</strong> {incident.nextStep}</p>
+      <details className="incident-details"><summary>Pokaż szczegóły błędu{incident.positions.length > 0 ? ` · ${incident.complete ? incident.total : incident.positions.length} ${incident.complete ? 'pozycji' : 'zapisanych przykładów'}` : ''}</summary>
       {incident.positions.length > 0 ? <>
         <div className="diagnostic-tools">
           <h4>Problematyczne pozycje</h4>
@@ -49,6 +50,7 @@ export function RunDiagnostics({ record, run, locations, unavailable }) {
         </nav>}
       </> : <p>Ten raport nie wskazuje konkretnych komórek. Nie przypisujemy błędu do przypadkowych stawek.</p>}
       <details className="technical-details"><summary>Szczegóły techniczne</summary><pre>{incident.technicalDetails || 'Brak zapisanego komunikatu.'}</pre></details>
+      </details>
     </> : unavailable ? <div className="alert" role="status">{unavailable}{run?.failureStage && <p>Etap: {run.failureStage}</p>}</div> : <p>Brak zgłoszonego błędu w tym raporcie.</p>}
     <div className="diagnostic-sources">
       {revision && <details><summary>Zasady i baza użyte w tym przebiegu</summary>

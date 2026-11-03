@@ -32,9 +32,9 @@ import "./styles.css";
 import * as policy from "./policy.mjs";
 import { createService } from "./service.mjs";
 import { filterRules, groupRuleBands, locationOptions, publishBlocker } from "./editor.mjs";
-import { modeLabel } from "./display.mjs";
+import { modeLabel, timestamp } from "./display.mjs";
 import { BusinessEditor, ReasonField } from "./BusinessEditor.jsx";
-import { OperationalStatus, SharedHistory } from "./WorkspaceViews.jsx";
+import { SharedHistory } from "./WorkspaceViews.jsx";
 import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
 import { MarketWorkspace } from './MarketWorkspace.jsx';
@@ -90,26 +90,30 @@ const knownGroups = (model) =>
     ...new Set([...model.excel.apply_groups, ...model.excel.excluded_groups]),
   ].sort();
 const nav = [
+  ["results", "Pulpit", Download],
   ["prices", "Ceny i rynek", Search],
-  ["results", "Ostatnie wyniki", Download],
   ["rules", "Zasady cenowe", SlidersHorizontal],
+  ["baseline", "Baza i lokalizacje", UploadIcon],
+];
+const ruleSections = [
+  ["rules", "Reguły", SlidersHorizontal],
   ["groups", "Klasy pojazdów", Layers3],
-  ["preview", "Sprawdź reguły", ClipboardCheck],
-  ["review", "Podgląd zmian", FileCheck2],
-  ["history", "Historia szkicu", History],
-  ["baseline", "Plik bazowy", UploadIcon],
-  ["sources", "Źródła i publikacja", GitBranch],
+  ["preview", "Sprawdź minimum i ochronę", ClipboardCheck],
+  ["history", "Historia zmian", History],
 ];
 const titles = {
   prices: "Ceny i rynek",
-  results: "Ostatnie wyniki",
+  results: "Pulpit",
   rules: "Zasady cenowe",
   groups: "Klasy pojazdów",
-  preview: "Sprawdź reguły",
-  history: "Historia szkicu",
-  sources: "Źródła i publikacja",
+  preview: "Sprawdź minimum i ochronę",
+  history: "Historia zmian",
   review: "Podgląd zmian",
-  baseline: "Plik bazowy",
+  baseline: "Baza i lokalizacje",
+};
+const routeView = () => {
+  const requested = new URLSearchParams(window.location.search).get('view');
+  return Object.hasOwn(titles, requested) ? requested : 'results';
 };
 const period = (rule) =>
   rule.startDate || rule.endDate
@@ -158,7 +162,8 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [view, setView] = useState(() => {const requested=new URLSearchParams(window.location.search).get('view');return nav.some(([id])=>id===requested)?requested:window.location.hash==='#results'?'results':'rules';});
+  const [view, setView] = useState(routeView);
+  const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -171,6 +176,11 @@ function App() {
   const revisionRef = useRef(null);
   const blockedDraft = Boolean(stale || draftConflict);
   const mainRef = useRef(null);
+  useEffect(() => {
+    const back = () => { const next = routeView(); setView(next); if (next === 'prices') setPricesVisited(true); };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, []);
   const original = useMemo(
     () => (snapshot ? createModel(snapshot.documents) : null),
     [snapshot],
@@ -338,6 +348,11 @@ function App() {
 
   function go(next) {
     setView(next);
+    if (next === 'prices') setPricesVisited(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', next);
+    url.searchParams.delete('runId');
+    window.history.pushState(null, '', url);
     setTimeout(() => {
       mainRef.current?.focus({ preventScroll: true });
       window.scrollTo(0, 0);
@@ -499,7 +514,7 @@ function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            go("rules");
+            go("results");
           }}
           aria-label="MM Cars Rental, zasady DiscoverCars"
         >
@@ -515,16 +530,13 @@ function App() {
           {nav.map(([id, label, Icon]) => (
             <button
               key={id}
-              className={`nav-item ${view === id ? "active" : ""} ${id === "history" ? "nav-secondary" : ""}`}
-              aria-current={view === id ? "page" : undefined}
+              className={`nav-item ${view === id || (id === 'rules' && (view === 'review' || ruleSections.some(([section]) => section === view))) ? "active" : ""}`}
+              aria-current={view === id || (id === 'rules' && (view === 'review' || ruleSections.some(([section]) => section === view))) ? "page" : undefined}
               aria-label={label}
               onClick={() => go(id)}
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id === "review" && changes.length > 0 && (
-                <span className="nav-count">{changes.length}</span>
-              )}
             </button>
           ))}
         </nav>
@@ -536,6 +548,7 @@ function App() {
               <h1>{titles[view]}</h1>
             </div>
             <div className="heading-actions">
+              {view !== 'review' && changes.length > 0 && <button className="button" onClick={() => go('review')}><FileCheck2 size={17}/>Zmiany do publikacji: {changes.length}</button>}
               {view === "rules" && <button className="button primary" disabled={blockedDraft || busy} onClick={() => setEditor({ isNew: true })}>
                 <Plus size={17} />Dodaj regułę
               </button>}
@@ -547,16 +560,11 @@ function App() {
               </span>}
             </div>
           </div>
-          <div className="context-line">
-            <span>
-              <strong>{modeLabel(snapshot.capabilities?.mode)}</strong>
-              {" · Stan na "}
-              <time dateTime={snapshot.source.loadedAt}>
-                {snapshotTime(snapshot.source.loadedAt)}
-              </time>
-            </span>
+          {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="context-line">
+            <span>{changes.length ? 'Edycja szkicu' : snapshot.capabilities?.mode === 'github' ? 'Opublikowane zasady' : 'Zasady źródłowe'} · {modeLabel(snapshot.capabilities?.mode)}</span>
             {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{changes.length} zmian · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
-          </div>
+          </div>}
+          {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="section-tabs" role="group" aria-label="Sekcje zasad">{ruleSections.map(([id,label,Icon]) => <button key={id} className="button" aria-pressed={view === id} onClick={() => go(id)}><Icon size={16}/>{label}</button>)}</div>}
           {actionError && <div className="alert error" role="alert"><TriangleAlert size={18} /><div><p>{actionError}</p>{pendingModelRef.current && !draftConflict && <button className="text-button" onClick={() => downloadJson({ sourceHash: snapshot.source.policyHash, model: pendingModelRef.current }, "discovercars-niezapisany-szkic.json")}>Pobierz niezapisane zmiany</button>}{loadError && <button className="text-button" disabled={busy} onClick={refreshWorkspace}>Ponów odczyt</button>}</div></div>}
           {notice && (
             <div className="notice" role="status">
@@ -726,7 +734,7 @@ function App() {
               </>}
             </>
           )}
-          {view === 'prices' && <MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents}/>}
+          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents}/></div>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
@@ -809,9 +817,8 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} />}
-          {view === 'baseline' && <BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} />}
-          {view === "sources" && <><OperationalStatus workspace={workspaceData} snapshot={snapshot} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'results' && <><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{item.scraper_label}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
       {editor?.isNew && <BusinessEditor model={model} remote={remote} supported={typeof policy.addFloorMatrix === "function"} onClose={() => setEditor(null)} onSave={async (fields, changeReason) => {
@@ -1348,7 +1355,7 @@ function Sources({ snapshot, model, remote, capabilities }) {
           <dt>Plik bazowy</dt>
           <dd>
             {snapshot.baseline.filename}
-            <small>Zatwierdzony {date(snapshot.baseline.approvedAt)}</small>
+            <small>Zatwierdzony {timestamp(snapshot.baseline.approvedAt)}</small>
           </dd>
         </div>
         <div>

@@ -23,7 +23,7 @@ try {
   const original = snapshot.documents.pricing.pricing.mandatoryScopedFloorsPlnDay ?? [];
   await page.route('**/api/workspace', route => route.fulfill({ status: 404, json: {} }));
   await page.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
-  await page.goto(origin);
+  await page.goto(`${origin}/?view=rules`);
   assert.equal(new URL(page.url()).origin, origin);
   assert.ok(await page.title());
   await page.getByRole('heading', { name: 'Zasady cenowe', exact: true }).waitFor();

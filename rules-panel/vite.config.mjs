@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { readSnapshot } from "./server/snapshot.mjs";
 import { localWorkspaceMiddleware } from "./server/local-workspace.mjs";
+import { readSchedulePlan } from './server/schedule-plan.mjs';
 
 function policySnapshot() {
   const middleware = (server) => {
@@ -44,6 +45,8 @@ function policySnapshot() {
 }
 
 export default defineConfig({
+  define: { __SCRAPER_PLAN__: JSON.stringify(readSchedulePlan()) },
+  optimizeDeps: { include: ['fflate', 'saxes'] },
   plugins: [react(), policySnapshot()],
   server: {
     host: "127.0.0.1",

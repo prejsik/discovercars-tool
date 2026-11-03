@@ -56,18 +56,15 @@ for (const mode of ["local", "hosted-preview"]) {
           },
         }),
       );
-      await page.goto(origin);
+      await page.goto(`${origin}/?view=rules`);
       await page.locator('[data-rule-id="location:city"]').waitFor();
       const modeLabel = page.locator("main > .context-line");
       assert.match(
         await modeLabel.innerText(),
-        hosted ? /Podgląd online.*Stan na/ : /Tryb lokalny.*Stan na/,
+        hosted ? /Podgląd online/ : /Tryb lokalny/,
       );
-      const timestamp = modeLabel.locator("time");
-      assert.equal(await timestamp.isVisible(), true);
-      assert.equal(await timestamp.getAttribute("datetime"), loadedAt);
-      assert.match(await timestamp.innerText(), /15\.10\.2026.*11:30/);
-      await page.getByRole('button', { name: 'Podgląd zmian', exact: true }).click();
+      assert.equal(await modeLabel.locator('time').count(),0,'Snapshot timestamp must not look like scrape freshness');
+      await page.goto(`${origin}/?view=review`);
       assert.match(await page.locator('main').innerText(), /Publikacja niepodłączona.*Zmiany pozostają w szkicu tej przeglądarki/);
       assert.equal(
         await page.getByRole("button", { name: "Opublikuj", exact: true }).isDisabled(),
@@ -93,13 +90,14 @@ for (const mode of ["local", "hosted-preview"]) {
       await page.getByLabel("Stawka minimalna (PLN / dobę)", { exact: true }).fill("75");
       await page.getByRole("button", { name: "Zapisz w szkicu" }).click();
       await page.getByRole("dialog").waitFor({ state: "hidden" });
-      assert.equal(await timestamp.getAttribute("datetime"), loadedAt);
-      assert.equal(await timestamp.isVisible(), true);
       assert.match(await page.locator('.draft-status').innerText(), /szkic tylko w tej przeglądarce.*nieopublikowane/);
       assert.match(await page.locator('.draft-status').getAttribute('title'), /Zapisano:/);
 
-      await page.getByRole("button", { name: "Źródła i publikacja", exact: true }).click();
+      await page.getByRole("button", { name: "Pulpit", exact: true }).click();
       await page.getByText('Konfiguracja techniczna', { exact: true }).click();
+      const timestamp=page.locator('time');
+      assert.equal(await timestamp.getAttribute('datetime'),loadedAt);
+      assert.match(await timestamp.innerText(),/15\.10\.2026.*11:30/);
       const sources = await page.locator("main").innerText();
       assert.match(sources, hosted ? /Podgląd online/ : /Tryb lokalny/);
       assert.match(

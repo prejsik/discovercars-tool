@@ -38,7 +38,7 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`prices overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`prices-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByLabel('Start od',{exact:true}).fill('2027-01-01');
+  await page.locator('.prices-view').getByLabel('Start od',{exact:true}).fill('2027-01-01');
   await page.getByText('Brak pozycji w wybranym zakresie.',{exact:true}).waitFor();
   await page.getByLabel('Klasa w Excelu').selectOption('EDMV');
   assert.equal(await page.locator('.prices-table').count(),0,'Filter change cannot display a previous class result');

@@ -60,8 +60,8 @@ async function setup(width) {
       await route.fulfill(await handlers[name](input));
     });
   }
-  await page.goto(origin);
-  await page.getByRole('button', { name: 'Plik bazowy', exact: true }).click();
+  await page.goto(`${origin}/?view=rules`);
+  await page.getByRole('button', { name: 'Baza i lokalizacje', exact: true }).click();
   return { context, page, workspace, checks, searches, publications, handlers };
 }
 

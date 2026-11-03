@@ -22,6 +22,8 @@ try {
   await page.route('**/api/report/diagnostics?runId=777',route=>route.fulfill({status:502,json:{error:'Artefakt diagnostyczny wygasł.'}}));
   await page.goto(`${origin}/?view=results`);
   await page.getByRole('heading',{name:'Excel zablokowany przez kontrolę limitu miasto–lotnisko',exact:true}).waitFor();
+  assert.equal(await page.getByRole('table',{name:'Pozycje blokujące Excel'}).isVisible(),false);
+  await page.locator('.incident-details > summary').click();
   assert.equal(await page.getByText('Nie potwierdzono źródła',{exact:true}).count(),2);
   assert.match(await page.getByRole('table',{name:'Pozycje blokujące Excel'}).innerText(),/79,49/);
   const search=page.getByRole('searchbox',{name:'Filtruj problematyczne pozycje'});
@@ -34,6 +36,7 @@ try {
     if(width===1440 || width===390)await page.screenshot({path:join(output,`diagnostics-${width}.png`),fullPage:true});
   }
   await page.goto(`${origin}/?view=results&runId=555`);
+  await page.locator('.incident-details > summary').click();
   await page.getByText('Stawka zachowana z bazy',{exact:true}).first().waitFor();
   assert.equal(await page.locator('tbody tr').count(),20);
   await page.getByRole('button',{name:'Następne pozycje',exact:true}).click();

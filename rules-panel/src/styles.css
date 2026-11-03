@@ -1290,7 +1290,7 @@
     }
     .sidebar nav {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 5px;
       margin-bottom: 12px;
     }
@@ -1561,7 +1561,27 @@
 .baseline-file input { max-width: 100%; min-width: 0; font: inherit; }
 .baseline-confirm { display: flex; align-items: flex-start; gap: 10px; margin: 20px 0; }
 .baseline-confirm input { margin-top: 3px; }
-.reports-view { max-width: 960px; }
+.reports-view { max-width: 1080px; }
+[hidden] { display: none !important; }
+.section-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.section-tabs .button[aria-pressed="true"] { background: #fff4d5; border-color: #ddc36d; }
+.schedule-summary { display: flex; flex-wrap: wrap; gap: 12px 28px; padding: 12px 0 20px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.incident-details { margin: 16px 0; }
+.incident-details > summary { color: #184e9c; font-weight: 600; cursor: pointer; }
+.history-filter { display: flex; flex-direction: row; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 20px; }
+.history-content { flex: 1; min-width: 0; }
+.history-diff { margin-top: 12px; }
+.history-diff table, .location-directory { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 12px 0; }
+.history-diff th, .history-diff td, .location-directory th, .location-directory td { padding: 10px; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; font-size: 12px; }
+.location-directory th:first-child { width: 40%; }
+@media (max-width: 760px) {
+  .heading-actions { flex-wrap: wrap; }
+  .section-tabs .button { white-space: normal; text-align: left; }
+  .location-directory thead { display: none; }
+  .location-directory tr { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .location-directory td { display: block; padding: 0; border: 0; }
+  .location-directory td::before { content: attr(data-label); display: block; color: var(--muted); }
+}
 .reports-view h3 { margin: 26px 0 14px; font-size: 17px; }
 .reports-view .source-list dd { overflow-wrap: anywhere; }
 .report-baseline { border-top: 1px solid var(--border, #dce1e6); margin-top: 22px; padding-top: 2px; }
