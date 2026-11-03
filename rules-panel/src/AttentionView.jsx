@@ -9,7 +9,7 @@ import {branchOverview,locationLabel} from './operations.mjs';
 import {BandMatrix} from './BandMatrix.jsx';
 export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model}) {
  const [from,setFrom]=useState(warsawToday);const [to,setTo]=useState(()=>plusDays(warsawToday(),13));
- const [transmission,setTransmission]=useState('all');const [kind,setKind]=useState('all');
+ const [transmission,setTransmission]=useState(request?.transmission??'all');const [kind,setKind]=useState('all');
  const [location,setLocation]=useState(request?.row?.location??'');
  const [reason,setReason]=useState(request?.reason??'all');
  const [mode,setMode]=useState('map'),[highlight,setHighlight]=useState(request?.row?.date??'');

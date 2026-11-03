@@ -55,10 +55,19 @@ try {
   await page.locator('.operations-dashboard').waitFor();
   await page.locator('.dashboard-metric').first().waitFor();
   assert.equal(await page.locator('.dashboard-metric').count(),4);
-  assert.equal(await page.locator('.dashboard-urgent tbody tr').count(),2,'Confirmed missing MM ordered first, no minor gaps');
+  assert.equal(await page.locator('.dashboard-urgent, .dashboard-branches').count(),0);
+  const switcher=page.getByRole('group',{name:'Skrzynia na Pulpicie'});
+  assert.equal(await switcher.getByRole('button',{name:'Automaty',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('.dashboard-status > div').nth(2).getByRole('button').count(),0);
+  assert.match(await page.locator('.dashboard-status > div').nth(2).innerText(),/Brak zmian w szkicu/);
+  assert.match(await page.locator('.dashboard-status').innerText(),/Zbieranie cen od 03.11.2026, 10:00:00/);
+  await switcher.getByRole('button',{name:'Wszystkie auta',exact:true}).click();
+  assert.equal(await switcher.getByRole('button',{name:'Wszystkie auta',exact:true}).getAttribute('aria-pressed'),'true');
+  await switcher.getByRole('button',{name:'Automaty',exact:true}).click();
   await page.locator('.dashboard-metric').first().click();
   await page.getByLabel('Pozycje przeglądu').waitFor();
   assert.equal(await page.getByLabel('Pozycje przeglądu').inputValue(),'missing');
+  assert.equal(await page.getByRole('group',{name:'Skrzynia w przeglądzie'}).getByRole('button',{name:'Automaty',exact:true}).getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('.attention-map tbody tr').count(),1);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   for(const width of [1440,1024,390]){
@@ -155,6 +164,7 @@ try {
   meta.report.reportSha256='f'.repeat(64);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   const refreshed=page.waitForResponse(response=>response.url().includes('/api/report/prices?'));
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
   await page.locator('.reports-diagnostics > summary').click();
   await page.getByRole('button',{name:'Odśwież wyniki',exact:true}).click();
   await refreshed;

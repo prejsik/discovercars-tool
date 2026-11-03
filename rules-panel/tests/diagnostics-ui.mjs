@@ -22,6 +22,7 @@ try {
   await page.route('**/api/report/diagnostics?runId=777',route=>route.fulfill({status:502,json:{error:'Artefakt diagnostyczny wygasł.'}}));
   await page.goto(`${origin}/?view=results`);
   await page.getByRole('button',{name:'Excel nieopublikowany',exact:true}).click();
+  await page.locator('.reports-diagnostics > summary').click();
   await page.getByRole('heading',{name:'Excel zablokowany przez kontrolę limitu miasto–lotnisko',exact:true}).waitFor();
   assert.equal(await page.getByRole('table',{name:'Pozycje blokujące Excel'}).isVisible(),false);
   await page.locator('.incident-details > summary').click();

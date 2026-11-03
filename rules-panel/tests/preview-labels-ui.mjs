@@ -94,6 +94,7 @@ for (const mode of ["local", "hosted-preview"]) {
       assert.match(await page.locator('.draft-status').getAttribute('title'), /Zapisano:/);
 
       await page.getByRole("button", { name: "Pulpit", exact: true }).click();
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
       await page.getByText('Konfiguracja techniczna', { exact: true }).click();
       const timestamp=page.locator('time');
       assert.equal(await timestamp.getAttribute('datetime'),loadedAt);

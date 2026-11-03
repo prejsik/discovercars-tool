@@ -25,6 +25,9 @@ try {
   });
   await page.goto(`${origin}/?view=results`);
   await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
+  assert.equal(await page.getByRole('link',{name:'Import · 15.10.2026, 10:00:00',exact:true}).getAttribute('href'),workspace.status.links.import);
+  assert.equal(await page.getByRole('link',{name:'Rekomendacje · 15.10.2026, 10:00:00',exact:true}).getAttribute('href'),workspace.status.links.recommendations);
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
   await page.locator('.reports-diagnostics > summary').click();
   await page.getByText('Oczekuje na uruchomienie',{exact:true}).waitFor();
   await page.getByText('Szczegóły raportu i plików',{exact:true}).click();

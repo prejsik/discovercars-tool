@@ -19,6 +19,7 @@ try {
   assert.equal(await page.getByRole('button',{name:/Zmiany do publikacji:/}).count(),0);
   await page.goto(`${origin}/?view=sources`);
   await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
   await page.getByText('Konfiguracja techniczna',{exact:true}).click();
   assert.doesNotMatch(await page.locator('main').innerText(),/Invalid Date/);
   const snapshot=await(await page.request.get(`${origin}/policy-snapshot.json`)).json();

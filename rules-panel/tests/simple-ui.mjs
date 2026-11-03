@@ -57,6 +57,7 @@ try {
   assert.equal(await page.getByRole('button', { name: /^Opublikuj/ }).isDisabled(), true);
   await page.getByRole('button', { name: 'Pulpit', exact: true }).click();
   assert.equal(await page.getByText('pricing-rules.config.example.json', { exact: true }).isVisible(), false);
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
   await page.getByText('Konfiguracja techniczna', { exact: true }).click();
   await page.getByText('pricing-rules.config.example.json', { exact: true }).waitFor();
   const snapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
@@ -71,6 +72,7 @@ try {
       await page.setViewportSize({ width, height: 960 });
       await page.reload();
       await page.getByRole('button', { name: 'Pulpit', exact: true }).click();
+  if (await page.getByRole('heading',{name:'Pulpit',exact:true}).count()) await page.locator('.dashboard-status > div').nth(1).getByRole('button').click();
       await page.getByText('Konfiguracja techniczna', { exact: true }).click();
       const horizon = page.locator('.source-list > div').filter({
         has: page.getByText('Zakres pliku importowego', { exact: true }),

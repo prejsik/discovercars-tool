@@ -123,6 +123,7 @@ const ruleSections = [
 const titles = {
   prices: "Ceny i rynek",
   results: "Pulpit",
+  diagnostics: "Diagnostyka",
   rules: "Zasady cenowe",
   groups: "Klasy pojazdów",
   preview: "Sprawdź minimum i ochronę",
@@ -132,6 +133,7 @@ const titles = {
 };
 const routeView = () => {
   const requested = new URLSearchParams(window.location.search).get('view');
+  if (requested === 'results' && new URLSearchParams(window.location.search).has('runId')) return 'diagnostics';
   return Object.hasOwn(titles, requested) ? requested : 'results';
 };
 const period = (rule) =>
@@ -387,7 +389,7 @@ function App() {
       window.scrollTo(0, 0);
     }, 0);
   }
-  function openMarket(reason='all',row=null,neighbors=[]) {setMarketRequest({id:crypto.randomUUID(),reason,row,neighbors});go('prices');}
+  function openMarket(reason='all',row=null,neighbors=[],transmission=null) {setMarketRequest({id:crypto.randomUUID(),reason,row,neighbors,transmission});go('prices');}
   async function commit(next, label, changeReason = reason, confirmations = []) {
     if (blockedDraft)
       throw new Error("Rozpocznij nowy szkic na aktualnej wersji zasad.");
@@ -855,7 +857,8 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>{const details=document.querySelector('.reports-diagnostics');if(details){details.open=true;details.scrollIntoView({block:'start'});}}} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>go('diagnostics')} onMarket={openMarket}/></>}
+          {view === 'diagnostics' && <><button className="button" onClick={()=>go('results')}>Powrót do Pulpitu</button><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
           {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{locationLabel(item.scraper_label)}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
