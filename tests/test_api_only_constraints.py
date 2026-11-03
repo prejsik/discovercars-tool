@@ -470,6 +470,41 @@ class ApiOnlyConstraintTests(unittest.TestCase):
         self.assertEqual(summary["change_count"], 1)
         self.assertFalse(any("API-only cap" in str(item["details"]) for item in summary["validation"]))
 
+    def test_api_blocked_city_preserves_baseline_above_airport_cap_without_blocking_other_dates(self):
+        self.fixture.config["city_top1_airport_cap"] = {
+            "enabled": True, "max_multiplier": 1.3, "recommendation_types": ["minimum_fallback"],
+        }
+        self.fixture.config["city_zone_airport_zones"] = {"WA1": ["WALO"]}
+        self.fixture.write_workbook([
+            ("CDMV", "WA1", "2026-12-01", 80),
+            ("EDMV", "WA1", "2026-12-01", 80),
+            ("PDAH", "WA1", "2026-12-01", 250),
+            ("CDMV", "WALO", "2026-12-01", 60),
+            ("EDMV", "WALO", "2026-12-01", 60),
+            ("CDMV", "WA1", "2026-12-02", 100),
+            ("EDMV", "WA1", "2026-12-02", 101),
+            ("CDMV", "WALO", "2026-12-02", 100),
+            ("EDMV", "WALO", "2026-12-02", 101),
+        ])
+        original = self.fixture.workbook_path.read_bytes()
+        decisions = make_api_only_decisions(api_cap=76)
+        decisions += make_api_only_decisions(pickup="2026-12-02", api_cap=150)
+        summary, review_path, import_path = self.fixture.apply(decisions, name="preserved-city-over-cap")
+        for path in (review_path, import_path):
+            with open_readonly_workbook(path) as book:
+                ws = book["Sheet1"]
+                self.assertEqual(ws['I5'].value, 80)
+                self.assertEqual(ws['I6'].value, 80)
+                self.assertEqual(ws['I7'].value, 250)
+                self.assertEqual(ws['I10'].value, 120)
+                self.assertEqual(ws['I11'].value, 121)
+        self.assertEqual(summary['city_top1_airport_cap_preserved_count'], 2)
+        self.assertEqual(summary['city_top1_airport_cap_violation_count'], 0)
+        self.assertEqual(summary['change_count'], 2)
+        self.assertTrue(any('API-only cap' in str(item['details']) for item in summary['validation']))
+        self.assertFalse(any(item['status'] == 'FAIL' for item in summary['validation']))
+        self.assertEqual(self.fixture.workbook_path.read_bytes(), original)
+
     def test_market_target_holds_above_api_cap_but_independent_mandatory_floor_still_applies(self):
         self.fixture.write_rules(
             api_days=[9, 11, 12],

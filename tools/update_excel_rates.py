@@ -3511,6 +3511,8 @@ def find_city_top1_airport_cap_violations(
     allowed_groups: set[str] | None = None,
     ignored_cap_cells: set[tuple[str, date, int, str]] | None = None,
     details: list[dict[str, Any]] | None = None,
+    preserved_rates: dict[str, float] | None = None,
+    preserved_details: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     if not caps:
         return []
@@ -3536,6 +3538,15 @@ def find_city_top1_airport_cap_violations(
             rate = parse_number(ws.cell(row, rate_col).value)
             maximum_rate = float(cap_info["base_rate_cap_pln_day"]) + get_group_rate_adjustment(group, config)
             if rate is not None and rate > maximum_rate + 0.001:
+                coordinate = ws.cell(row, rate_col).coordinate
+                if preserved_rates and preserved_rates.get(coordinate) == rate:
+                    if preserved_details is not None:
+                        preserved_details.append({
+                            "group": group, "zone": zone, "pickup_date": pickup_date.isoformat(),
+                            "cell": coordinate, "rate": rate, "limit": maximum_rate,
+                            "reason": "Market update skipped; original baseline rate preserved without changes.",
+                        })
+                    continue
                 violations.append(
                     f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(rate_col)}: "
                     f"{format_rate_for_comment(rate)} > {format_rate_for_comment(maximum_rate)}"
@@ -4261,6 +4272,7 @@ def apply_updates(
         skipped_targets.append({**target, "skip_reason": reason})
     group_price_parity_scope.difference_update(api_cap_blocked_targets)
 
+    preserved_city_cap_rates: dict[str, float] = {}
     for row in range(data_start_row, ws.max_row + 1):
         if config.get("normalize_pickup_end_to_start", True) and expansion_summary.get("mode") != "source_ranges":
             if maybe_normalize_pickup_end_date(ws, row, columns, dry_run):
@@ -4297,6 +4309,11 @@ def apply_updates(
         for target in row_targets:
             cap_key = (zone, pickup_start, int(target["rate_col"]))
             if cap_key in api_cap_blocked_targets:
+                if cap_key in city_top1_airport_caps:
+                    cell = ws.cell(row, int(target["rate_col"]))
+                    rate = parse_number(cell.value)
+                    if rate is not None:
+                        preserved_city_cap_rates[cell.coordinate] = rate
                 continue
             target = target_for_group(target, group)
             priority = priority_top1_applies(target, group, config)
@@ -4454,12 +4471,22 @@ def apply_updates(
     )
 
     cap_diagnostics: list[dict[str, Any]] = []
+    preserved_city_cap_positions: list[dict[str, Any]] = []
     city_top1_airport_cap_violations = (
         [] if dry_run else find_city_top1_airport_cap_violations(
             ws, config,
             city_top1_airport_caps, allowed_groups, ignored_cap_cells, details=cap_diagnostics,
+            preserved_rates=preserved_city_cap_rates, preserved_details=preserved_city_cap_positions,
         )
     )
+    if preserved_city_cap_positions:
+        validation_rows.append([
+            "Zachowane stawki bazowe powyzej limitu miasto/lotnisko w pominietych przedzialach",
+            "INFO", len(preserved_city_cap_positions),
+            first_items([f"{item['group']}/{item['zone']}/{item['pickup_date']} {item['cell']}: "
+                         "rekomendacja pominieta, stawka bazowa bez zmian"
+                         for item in preserved_city_cap_positions]),
+        ])
     if city_top1_airport_cap_violations:
         last_changes = {change["cell"]: change for change in changes if change.get("cell")}
         for item in cap_diagnostics:
@@ -4521,6 +4548,8 @@ def apply_updates(
         "city_top1_airport_cap_scope_count": len(city_top1_airport_caps),
         "city_top1_airport_cap_applied_count": city_top1_airport_cap_applied_count,
         "city_top1_airport_cap_violation_count": len(city_top1_airport_cap_violations),
+        "city_top1_airport_cap_preserved_count": len(preserved_city_cap_positions),
+        "city_top1_airport_cap_preserved_positions": preserved_city_cap_positions[:1000],
         "city_top1_airport_cap_conflict_count": 0,
         "city_top1_airport_cap_conflicts": [],
         "city_top1_airport_cap_ignored_count": len(ignored_city_caps),
