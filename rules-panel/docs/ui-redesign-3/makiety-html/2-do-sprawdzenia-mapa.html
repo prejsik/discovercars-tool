@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<title>Po – Do sprawdzenia, wariant zielono-czerwony</title>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457D6}a:hover{color:#173E9E}
+</style>
+</head>
+<body>
+
+
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #14171C; background: #F4F5F7; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 1080px; font-size: 14px">
+  <nav aria-label="Menu panelu" style="flex: 1 1 200px; max-width: 216px; box-sizing: border-box; background: #FFFFFF; border-right: 1px solid #E3E6EA; padding: 20px 12px; display: flex; flex-direction: column; gap: 2px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px 20px">
+      <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 7px; background: #F2C230"></div>
+      <div style="display: flex; flex-direction: column; line-height: 1.2"><strong style="font-size: 14px; font-weight: 600">MM Cars Rental</strong><span style="font-size: 12px; color: #5B6271">Panel cen DiscoverCars</span></div>
+    </div>
+    <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Pulpit</a>
+    <a href="#" aria-current="page" style="display: flex; justify-content: space-between; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; background: #ECEEF2; color: #14171C; font-weight: 600; text-decoration: none">Do sprawdzenia <span style="font-size: 12px; font-weight: 600">18</span></a>
+    <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Ceny i kalendarz</a>
+    <a href="#" style="display: flex; justify-content: space-between; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Zasady cenowe <span style="font-size: 12px; font-weight: 600; color: #1C3F8F">szkic</span></a>
+    <a href="#baza" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Baza i lokalizacje</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 14px">
+    <header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.3px">Do sprawdzenia</h1>
+        <p style="margin: 4px 0 0; color: #5B6271; font-size: 13px">Najgorsza różnica dnia z najmów 2–14 dni · MM minus najtańszy konkurent, PLN/dobę · raport 3.11, 14:41</p>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+        <div role="group" aria-label="Skrzynia" style="display: inline-flex; border: 1px solid #CDD2D9; border-radius: 6px; overflow: hidden">
+          <button type="button" aria-pressed="true" style="font: inherit; font-size: 13px; min-height: 36px; padding: 0 12px; border: 0; background: #14171C; color: #FFFFFF">Wszystkie auta</button>
+          <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; min-height: 36px; padding: 0 12px; border: 0; border-left: 1px solid #CDD2D9; background: #FFFFFF; color: #14171C">Automaty</button>
+        </div>
+        <button type="button" style="font: inherit; font-size: 13px; min-height: 36px; padding: 0 12px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF; color: #14171C">Próg: ±5 PLN/d</button>
+        <button type="button" style="font: inherit; font-size: 13px; min-height: 36px; padding: 0 12px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF; color: #14171C">Sortuj: najwięcej problemów</button>
+      </div>
+    </header>
+
+    <div aria-label="Legenda" style="display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 12px; color: #3A404B">
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 22px; height: 14px; background: #1B2230; border-radius: 2px"></span>brak oferty MM</span>
+      <span style="display: inline-flex; align-items: center; gap: 2px"><span aria-hidden="true" style="width: 18px; height: 14px; background: #FDE4E2"></span><span aria-hidden="true" style="width: 18px; height: 14px; background: #F7B9B3"></span><span aria-hidden="true" style="width: 18px; height: 14px; background: #E5675C"></span><span aria-hidden="true" style="width: 18px; height: 14px; background: #B42318"></span><span style="margin-left: 6px">MM droższe: 5 · 10 · 20 · 40+</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 22px; height: 14px; background: #F1F2F5; border: 1px solid #E3E6EA"></span>±5 PLN/d</span>
+      <span style="display: inline-flex; align-items: center; gap: 2px"><span aria-hidden="true" style="width: 18px; height: 14px; background: #DFF3E5"></span><span aria-hidden="true" style="width: 18px; height: 14px; background: #A8DDB8"></span><span aria-hidden="true" style="width: 18px; height: 14px; background: #237A45"></span><span style="margin-left: 6px">MM tańsze (zapas Top1): 5 · 20 · 30+</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 22px; height: 14px; background: repeating-linear-gradient(45deg, #9AA0AB 0 2px, #FFFFFF 2px 5px); border-radius: 2px"></span>brak danych</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section aria-label="Mapa oddziałów i dni" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; padding: 10px 12px; overflow-x: auto">
+        <div style="display: grid; grid-template-columns: 186px repeat(14, 42px) 36px; gap: 2px; min-width: 820px">
+          <span style="font-size: 12px; color: #5B6271; align-self: end; padding-bottom: 4px">Oddział · kod</span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>wt</span><strong style="font-weight: 600">03</strong><span style="font-size: 10px">dziś</span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>śr</span><strong style="font-weight: 600">04</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>cz</span><strong style="font-weight: 600">05</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>pt</span><strong style="font-weight: 600">06</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: #ECEEF2"><span>sb</span><strong style="font-weight: 600">07</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: #ECEEF2"><span>nd</span><strong style="font-weight: 600">08</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>pn</span><strong style="font-weight: 600">09</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>wt</span><strong style="font-weight: 600">10</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #1C3F8F; background: transparent"><span>śr</span><strong style="font-weight: 600">11</strong><span style="font-size: 10px">święto</span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>cz</span><strong style="font-weight: 600">12</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>pt</span><strong style="font-weight: 600">13</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: #ECEEF2"><span>sb</span><strong style="font-weight: 600">14</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: #ECEEF2"><span>nd</span><strong style="font-weight: 600">15</strong><span style="font-size: 10px"></span></span>
+          
+            <span style="display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.25; padding: 4px 0; border-radius: 4px; color: #3A404B; background: transparent"><span>pn</span><strong style="font-weight: 600">16</strong><span style="font-size: 10px"></span></span>
+          
+          <span style="font-size: 11px; color: #5B6271; align-self: end; text-align: right; padding-bottom: 4px">Σ</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Poznań · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">POLO</span></span>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 03.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 04.11: MM droższe o 23 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+23</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 05.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 06.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 07.11: MM droższe o 31 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+31</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 08.11: MM droższe o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+20</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 09.11: MM droższe o 24 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+24</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 10.11: MM droższe o 19 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+19</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 11.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 12.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 13.11: MM droższe o 19 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+19</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 14.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 15.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Poznań · Lotnisko, 16.11: MM tańsze o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−12</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">11</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Warszawa · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WALO</span></span>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 03.11: MM droższe o 31 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+31</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 04.11: MM tańsze o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #A8DDB8; color: #0E3B20;">−20</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 05.11: MM droższe o 22 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+22</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 06.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 07.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 08.11: MM droższe o 27 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+27</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 09.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 10.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 11.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 12.11: MM droższe o 25 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+25</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 13.11: MM droższe o 23 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+23</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 14.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 15.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Lotnisko, 16.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">7</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Szczecin · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">SZLO</span></span>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 03.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 04.11: MM droższe o 19 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+19</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 05.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 06.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 07.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 08.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 09.11: MM droższe o 21 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+21</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 10.11: MM droższe o 19 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+19</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 11.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 12.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 13.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 14.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 15.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Szczecin · Lotnisko, 16.11: MM tańsze o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−15</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">7</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Warszawa · Dworzec</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WA2</span></span>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 03.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 04.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 05.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 06.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 07.11: MM droższe o 22 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+22</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 08.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 09.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 10.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 11.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 12.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 13.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 14.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 15.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dworzec, 16.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">7</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Gdańsk · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">GDLO</span></span>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 03.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 04.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 05.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 06.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 07.11: MM droższe o 32 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+32</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 08.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 09.11: MM tańsze o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−13</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 10.11: MM droższe o 21 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+21</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 11.11: MM tańsze o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−18</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 12.11: MM droższe o 22 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+22</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 13.11: MM tańsze o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #A8DDB8; color: #0E3B20;">−20</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 14.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 15.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Lotnisko, 16.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">6</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Gdańsk · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">GD1</span></span>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 03.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 04.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 05.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 06.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 07.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 08.11: MM droższe o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+15</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 09.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 10.11: MM tańsze o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−11</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 11.11: MM droższe o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+12</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 12.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 13.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 14.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 15.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Gdańsk · Miasto, 16.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">6</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Kraków · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">KRLO</span></span>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 03.11: MM droższe o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+12</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 04.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 05.11: MM droższe o 8 PLN/d, wybrane" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D; outline: 2px solid #14171C; outline-offset: 1px;">+8</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 06.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 07.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 08.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 09.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 10.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 11.11: MM droższe o 17 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+17</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 12.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 13.11: MM droższe o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+12</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 14.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 15.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Lotnisko, 16.11: MM tańsze o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−14</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">5</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Wrocław · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WRLO</span></span>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 03.11: MM droższe o 22 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+22</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 04.11: MM tańsze o 16 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−16</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 05.11: MM tańsze o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−15</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 06.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 07.11: MM droższe o 26 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+26</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 08.11: MM droższe o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+13</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 09.11: MM droższe o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+13</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 10.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 11.11: MM tańsze o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 12.11: MM droższe o 21 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+21</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 13.11: MM tańsze o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 14.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 15.11: MM tańsze o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−12</button>
+            
+              <button type="button" aria-label="Wrocław · Lotnisko, 16.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">5</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Katowice · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">KALO</span></span>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 03.11: MM tańsze o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−15</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 04.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 05.11: MM tańsze o 16 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−16</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 06.11: MM droższe o 17 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+17</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 07.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 08.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 09.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 10.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 11.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 12.11: MM tańsze o 16 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−16</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 13.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 14.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 15.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Katowice · Lotnisko, 16.11: MM tańsze o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−8</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">4</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Wrocław · Dworzec</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WR2</span></span>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 03.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 04.11: MM droższe o 26 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+26</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 05.11: MM droższe o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+20</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 06.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 07.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 08.11: MM tańsze o 17 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−17</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 09.11: MM tańsze o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #A8DDB8; color: #0E3B20;">−20</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 10.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 11.11: MM droższe o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+15</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 12.11: MM tańsze o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−13</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 13.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 14.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 15.11: MM tańsze o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−12</button>
+            
+              <button type="button" aria-label="Wrocław · Dworzec, 16.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">4</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Bydgoszcz · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">BYLO</span></span>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 03.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 04.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 05.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 06.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 07.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 08.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 09.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 10.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 11.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 12.11: MM droższe o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+15</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 13.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 14.11: MM droższe o 22 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+22</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 15.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Bydgoszcz · Lotnisko, 16.11: MM tańsze o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−11</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">4</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Łódź · Lotnisko</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">LOLO</span></span>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 03.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 04.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 05.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 06.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 07.11: MM droższe o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+20</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 08.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 09.11: MM tańsze o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−13</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 10.11: MM droższe o 20 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #E5675C; color: #2B0603;">+20</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 11.11: MM tańsze o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−15</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 12.11: MM tańsze o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−14</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 13.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 14.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 15.11: MM droższe o 17 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+17</button>
+            
+              <button type="button" aria-label="Łódź · Lotnisko, 16.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">3</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Katowice · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">KA1</span></span>
+            
+              <button type="button" aria-label="Katowice · Miasto, 03.11: MM tańsze o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−8</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 04.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 05.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 06.11: MM tańsze o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−8</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 07.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 08.11: MM droższe o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+12</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 09.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 10.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 11.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 12.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 13.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 14.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 15.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Katowice · Miasto, 16.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">3</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Poznań · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">PO1</span></span>
+            
+              <button type="button" aria-label="Poznań · Miasto, 03.11: MM droższe o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+13</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 04.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 05.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 06.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 07.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 08.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 09.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 10.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 11.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 12.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 13.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 14.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 15.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Poznań · Miasto, 16.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">3</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Lubin · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">LU1</span></span>
+            
+              <button type="button" aria-label="Lubin · Miasto, 03.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 04.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 05.11: brak danych" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: repeating-linear-gradient(45deg, #9AA0AB 0 2px, #FFFFFF 2px 5px); color: #14171C;">?</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 06.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 07.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 08.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 09.11: MM tańsze o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−8</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 10.11: brak danych" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: repeating-linear-gradient(45deg, #9AA0AB 0 2px, #FFFFFF 2px 5px); color: #14171C;">?</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 11.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 12.11: MM tańsze o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−12</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 13.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 14.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 15.11: brak danych" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: repeating-linear-gradient(45deg, #9AA0AB 0 2px, #FFFFFF 2px 5px); color: #14171C;">?</button>
+            
+              <button type="button" aria-label="Lubin · Miasto, 16.11: MM droższe o 17 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+17</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">2</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Kraków · Galeria</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">KRGA</span></span>
+            
+              <button type="button" aria-label="Kraków · Galeria, 03.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 04.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 05.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 06.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 07.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 08.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 09.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 10.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 11.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 12.11: MM droższe o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+15</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 13.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 14.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 15.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Galeria, 16.11: MM tańsze o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−13</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">2</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Kraków · Dworzec</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">KRDW</span></span>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 03.11: MM tańsze o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−10</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 04.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 05.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 06.11: MM tańsze o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−8</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 07.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 08.11: MM droższe o 12 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+12</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 09.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 10.11: MM droższe o 13 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+13</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 11.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 12.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 13.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 14.11: MM tańsze o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 15.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Kraków · Dworzec, 16.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">2</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Szczecin · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">SZO1</span></span>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 03.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 04.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 05.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 06.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 07.11: MM droższe o 10 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+10</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 08.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 09.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 10.11: MM droższe o 11 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+11</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 11.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 12.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 13.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 14.11: MM droższe o 14 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+14</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 15.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Szczecin · Miasto, 16.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">2</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Wrocław · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WR1</span></span>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 03.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 04.11: MM tańsze o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−9</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 05.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 06.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 07.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 08.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 09.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 10.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 11.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 12.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 13.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 14.11: MM droższe o 18 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+18</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 15.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Wrocław · Miasto, 16.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">1</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Toruń · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">TO1</span></span>
+            
+              <button type="button" aria-label="Toruń · Miasto, 03.11: MM droższe o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+7</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 04.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 05.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 06.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 07.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 08.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 09.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 10.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 11.11: brak oferty MM" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #1B2230; color: #FFFFFF;">brak</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 12.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 13.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 14.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 15.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Toruń · Miasto, 16.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">1</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Olsztyn · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">OL1</span></span>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 03.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 04.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 05.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 06.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 07.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 08.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 09.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 10.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 11.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 12.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 13.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 14.11: MM droższe o 15 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F7B9B3; color: #5F120D;">+15</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 15.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Olsztyn · Miasto, 16.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">1</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Warszawa · Dw. Zachodni</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">WA1</span></span>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 03.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 04.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 05.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 06.11: MM tańsze o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−6</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 07.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 08.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 09.11: MM tańsze o 7 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #DFF3E5; color: #14532D;">−7</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 10.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 11.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 12.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 13.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 14.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 15.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Warszawa · Dw. Zachodni, 16.11: MM droższe o 9 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+9</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">0</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Łódź · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">LO1</span></span>
+            
+              <button type="button" aria-label="Łódź · Miasto, 03.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 04.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 05.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 06.11: MM droższe o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 07.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 08.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 09.11: MM droższe o 8 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+8</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 10.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 11.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 12.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 13.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 14.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 15.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Łódź · Miasto, 16.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">0</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Opole · Miasto</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">OP1</span></span>
+            
+              <button type="button" aria-label="Opole · Miasto, 03.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 04.11: MM tańsze o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 05.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 06.11: bez różnicy PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 07.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 08.11: MM tańsze o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 09.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 10.11: MM tańsze o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 11.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 12.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 13.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 14.11: MM droższe o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 15.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Opole · Miasto, 16.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">0</span>
+          
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; white-space: nowrap; overflow: hidden"><span style="overflow: hidden; text-overflow: ellipsis">Szczecin · Dworzec</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B6271">SZ1</span></span>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 03.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 04.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 05.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 06.11: MM tańsze o 1 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 07.11: MM droższe o 5 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 08.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 09.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 10.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 11.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 12.11: MM droższe o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 13.11: MM droższe o 2 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 14.11: MM droższe o 6 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #FDE4E2; color: #7A1712;">+6</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 15.11: MM tańsze o 3 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+              <button type="button" aria-label="Szczecin · Dworzec, 16.11: MM tańsze o 4 PLN/d" style="font: inherit; font-size: 11px; font-weight: 500; min-height: 28px; padding: 0; border-radius: 3px; cursor: pointer; border: 0; background: #F1F2F5; color: #5B6271;">·</button>
+            
+            <span style="font-size: 12px; font-weight: 600; text-align: right; align-self: center">0</span>
+          
+        </div>
+      </section>
+
+      <aside aria-label="Szczegóły wybranego dnia" style="flex: 1 1 280px; max-width: 320px; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+          <div>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Kraków · Lotnisko</h2>
+            <p style="margin: 2px 0 0; font-size: 13px; color: #5B6271">śr 05.11.2026 · <span style="font-family: 'IBM Plex Mono', monospace">KRLO</span> · wszystkie auta</p>
+          </div>
+          <button type="button" aria-label="Zamknij szczegóły" style="width: 36px; height: 36px; border-radius: 6px; border: 1px solid #E3E6EA; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewbox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="#3A404B" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+        </div>
+        <div>
+          <p style="margin: 0 0 8px; font-size: 12px; color: #5B6271">Różnica wg długości najmu · PLN/dobę</p>
+          <div style="display: grid; grid-template-columns: 44px minmax(0, 1fr) 56px 44px; gap: 6px 8px; align-items: center; font-size: 12px">
+            
+              <span style="color: #3A404B">2 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; left: 50%; background: #E5675C; width: 6.833333333333333%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #A1170F">+4,10</span>
+              <span style="color: #5B6271; text-align: right">Top 2</span>
+            
+              <span style="color: #3A404B">3 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; left: 50%; background: #E5675C; width: 13.083333333333332%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #A1170F">+7,85</span>
+              <span style="color: #5B6271; text-align: right">Top 2</span>
+            
+              <span style="color: #3A404B">4 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; left: 50%; background: #E5675C; width: 10.333333333333334%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #A1170F">+6,20</span>
+              <span style="color: #5B6271; text-align: right">Top 2</span>
+            
+              <span style="color: #3A404B">5 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; left: 50%; background: #E5675C; width: 4%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #A1170F">+2,40</span>
+              <span style="color: #5B6271; text-align: right">Top 2</span>
+            
+              <span style="color: #3A404B">6 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 5.166666666666667%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−3,10</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">7 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 11.333333333333332%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−6,80</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">8 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 18.666666666666664%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−11,20</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">9 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 15.666666666666668%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−9,40</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">10 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 24.333333333333332%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−14,60</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">11 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 20%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−12,00</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">12 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 37.16666666666667%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−22,30</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">13 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 30.166666666666668%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−18,10</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+              <span style="color: #3A404B">14 dni</span>
+              <span style="position: relative; height: 10px; background: #F1F2F5; border-radius: 2px"><span aria-hidden="true" style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #9AA0AB"></span><span style="position: absolute; top: 0; bottom: 0; border-radius: 2px; right: 50%; background: #3E9B62; width: 41.16666666666667%"></span></span>
+              <span style="text-align: right; font-weight: 600; color: #166534">−24,70</span>
+              <span style="color: #5B6271; text-align: right">Top 1</span>
+            
+          </div>
+        </div>
+        <dl style="margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; font-size: 13px; border-top: 1px solid #EEF0F3; padding-top: 12px">
+          <dt style="color: #5B6271">MM, 3 dni</dt><dd style="margin: 0; font-weight: 600">125,22</dd>
+          <dt style="color: #5B6271">Flex To Go, 3 dni</dt><dd style="margin: 0">117,37</dd>
+          <dt style="color: #5B6271">Minimum CDMV</dt><dd style="margin: 0">30,00</dd>
+          <dt style="color: #5B6271">Chroniona data</dt><dd style="margin: 0">nie</dd>
+        </dl>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <a href="#raport" style="display: flex; align-items: center; justify-content: center; min-height: 40px; border-radius: 6px; background: #2457D6; color: #FFFFFF; font-weight: 600; text-decoration: none; font-size: 13px">Scenariusz w raporcie</a>
+          <a href="#excel" style="display: flex; align-items: center; justify-content: center; min-height: 40px; border-radius: 6px; border: 1px solid #CDD2D9; color: #14171C; text-decoration: none; font-size: 13px">Stawki i uzasadnienie w Excelu</a>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+
+
+
+</body></html>

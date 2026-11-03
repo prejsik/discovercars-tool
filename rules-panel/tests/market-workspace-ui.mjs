@@ -34,9 +34,9 @@ try {
     catch(e){await r.fulfill({status:e.status??500,json:{error:e.message}});}
   });
   await page.goto(`${origin}/?view=prices`);
-  await page.getByRole('button',{name:'Wykres',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-pressed'),'true');
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).waitFor();
+  assert.equal(await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-selected'),'true');
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
@@ -53,14 +53,22 @@ try {
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   await page.locator('.operations-dashboard').waitFor();
-  assert.equal(await page.locator('.dashboard-prices').count(),0,'Dashboard no longer duplicates market tables');
+  await page.locator('.dashboard-metric').first().waitFor();
+  assert.equal(await page.locator('.dashboard-metric').count(),4);
+  assert.equal(await page.locator('.dashboard-urgent tbody tr').count(),2,'Confirmed missing MM ordered first, no minor gaps');
+  await page.locator('.dashboard-metric').first().click();
+  await page.getByLabel('Pozycje przeglądu').waitFor();
+  assert.equal(await page.getByLabel('Pozycje przeglądu').inputValue(),'missing');
+  assert.equal(await page.locator('.attention-map tbody tr').count(),1);
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   for(const width of [1440,1024,390]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`dashboard overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-5-${width}.png`,fullPage:true});
   }
-  await page.locator('.operations-dashboard').getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
@@ -71,8 +79,9 @@ try {
     assert.ok(await page.locator('.market-chart polyline').count()>3);
     await page.screenshot({path:fileURLToPath(new URL(`chart-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
   const overview=page.locator('.attention-view');
+  await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
   assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
   assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
   for(const width of [1440,390,320]){
@@ -81,18 +90,34 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
   await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
-  assert.equal(await overview.locator('.band-date').count(),13,'One row per date, not one per scenario');
-  await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).click();
-  assert.match(await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).innerText(),/Brak MM: 1/);
+  await overview.getByRole('button',{name:'Następny oddział',exact:true}).click();
+  await overview.getByRole('heading',{name:/Warszawa/}).waitFor();
+  await overview.getByRole('button',{name:'Poprzedni oddział',exact:true}).click();
+  await overview.getByRole('heading',{name:/Kraków/}).waitFor();
+  assert.equal(await overview.locator('.band-date').count(),14,'One row per date, not one per scenario');
+  await overview.getByRole('button',{name:/sb 07.11.2026 · 3–4 dni/}).click();
+  assert.match(await overview.getByRole('button',{name:/sb 07.11.2026 · 3–4 dni/}).getAttribute('aria-label'),/brak MM w 1 z 1/);
   await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
   assert.equal(await page.locator('.market-detail').evaluate(element=>element.matches(':modal')),true,'Phone details are a modal bottom sheet');
   assert.match(await page.locator('.market-detail').innerText(),/07.11.2026.*3 dni/s);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
-  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   assert.equal(await page.locator('.market-calendar-grid button').count(),60);
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
+  assert.doesNotMatch(await page.locator('.market-calendar-grid').first().innerText(),/%/);
+  await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
+  assert.equal(await page.locator('.market-calendar').count(),3,'Calendar chips keep previous lengths');
+  await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
+  await page.getByRole('button',{name:'Następny miesiąc cen',exact:true}).click();
+  assert.match(await page.locator('.calendar-month').innerText(),/grudzień 2026/);
+  await page.getByRole('button',{name:'Poprzedni miesiąc cen',exact:true}).click();
+  // Restore the original 14-day window after month navigation.
+  await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
+  await page.locator('.chart-filters').getByLabel('Start do',{exact:true}).fill('2026-11-17');
+  await page.locator('.market-calendar').first().getByRole('button',{name:/śr 04.11.2026,/}).click();
+  await page.locator('.market-detail').waitFor();await page.keyboard.press('Escape');
   await page.locator('.market-workspace summary').filter({hasText:'Wydarzenia i święta'}).click();
   await page.getByRole('button',{name:'Dodaj wydarzenie',exact:true}).click();
   await page.getByLabel('Nazwa wydarzenia').fill('Targi listopadowe');
@@ -100,12 +125,13 @@ try {
   await page.getByLabel('Lokalizacja wydarzenia').selectOption('KRLO');
   await page.getByRole('button',{name:'Zapisz wydarzenie',exact:true}).click();
   await page.getByText('Targi listopadowe',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   assert.ok(await page.locator('.event-day-marker').count()>=6);
   for(const width of [1440,390,320]) {
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-4-${width}.png`,fullPage:true});
   }
   // Event management remains inside the price calendar, not a separate main tab.
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
@@ -115,10 +141,10 @@ try {
   assert.equal((await readCalendarEvents(storage)).items[0].active,true);
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
   const reads=requests.filter(url=>url.includes('/api/report/')).length;
-  await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
+  await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
   assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
   assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
@@ -129,6 +155,7 @@ try {
   meta.report.reportSha256='f'.repeat(64);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   const refreshed=page.waitForResponse(response=>response.url().includes('/api/report/prices?'));
+  await page.locator('.reports-diagnostics > summary').click();
   await page.getByRole('button',{name:'Odśwież wyniki',exact:true}).click();
   await refreshed;
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();

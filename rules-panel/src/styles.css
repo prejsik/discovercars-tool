@@ -1,7 +1,7 @@
 @layer base, layout, components, responsive;
 @layer base {
   :root {
-    font-family: "Inter Variable", Arial, sans-serif;
+    font-family: "IBM Plex Sans", Arial, sans-serif;
     color: #22272e;
     background: #f7f8fa;
     font-synthesis: none;

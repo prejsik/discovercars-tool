@@ -12,9 +12,9 @@ try {
     ['Pulpit','Ceny i rynek','Zasady cenowe','Baza i lokalizacje']);
   await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
-  await page.getByRole('button',{name:'Klasy pojazdów',exact:true}).click();
+  await page.getByRole('tab',{name:'Klasy pojazdów',exact:true}).click();
   await page.getByRole('switch',{name:'Rekomendacje dla CDMV'}).waitFor();
-  await page.getByRole('button',{name:'Sprawdź minimum i ochronę',exact:true}).click();
+  await page.getByRole('tab',{name:'Sprawdź minimum i ochronę',exact:true}).click();
   await page.getByText('Obowiązujące minimum',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:/Zmiany do publikacji:/}).count(),0);
   await page.goto(`${origin}/?view=sources`);

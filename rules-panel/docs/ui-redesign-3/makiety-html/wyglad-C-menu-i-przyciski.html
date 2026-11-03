@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<title>Wygląd C – spokojne menu i przyciski</title>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</head>
+<body>
+
+
+<div style="width: 1440px; height: 700px; box-sizing: border-box; padding: 32px; background: #E9EBEF; font-family: Inter, system-ui, sans-serif; color: #1F2328; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px">
+
+  <section aria-label="Przed" style="background: #F6F7F9; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="font-size: 13px; font-weight: 700; letter-spacing: 0.6px; padding: 4px 10px; border-radius: 4px; background: #5B6271; color: #FFFFFF">PRZED</span><span style="font-size: 15px; color: #3A404B">wszystko wygląda jak przycisk, dużo żółtego</span></div>
+    <div style="display: flex; gap: 0; flex: 1; border: 1px solid #E3E6EB; border-radius: 8px; overflow: hidden; background: #F6F7F9">
+      <nav aria-label="Menu przed" style="width: 168px; background: #FFFFFF; border-right: 1px solid #E3E6EB; padding: 14px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 4px 12px"><span aria-hidden="true" style="width: 30px; height: 30px; border-radius: 8px; background: #F4C542"></span><strong style="font-size: 13px">MM Cars Rental</strong></div>
+        <span style="padding: 10px; border-radius: 8px">Pulpit</span>
+        <span style="padding: 10px; border-radius: 8px; display: flex; justify-content: space-between">Ceny i rynek <span style="font-size: 12px; color: #5B6270">2758</span></span>
+        <span style="padding: 10px; border-radius: 8px; background: #FFF4D6; border: 1px solid #EBCB7A; font-weight: 600; color: #3D2F00; display: flex; justify-content: space-between">Zasady cenowe <span style="font-size: 12px">2</span></span>
+        <span style="padding: 10px; border-radius: 8px">Baza i lokalizacje</span>
+      </nav>
+      <div style="flex: 1; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 13px">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><strong style="font-size: 24px">Zasady cenowe</strong><span style="display: flex; gap: 6px"><span style="padding: 8px 10px; border: 1px solid #C9CED6; border-radius: 8px; background: #FFFFFF">Zmiany do publikacji: 2</span><span style="padding: 8px 10px; border-radius: 8px; background: #1A56DB; color: #FFFFFF; font-weight: 600">Dodaj regułę</span></span></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid #E3E6EB">
+          <span style="padding: 8px 10px; border-radius: 8px; background: #FFF4D6; border: 1px solid #EBCB7A; font-weight: 600">Reguły</span>
+          <span style="padding: 8px 10px; border-radius: 8px; border: 1px solid #C9CED6; background: #FFFFFF">Klasy pojazdów</span>
+          <span style="padding: 8px 10px; border-radius: 8px; border: 1px solid #C9CED6; background: #FFFFFF">Sprawdź minimum i ochronę</span>
+          <span style="padding: 8px 10px; border-radius: 8px; border: 1px solid #C9CED6; background: #FFFFFF">Historia zmian</span>
+        </div>
+        <div style="display: flex; gap: 6px"><span style="padding: 8px 10px; border-radius: 8px; background: #FFF4D6; border: 1px solid #EBCB7A; font-weight: 600">Lista</span><span style="padding: 8px 10px; border-radius: 8px; border: 1px solid #C9CED6; background: #FFFFFF">Kalendarz</span></div>
+        <div style="display: flex; gap: 6px"><span style="flex: 1; padding: 9px 10px; border: 1px solid #C9CED6; border-radius: 8px; background: #FFFFFF; color: #5B6270">Szukaj reguły, kodu lub klasy…</span><span style="padding: 9px 10px; border: 1px solid #C9CED6; border-radius: 8px; background: #FFFFFF">Wszystkie reguły ▾</span><span style="padding: 9px 10px; border: 1px solid #C9CED6; border-radius: 8px; background: #FFFFFF">Bieżące ▾</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px">
+          <span style="height: 44px; border-radius: 6px; background: #FFFFFF; border: 1px solid #E3E6EB"></span>
+          <span style="height: 44px; border-radius: 6px; background: #FFFFFF; border: 1px solid #E3E6EB"></span>
+          <span style="height: 44px; border-radius: 6px; background: #FFFFFF; border: 1px solid #E3E6EB"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Po" style="background: #FFFFFF; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-shadow: 0 0 0 2px #2457D6">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="font-size: 13px; font-weight: 700; letter-spacing: 0.6px; padding: 4px 10px; border-radius: 4px; background: #2457D6; color: #FFFFFF">PO</span><span style="font-size: 15px; color: #3A404B">jedna akcja główna, zakładki i przełączniki wyglądają inaczej niż przyciski</span></div>
+    <div style="display: flex; gap: 0; flex: 1; border: 1px solid #E3E6EA; border-radius: 8px; overflow: hidden; background: #F4F5F7">
+      <nav aria-label="Menu po" style="width: 168px; background: #FFFFFF; border-right: 1px solid #E3E6EA; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 4px 12px"><span aria-hidden="true" style="width: 24px; height: 24px; border-radius: 6px; background: #F2C230"></span><strong style="font-size: 13px">MM Cars Rental</strong></div>
+        <span style="padding: 10px; border-radius: 6px; color: #3A404B">Pulpit</span>
+        <span style="padding: 10px; border-radius: 6px; color: #3A404B; display: flex; justify-content: space-between">Ceny i rynek <span style="font-size: 12px; font-weight: 600; color: #14171C">18</span></span>
+        <span style="padding: 10px; border-radius: 6px; background: #ECEEF2; font-weight: 600; display: flex; justify-content: space-between">Zasady cenowe <span style="font-size: 12px; color: #1C3F8F">szkic</span></span>
+        <span style="padding: 10px; border-radius: 6px; color: #3A404B">Baza i lokalizacje</span>
+      </nav>
+      <div style="flex: 1; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 13px">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><strong style="font-size: 22px; font-weight: 600">Zasady cenowe</strong><span style="display: flex; gap: 6px"><span style="padding: 8px 10px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF">Podgląd zmian (2)</span><span style="padding: 8px 10px; border-radius: 6px; background: #2457D6; color: #FFFFFF; font-weight: 600">Dodaj regułę</span></span></div>
+        <div style="display: flex; gap: 20px; border-bottom: 1px solid #E3E6EA">
+          <span style="padding: 8px 0; border-bottom: 2px solid #14171C; font-weight: 600">Reguły</span>
+          <span style="padding: 8px 0; color: #5B6271">Klasy pojazdów</span>
+          <span style="padding: 8px 0; color: #5B6271">Sprawdź minimum</span>
+          <span style="padding: 8px 0; color: #5B6271">Historia</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <span style="flex: 1; padding: 9px 10px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF; color: #5B6271">Szukaj: kod strefy, klasa, kwota…</span>
+          <span style="display: inline-flex; border: 1px solid #CDD2D9; border-radius: 6px; overflow: hidden"><span style="padding: 8px 12px; background: #14171C; color: #FFFFFF">Lista</span><span style="padding: 8px 12px; background: #FFFFFF; border-left: 1px solid #CDD2D9">Kalendarz</span></span>
+          <span style="padding: 9px 10px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF">Bieżące ▾</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0; margin-top: 4px; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 6px">
+          <span style="height: 44px; border-bottom: 1px solid #EEF0F3"></span>
+          <span style="height: 44px; border-bottom: 1px solid #EEF0F3"></span>
+          <span style="height: 44px"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+
+
+
+</body></html>

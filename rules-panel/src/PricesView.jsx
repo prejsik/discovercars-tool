@@ -4,7 +4,7 @@ import { locationOptions } from './editor.mjs';
 import { knownGroups, DURATION_BANDS } from './policy.mjs';
 import { timestamp } from './display.mjs';
 import './price-views.css';
-import {dayLabel} from './operations.mjs';
+import {weekdayDate as dayLabel} from './visual-format.mjs';
 
 const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'Brak danych';
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
@@ -16,7 +16,9 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
   const {zone,duration,transmission,from,to}=selection;
   const setZone=zone=>onSelectionChange({zone});const setDuration=duration=>onSelectionChange({duration});
   const setTransmission=transmission=>onSelectionChange({transmission});const setFrom=from=>onSelectionChange({from});const setTo=to=>onSelectionChange({to});
-  const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
+  const [localGroup,setLocalGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
+  const group=selection.group??localGroup;
+  const setGroup=value=>{setLocalGroup(value);onSelectionChange({group:value});};
   const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [selected,setSelected]=useState('');const [limit,setLimit]=useState(20);
   const report=workspace?.status?.report;const excel=workspace?.status?.excel;

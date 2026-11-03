@@ -28,7 +28,15 @@ import {
   Upload as UploadIcon,
   X,
 } from "lucide-react";
-import "@fontsource-variable/inter";
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-ext-400.css";
+import "@fontsource/ibm-plex-sans/latin-500.css";
+import "@fontsource/ibm-plex-sans/latin-ext-500.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/ibm-plex-sans/latin-ext-600.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
+import "@fontsource/ibm-plex-mono/latin-ext-500.css";
+import {ViewTabs} from "./ViewTabs.jsx";
 import "./styles.css";
 import * as policy from "./policy.mjs";
 import { Dashboard } from "./Dashboard.jsx";
@@ -48,6 +56,7 @@ import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
 import { RuleContext } from './RuleContext.jsx';
 import { MarketWorkspace } from './MarketWorkspace.jsx';
+import './redesign.css';
 import { useCalendarEvents } from './CalendarEvents.jsx';
 import { RuleCalendar } from './RuleCalendar.jsx';
 import {
@@ -177,7 +186,7 @@ function App() {
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [marketRequest,setMarketRequest]=useState(null);
-  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited);
+  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited||view==='results');
   const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
   const [ruleContext,setRuleContext]=useState(null);
   const [ruleView, setRuleView] = useState('list');
@@ -562,8 +571,8 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id==="prices"&&attentionCount>0&&<span className="nav-count">Brak MM: {attentionCount}</span>}
-              {id==="rules"&&changes.length>0&&<span className="nav-count">{changes.length}</span>}
+              {id==="prices"&&attentionCount>0&&<span className="nav-count" aria-label={`${attentionCount} pozycji bez oferty MM`}>{attentionCount}</span>}
+              {id==="rules"&&changes.length>0&&<span className="nav-count">szkic</span>}
             </button>
           ))}
         </nav>
@@ -591,7 +600,7 @@ function App() {
             <span>{changes.length ? 'Edycja szkicu' : snapshot.capabilities?.mode === 'github' ? 'Opublikowane zasady' : 'Zasady źródłowe'} · {modeLabel(snapshot.capabilities?.mode)}</span>
             {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{countLabel(changes.length,'zmiana','zmiany','zmian')} · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
           </div>}
-          {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="section-tabs" role="group" aria-label="Sekcje zasad">{ruleSections.map(([id,label,Icon]) => <button key={id} className="button" aria-pressed={view === id} onClick={() => go(id)}><Icon size={16}/>{label}</button>)}</div>}
+          {(ruleSections.some(([section]) => section === view) || view === 'review') && <ViewTabs items={ruleSections} value={view} onChange={go} label="Sekcje zasad"/>}
           {actionError && <div className="alert error" role="alert"><TriangleAlert size={18} /><div><p>{actionError}</p>{pendingModelRef.current && !draftConflict && <button className="text-button" onClick={() => downloadJson({ sourceHash: snapshot.source.policyHash, model: pendingModelRef.current }, "discovercars-niezapisany-szkic.json")}>Pobierz niezapisane zmiany</button>}{loadError && <button className="text-button" disabled={busy} onClick={refreshWorkspace}>Ponów odczyt</button>}</div></div>}
           {notice && (
             <div className="notice" role="status">
@@ -762,7 +771,7 @@ function App() {
               </>)}
             </>
           )}
-          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
+          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace active={view==='prices'} rulesModel={model} onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
@@ -846,7 +855,7 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><Dashboard workspace={workspaceData} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>{const details=document.querySelector('.reports-diagnostics');if(details){details.open=true;details.scrollIntoView({block:'start'});}}} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
           {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{locationLabel(item.scraper_label)}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
