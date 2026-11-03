@@ -35,15 +35,22 @@ try {
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('button',{name:'Wykres',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
   await page.getByRole('button',{name:'2026-11-04, MM 60,00 PLN, konkurencja 90,00 PLN',exact:true}).click();
   await page.getByRole('heading',{name:/04.11.2026.*3 dni/}).waitFor();
+  await page.getByRole('button',{name:'Zamknij szczegóły',exact:true}).waitFor({timeout:2000});
+  assert.equal(await page.getByRole('dialog').isVisible(),true);
+  await page.keyboard.press('ArrowDown');
+  await page.getByRole('heading',{name:/05.11.2026.*3 dni/}).waitFor();
+  await page.keyboard.press('ArrowUp');
+  await page.getByRole('heading',{name:/04.11.2026.*3 dni/}).waitFor();
   assert.match(await page.locator('.market-detail').innerText(),/90,00/);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
-  await page.getByLabel('8 dni',{exact:true}).check();
+  await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
   await page.getByText('Długość najmu: 3, 8 dni',{exact:true}).click();
   for(const width of [1440,1024,390,320]) {
@@ -53,9 +60,29 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`chart-${width}.png`,directory)),fullPage:true});
   }
   await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
-  await page.getByLabel('Powód sprawdzenia').selectOption('missing');
+  const overview=page.locator('.attention-view');
+  assert.equal(await overview.getByRole('combobox',{name:'Oddziały przeglądu',exact:true}).inputValue(),'all');
+  assert.equal(await overview.getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'all');
+  assert.equal(await overview.locator('input[type="checkbox"]:checked').count(),13);
+  assert.equal(await overview.locator('.attention-table').count(),0,'Collapsed groups do not render thousands of rows');
+  await overview.getByLabel('Powód sprawdzenia').selectOption('outside');
+  await overview.getByLabel('Sortowanie').selectOption('above');
+  await overview.locator('.attention-group > summary').first().click();
+  assert.match(await overview.locator('.attention-table').innerText(),/MM droższe o/);
+  for(const width of [1440,390,320]){
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overview overflow ${width}`);
+    await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
+  }
+  await overview.getByLabel('Powód sprawdzenia').selectOption('missing');
+  await overview.locator('.attention-group > summary').first().click();
   assert.equal(await page.locator('.attention-table tbody tr').count(),2);
-  assert.match(await page.locator('.attention-table').innerText(),/07.11.2026/);
+  assert.match(await page.locator('.attention-table').innerText(),/2026-11-07/);
+  await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
+  assert.equal(await page.locator('.market-detail').evaluate(element=>element.matches(':modal')),true,'Phone details are a modal bottom sheet');
+  assert.equal(await page.locator('.attention-table tr[aria-current=true]').count(),1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
   assert.equal(await page.locator('.market-calendar-grid button').count(),60);
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
@@ -86,19 +113,22 @@ try {
   assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
   await page.getByRole('button',{name:'Wykres',exact:true}).click();
-  assert.equal(await page.locator('.market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
+  assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
   assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
   assert.equal(await page.locator('.market-chart').count(),2,'Returning does not clear loaded data');
   assert.equal(requests.filter(url=>url.includes('/api/report/')).length,reads,'Returning does not re-download prices');
-  const selectedFrom=await page.locator('.market-filters').getByLabel('Start od',{exact:true}).inputValue();
+  const selectedFrom=await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).inputValue();
   meta.report.reportSha256='f'.repeat(64);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+  const refreshed=page.waitForResponse(response=>response.url().includes('/api/report/prices?'));
   await page.getByRole('button',{name:'Odśwież wyniki',exact:true}).click();
+  await refreshed;
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
-  await page.locator('.market-chart').waitFor({state:'detached'});
-  assert.equal(await page.locator('.market-filters').count(),0,'Changed source clears the old market result');
+  await page.locator('.market-chart').first().waitFor();
+  assert.ok(requests.filter(url=>url.includes('/api/report/')).length>reads,'Changed source is reloaded automatically');
+  assert.equal(await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).inputValue(),selectedFrom,'Automatic refresh retains date filters');
   assert.ok(selectedFrom,'The previous report had a selected date range');
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
@@ -109,5 +139,5 @@ try {
   assert.deepEqual([...new Set(writes)],['/api/calendar-events/save']);
   assert.deepEqual(errors,[]);
   console.log('Market UI PASS: no Excel, charts with gaps, multi-duration, attention filters, calendar, private events, mobile widths, no pricing writes.');
-} catch(error){console.error(await page.locator('main').innerText());console.error({errors,requests});throw error;}
+} catch(error){console.error({errors,requests});console.error(await page.locator('body').innerText({timeout:2000}));throw error;}
 finally{await browser.close();}

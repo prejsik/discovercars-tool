@@ -20,13 +20,14 @@ try {
   context.on('request',request=>{if(request.method()==='POST')writes++;});
   const transport=await priceFixture({transportOnly:true,rowCount:35000});
   await context.route(/\/api\/report\/(prices|price-source)\?/,async route=>{
-    calls++;const q=new URL(route.request().url()).searchParams;assert.equal(q.get('zone'),'KRLO');
+    calls++;const q=new URL(route.request().url()).searchParams;if(q.get('mode')!=='market')assert.equal(q.get('zone'),'KRLO');
     const response=await transport(route.request().url());
     return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
-  assert.equal(calls,0,'No implicit scrape or expensive reads');
+  await page.locator('.market-chart').waitFor({timeout:60000});
+  assert.equal(writes,0,'Automatic report read must not dispatch or write');
   await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.getByRole('button',{name:'Dlaczego?',exact:true}).click({timeout:60000});
