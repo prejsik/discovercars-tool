@@ -81,11 +81,12 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
   await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
-  assert.equal(await overview.locator('tbody tr').count(),20,'Only first 20 scenarios render');
-  assert.match(await overview.locator('tbody tr').first().innerText(),/07.11.2026.*Brak oferty MM/s);
+  assert.equal(await overview.locator('.band-date').count(),13,'One row per date, not one per scenario');
+  await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).click();
+  assert.match(await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).innerText(),/Brak MM: 1/);
   await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
   assert.equal(await page.locator('.market-detail').evaluate(element=>element.matches(':modal')),true,'Phone details are a modal bottom sheet');
-  assert.equal(await page.locator('.attention-table tr[aria-current=true]').count(),1);
+  assert.match(await page.locator('.market-detail').innerText(),/07.11.2026.*3 dni/s);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();

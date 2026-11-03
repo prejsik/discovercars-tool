@@ -46,6 +46,7 @@ import { BusinessEditor, ReasonField } from "./BusinessEditor.jsx";
 import { SharedHistory } from "./WorkspaceViews.jsx";
 import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
+import { RuleContext } from './RuleContext.jsx';
 import { MarketWorkspace } from './MarketWorkspace.jsx';
 import { useCalendarEvents } from './CalendarEvents.jsx';
 import { RuleCalendar } from './RuleCalendar.jsx';
@@ -178,6 +179,7 @@ function App() {
   const [marketRequest,setMarketRequest]=useState(null);
   const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited);
   const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
+  const [ruleContext,setRuleContext]=useState(null);
   const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -680,8 +682,9 @@ function App() {
 
           {view === "rules" && (
             <>
-              <div className="rules-view-switch" role="group" aria-label="Widok zasad"><button className="button" aria-pressed={ruleView==='list'} onClick={()=>setRuleView('list')}><ListFilter size={17}/>Lista</button><button className="button" aria-pressed={ruleView==='calendar'} onClick={()=>setRuleView('calendar')}><CalendarDays size={17}/>Kalendarz</button></div>
-              {ruleView==='calendar'?<RuleCalendar model={model} rules={rules} calendar={calendarEvents} onEdit={rule=>setEditor({rule})} blocked={blockedDraft||busy} draft={changes.length>0}/>:<>
+              <div hidden={Boolean(ruleContext)} className="rules-view-switch" role="group" aria-label="Widok zasad"><button className="button" aria-pressed={ruleView==='list'} onClick={()=>setRuleView('list')}><ListFilter size={17}/>Lista</button><button className="button" aria-pressed={ruleView==='calendar'} onClick={()=>setRuleView('calendar')}><CalendarDays size={17}/>Kalendarz</button></div>
+              {ruleContext&&<RuleContext query={ruleContext} model={model} draft={changes.length>0} blocked={blockedDraft||busy} onEdit={rule=>setEditor({rule,context:ruleContext})} onBack={()=>go('prices')} onClear={()=>setRuleContext(null)}/>}
+              {!ruleContext&&(ruleView==='calendar'?<RuleCalendar model={model} rules={rules} calendar={calendarEvents} onEdit={rule=>setEditor({rule})} blocked={blockedDraft||busy} draft={changes.length>0}/>:<>
               <div className="section-toolbar">
                 <div className="search-control">
                   <Search size={18} />
@@ -756,10 +759,10 @@ function App() {
                   />
                 )}
               </div>
-              </>}
+              </>)}
             </>
           )}
-          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
+          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
@@ -1356,7 +1359,7 @@ function Sources({ snapshot, model, remote, capabilities }) {
   );
 }
 
-function RuleEditor({ rule, isNew, model, original, amountConfirmations = [], remote, onClose, onSave, onDelete }) {
+function RuleEditor({ rule, context, isNew, model, original, amountConfirmations = [], remote, onClose, onSave, onDelete }) {
   const dialog = useRef(null);
   const [form, setForm] = useState(
     rule
@@ -1450,6 +1453,7 @@ function RuleEditor({ rule, isNew, model, original, amountConfirmations = [], re
           </button>
         </header>
         <div className="dialog-body">
+          {context&&<div className="alert">Zmiana obejmie pełny zakres reguły, nie tylko wybraną pozycję. {ruleScope(model,form)}</div>}
           {error && (
             <div className="alert error" role="alert">
               <TriangleAlert size={18} />

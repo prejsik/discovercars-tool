@@ -19,7 +19,12 @@ Przeglad zaczyna sie od jednego wiersza na punkt odbioru, dla 14 dni i
 najmu 2-14. Pokazuje unikalne daty bez MM, udzial porownywalnych sprawdzen
 z MM drozszym o ponad 10 PLN/dobe oraz osobno braki danych. Mianownik udzialu
 obejmuje tylko potwierdzone ceny obu dostawcow. Klikniecie oddzialu otwiera
-szczegoly po 20 scenariuszy. Etykiety sa polskie, identyfikatory pozostaja
+tabele dat x przedzialow Excel: 2, 3-4, 5-7 i 8-20 dni, po 20 dat.
+Komorka pokazuje rzeczywista stawke importowa wybranej klasy/kodu i najgorsza
+roznice rynkowa w przedziale, nie srednia. Rozwiniecie zachowuje wszystkie
+odczytane duration; rynek dla 8-20 obejmuje tylko 8-14. Potwierdzony brak MM
+jest oddzielony od brakujacego/nieudanego odczytu. Cztery przedzialy pobieraja
+jeden skoroszyt i jedna baze w Web Workerze, bez ponownego pobierania rynku. Etykiety sa polskie, identyfikatory pozostaja
 niezmienione. Link HTML i link do scenariusza pozostaja przypisane do runa.
 
 Pulpit pokazuje czas i zakres raportu oraz ostatnie poprawne pliki. Nie pobiera
@@ -27,6 +32,11 @@ calego raportu cen, dopoki uzytkownik nie otworzy cen. Szczegoly techniczne
 sa zwiniete, ale aktualny blad i brak diagnostyki pozostaja widoczne.
 Szczegoly scenariusza odczytuja zapis decyzji dla wybranej klasy i kodu Excel;
 zmiana klasy usuwa poprzedni wynik i nie przyjmuje spoznionej odpowiedzi.
+Zapisane dane komorki sa ponownie wykorzystywane w szczegolach. Przejscie
+`Zobacz aktualne reguly` zachowuje klase/kod/date/duration, ale pokazuje
+aktualny model lub szkic, nigdy jako historyczny powod ceny. Edycja uzywa
+istniejacego edytora i ostrzega o pelnym zakresie reguly. Powrot zachowuje
+wybrany oddzial i filtry. Minima, ochrona i silnik rekomendacji sa bez zmian.
 
 `Stawki w Excelu` odczytuje raport i Excel po wybraniu filtrow.
 Cena MM i konkurencji oznacza najtansza oferte w wybranym widoku skrzyn,

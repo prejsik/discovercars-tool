@@ -5,7 +5,7 @@ import {InlineDecision} from './InlineDecision.jsx';
 import {locationLabel} from './operations.mjs';
 import { gapLabel } from './market-review.mjs';
 
-export function MarketDetail({row,data,calendar,onExcel,canExplain,onClose,neighbors,onSelect,model,workspace,service}) {
+export function MarketDetail({row,data,calendar,onExcel,canExplain,onClose,neighbors,onSelect,model,workspace,service,onRules}) {
   const dialog=useRef(null);const heading=useRef(null);const previous=useRef(document.activeElement);
   const index=neighbors.findIndex(item=>item.date===row.date&&item.duration===row.duration&&item.location===row.location);
   function move(offset){const next=neighbors[index+offset];if(next)onSelect(next,neighbors);}
@@ -23,6 +23,6 @@ export function MarketDetail({row,data,calendar,onExcel,canExplain,onClose,neigh
     {!row.marketConfirmed&&<p className="alert">Brak potwierdzonych cen. To nie potwierdza braku samochodów.</p>}
     {eventsForDay(calendar.items,row.date,data.locations.find(item=>item.scraper_label===row.location)?.zones??[]).map(event=><p key={event.id}><CalendarDays size={14}/> {event.title}{event.notes?` · ${event.notes}`:''}</p>)}
     <div className="event-actions">{row.location&&<a className="button primary" href={scenarioLink(data.report.runId,row)} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Scenariusz w raporcie</a>}{canExplain&&<button type="button" className="button" onClick={onExcel}><FileSpreadsheet size={16}/>Pełna tabela stawek</button>}</div>
-    <InlineDecision key={row.key??`${row.location}-${row.date}-${row.duration}`} row={row} data={data} model={model} workspace={workspace} service={service}/><nav className="detail-navigation" aria-label="Sąsiednie pozycje"><button type="button" className="button" disabled={index<=0} onClick={()=>move(-1)}><ChevronUp size={16}/>Poprzednia</button><button type="button" className="button" disabled={index<0||index>=neighbors.length-1} onClick={()=>move(1)}><ChevronDown size={16}/>Następna</button></nav>
+    <InlineDecision onRules={onRules} key={row.key??`${row.location}-${row.date}-${row.duration}`} row={row} data={data} model={model} workspace={workspace} service={service}/><nav className="detail-navigation" aria-label="Sąsiednie pozycje"><button type="button" className="button" disabled={index<=0} onClick={()=>move(-1)}><ChevronUp size={16}/>Poprzednia</button><button type="button" className="button" disabled={index<0||index>=neighbors.length-1} onClick={()=>move(1)}><ChevronDown size={16}/>Następna</button></nav>
   </dialog>;
 }

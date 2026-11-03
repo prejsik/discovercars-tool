@@ -1,4 +1,5 @@
 import { workbookRows, selectRates, selectReviews, readMarket, readMarketRows, combineEvidence } from './price-evidence.mjs';
+import {MATRIX_BANDS} from './band-matrix.mjs';
 
 export async function loadMarketEvidence(query,fetcher=(...args)=>fetch(...args)) {
   const params=new URLSearchParams({mode:'market',reportRunId:query.reportRunId});
@@ -25,12 +26,12 @@ export async function loadPriceEvidence(query, fetcher=(...args)=>fetch(...args)
   }
   const context=await request();const {report,excel,location}=context;const warnings=[];
   const bytes=await request('workbook');
-  const final=selectRates(workbookRows(bytes,'Sheet1'),query);
-  const reviews=selectReviews(workbookRows(bytes,'Recommendations Review'),query);
-  let base=[];let market=[];let changes=[];
-  try {base=selectRates(workbookRows(await request('baseline'),'Sheet1'),query);}
+  const finalRows=workbookRows(bytes,'Sheet1');
+  const reviewRows=workbookRows(bytes,'Recommendations Review');
+  let baseRows=[];let market=[];let changes=[];
+  try {baseRows=workbookRows(await request('baseline'),'Sheet1');}
   catch(error){if(error.status===409)throw error;warnings.push('Nie potwierdzono historycznej bazy tego Excela. Nie zastąpiono jej obecną bazą.');}
-  try {market=readMarket(await request('market'),{...query,location});}
+  try {if(query.mode!=='matrix')market=readMarket(await request('market'),{...query,location});}
   catch(error){if(error.status===409)throw error;warnings.push('Nie można odczytać cen rynkowych. Stawki i uzasadnienia z Excela są nadal dostępne.');}
   if(context.summarySha256) {
     try {
@@ -41,6 +42,11 @@ export async function loadPriceEvidence(query, fetcher=(...args)=>fetch(...args)
   }
   if((await request()).signature!==context.signature)throw Object.assign(new Error('Wyniki zmieniły się podczas odczytu. Odśwież panel.'),{status:409});
   const dates=[...new Set([...report.startDates,...excel.startDates,...market.map(row=>row.date)])].sort();
+  if(query.mode==='matrix')return {query,report,excel,warnings,location,bands:MATRIX_BANDS.map(([duration])=>{
+    const selection={...query,duration};
+    return {duration,rows:combineEvidence({dates,base:selectRates(baseRows,selection),final:selectRates(finalRows,selection),reviews:selectReviews(reviewRows,selection),changes,market:[],sameRun:report.runId===excel.runId,query:selection})};
+  })};
+  const base=selectRates(baseRows,query),final=selectRates(finalRows,query),reviews=selectReviews(reviewRows,query);
   return {query,report,excel,warnings,location,
     rows:combineEvidence({dates,base,final,reviews,changes,market,sameRun:report.runId===excel.runId,query}),
     baselineVerified:base.length>0,reviewCount:reviews.length};

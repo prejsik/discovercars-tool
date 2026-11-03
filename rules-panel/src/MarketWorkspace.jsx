@@ -14,7 +14,7 @@ const dayLabel=day=>`${day.slice(8)}.${day.slice(5,7)}.${day.slice(0,4)}`;
 const shortMoney=value=>value===null?'—':new Intl.NumberFormat('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}).format(value);
 const tabs=[['attention','Do sprawdzenia',ListFilter],['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['excel','Stawki w Excelu',FileSpreadsheet]];
 
-export function MarketWorkspace({model,workspace,service,calendar,market,request}) {
+export function MarketWorkspace({model,workspace,service,calendar,market,request,onRules}) {
   const [view,setView]=useState('attention');const {data,busy,error,load}=market;const handledRequest=useRef(null);
   const [kind,setKind]=useState('airport');const [location,setLocation]=useState('Krakow Airport (KRK)');const [transmission,setTransmission]=useState('all');
   const [durations,setDurations]=useState([3]);const [from,setFrom]=useState('');const [to,setTo]=useState('');const [month,setMonth]=useState(warsawToday().slice(0,7));
@@ -60,7 +60,7 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
         {data.report.quality==='failure'&&<div className="alert">Dane rynku są dostępne. Ten przebieg nie opublikował nowych plików Excel.</div>}
         {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<div className="alert">Zbieranie danych rozpoczęło się ponad 24 godziny temu. Dokładny czas odczytu poszczególnych cen nie jest zapisany w tym raporcie.</div>}
       </>}
-      <div hidden={view!=='attention'||!data}><AttentionView key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
+      <div hidden={view!=='attention'||!data}><AttentionView model={model} workspace={workspace} service={service} key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
       {data&&<>
         <div hidden={view==='attention'} className="market-filters chart-filters"><label>Oddziały<select value={kind} onChange={e=>{setKind(e.target.value);setLocation('*');}}><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option><option value="branch">Poza lotniskami</option></select></label><label>Lokalizacja rynku<select value={location} onChange={e=>setLocation(e.target.value)}><option value="*">Wszystkie lokalizacje</option>{locations.map(l=><option key={l} value={l}>{locationLabel(l)}</option>)}</select></label><label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
         <details className="duration-select"><summary>Długość najmu: {durations.length?durations.join(', '):'brak'} dni</summary><fieldset><legend>Długości najmu</legend>{Array.from({length:13},(_,i)=>i+2).map(d=><label key={d}><input type="checkbox" checked={durations.includes(d)} onChange={e=>setDurations(old=>e.target.checked?[...old,d].sort((a,b)=>a-b):old.filter(n=>n!==d))}/>{d} dni</label>)}</fieldset></details>
@@ -76,7 +76,7 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
           {calendar.error&&<p className="freshness-warning">Nie potwierdzono oznaczeń wydarzeń. {calendar.error}</p>}
           <details className="technical-details"><summary>Wydarzenia i święta</summary><CalendarEvents calendar={calendar} model={model}/></details>
         </>:null}
-        {selected&&<MarketDetail model={model} workspace={workspace} service={service} row={selected} data={data} calendar={calendar} canExplain={Boolean(workspace?.status?.excel&&data.locations.some(l=>l.scraper_label===selected.location&&l.zones?.length))} onExcel={()=>{openExcel(selected);setSelected(null);}} onClose={()=>setSelected(null)} neighbors={neighbors.current} onSelect={selectRow}/>}
+        {selected&&<MarketDetail onRules={query=>{setSelected(null);onRules(query);}} model={model} workspace={workspace} service={service} row={selected} data={data} calendar={calendar} canExplain={Boolean(workspace?.status?.excel&&data.locations.some(l=>l.scraper_label===selected.location&&l.zones?.length))} onExcel={()=>{openExcel(selected);setSelected(null);}} onClose={()=>setSelected(null)} neighbors={neighbors.current} onSelect={selectRow}/>}
       </>}
     </div>
   </section>;

@@ -54,3 +54,26 @@
 .event-record>div:first-of-type{flex:1;min-width:0;overflow-wrap:anywhere}.event-record>svg{flex-shrink:0}.event-record strong{font-size:14px}.event-record small{display:block;font-size:12px;color:var(--muted);margin-top:6px}.event-record p{font-size:13px}
 .check-label{display:flex;gap:8px;align-items:center;font-size:13px}
 @media(max-width:760px){.market-counts{gap:12px}.market-tabs .button{padding:8px;font-size:12px}.market-filters label{flex-basis:160px}.duration-select{flex-basis:100%}.duration-select fieldset{grid-template-columns:repeat(3,minmax(0,1fr))}.chart-heading{align-items:start}.chart-legend{gap:10px}.market-calendar-grid{gap:3px}.market-day{min-height:84px}.market-day strong{font-size:12px}.market-day small{font-size:10px}.attention-table thead{display:none}.attention-table,.attention-table tbody{display:block}.attention-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid var(--line);padding:8px 0}.attention-table td{display:block;border:0}.attention-table td:before{content:attr(data-label);display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.event-form{grid-template-columns:minmax(0,1fr)}.event-record{flex-wrap:wrap}.chart-readout{min-height:95px}}
+/* Compact daily workbench; historical evidence remains separate from current rules. */
+.market-workspace{gap:12px}.attention-view,.band-workspace{display:grid;gap:10px;min-width:0}
+.attention-view p,.band-workspace p{margin:0}.market-filters{gap:8px}
+.band-workspace .market-filters label{flex:0 1 170px}
+.attention-view .attention-table td:not(:first-child){text-align:right}
+.attention-table thead th,.band-matrix>thead th{position:sticky;top:0;z-index:2;background:var(--surface,#f6f8fa)}
+.band-matrix{table-layout:fixed;border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+.band-matrix>thead th:first-child{width:112px}.band-matrix th,.band-matrix td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.band-matrix th{text-align:right;font-weight:500}.band-matrix th:first-child{text-align:left}.band-matrix small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.band-cell{display:grid;gap:4px;text-align:right;align-content:start;width:100%;min-height:84px;padding:7px;border:1px solid transparent;background:transparent;border-radius:4px;font:inherit;color:var(--ink);overflow-wrap:anywhere}
+.band-cell strong{font-size:15px;font-weight:600}.band-cell span{font-size:12px}.band-cell .above{color:#a12428}.band-cell:hover,.band-cell[aria-expanded=true]{background:#edf3fe;border-color:#bacded}.band-cell .mobile-band{display:none}
+.band-scenarios{padding:12px 4px;background:#fff}.band-scenarios h3,.rule-context h2{font-size:16px;margin:0}
+.band-scenarios table{table-layout:fixed;width:100%;margin-top:10px}.band-scenarios td{text-align:right}.band-scenarios .text-button{white-space:normal}
+.rule-context{display:grid;gap:12px;padding:16px 0;border-block:1px solid var(--line);margin-bottom:20px;min-width:0}.rule-context p{margin:0}.rule-context>.button{justify-self:start}
+.context-rule{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.context-rule>div{min-width:0;overflow-wrap:anywhere}.context-rule p{font-size:12px;color:var(--muted);margin-top:5px}
+@media(max-width:760px){
+ .band-matrix,.band-matrix>tbody{display:block}.band-matrix>thead{display:none}.band-date{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid var(--line)}
+ .band-date>th{grid-column:1/-1}.band-date>td{min-width:0}.band-cell .mobile-band{display:block}.band-cell{min-height:94px}
+ .band-expanded,.band-expanded>td{display:block;width:100%;padding:0}.band-scenarios table,.band-scenarios tbody{display:block}.band-scenarios thead{display:none}.band-scenarios tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:8px 0;border-bottom:1px solid var(--line)}
+ .band-scenarios td,.band-scenarios th{border:0;min-width:0;text-align:left}.band-scenarios td:nth-child(2)::before{content:'MM / dobę';display:block;color:var(--muted)}.band-scenarios td:nth-child(3)::before{content:'Konkurencja / dobę';display:block;color:var(--muted)}
+ .context-rule{align-items:start;flex-direction:column}.attention-view .attention-table td:not(:first-child){text-align:left}
+}
+@media(max-width:760px){.attention-view>.market-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.attention-view>.market-filters input,.attention-view>.market-filters select{font-size:12px;padding:9px 4px}.attention-view>.market-filters label{font-size:12px}}
