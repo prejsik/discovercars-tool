@@ -18,7 +18,7 @@ try {
   await page.goto(`${origin}/?view=rules`);
   await page.getByRole('heading', { name: 'Zasady cenowe', exact: true }).waitFor();
   assert.equal(await page.locator('.topbar').count(), 0, 'No duplicate technical header');
-  assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).count(), 0, 'Publication belongs to review only');
+  assert.equal(await page.getByRole('button', { name: /^Opublikuj/ }).count(), 0, 'Publication belongs to review only');
   await page.getByLabel('Okres reguł').selectOption('all');
   const initialSnapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
   const configuredRules = buildRules(initialSnapshot.documents);
@@ -54,7 +54,7 @@ try {
     await page.screenshot({ path: fileURLToPath(new URL(`rules-${width}.png`, output)) });
   }
   await page.goto(`${origin}/?view=review`);
-  assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: /^Opublikuj/ }).isDisabled(), true);
   await page.getByRole('button', { name: 'Pulpit', exact: true }).click();
   assert.equal(await page.getByText('pricing-rules.config.example.json', { exact: true }).isVisible(), false);
   await page.getByText('Konfiguracja techniczna', { exact: true }).click();
@@ -97,13 +97,17 @@ try {
   });
   await page.reload();
   await page.getByRole('button', { name: /Zmiany do publikacji:/ }).click();
-  const publish = page.getByRole('button', { name: 'Opublikuj', exact: true });
+  const publish = page.getByRole('button', { name: /^Opublikuj/ });
   assert.equal(await publish.isEnabled(), true);
-  page.once('dialog', dialog => dialog.dismiss());
   await publish.click();
+  const confirmation=page.getByRole('dialog',{name:/Opublikować/});
+  await confirmation.waitFor({timeout:2000});
+  assert.doesNotMatch(await confirmation.innerText(),/ui-test-draft/);
+  assert.match(await confirmation.innerText(),/uruchomień rozpoczętych po publikacji/);
+  await confirmation.getByRole('button',{name:'Wróć do szkicu',exact:true}).click();
   assert.equal(publications, 0, 'Dismissed confirmation cannot publish');
-  page.once('dialog', dialog => dialog.accept());
   await publish.click();
+  await confirmation.getByRole('button',{name:'Opublikuj',exact:true}).click();
   await page.getByRole('status').filter({ hasText: 'Opublikowano konfigurację' }).waitFor();
   assert.equal(publications, 1, 'Verified publication remains clickable only after confirmation');
   assert.deepEqual(errors, []);

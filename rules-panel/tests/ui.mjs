@@ -46,7 +46,7 @@ try {
   await page.goto(`${origin}/?view=review`);
   assert.equal(
     await page
-      .getByRole("button", { name: "Opublikuj", exact: true })
+      .getByRole("button", { name: /^Opublikuj/ })
       .isDisabled(),
     true,
   );

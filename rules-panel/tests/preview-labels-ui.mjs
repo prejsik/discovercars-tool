@@ -67,7 +67,7 @@ for (const mode of ["local", "hosted-preview"]) {
       await page.goto(`${origin}/?view=review`);
       assert.match(await page.locator('main').innerText(), /Publikacja niepodłączona.*Zmiany pozostają w szkicu tej przeglądarki/);
       assert.equal(
-        await page.getByRole("button", { name: "Opublikuj", exact: true }).isDisabled(),
+        await page.getByRole("button", { name: /^Opublikuj/ }).isDisabled(),
         true,
       );
       if (hosted) {

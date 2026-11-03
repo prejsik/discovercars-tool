@@ -30,6 +30,7 @@ import {
 import "@fontsource-variable/inter";
 import "./styles.css";
 import * as policy from "./policy.mjs";
+import { ChangeTable,PublicationDialog,publishLabel } from "./ChangeReview.jsx";
 import { AmountField } from "./AmountField.jsx";
 import { amountChange,amountValid,confirmedChanges,requiredConfirmations,ruleScope,sameConfirmation } from "./change-review.mjs";
 import { warningChanges } from "./warning-presentation.mjs";
@@ -166,6 +167,7 @@ function App() {
   const [amountConfirmations,setAmountConfirmations]=useState([]);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
+  const [publicationDialog,setPublicationDialog]=useState(null);
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [ruleView, setRuleView] = useState('list');
@@ -250,18 +252,20 @@ function App() {
     } finally { actionRef.current = false; setBusy(false); }
   }
 
-  async function publishDraft() {
+  async function publishDraft(approved=false) {
     const blocker = publishBlocker(workspaceData);
     if (blocker) {
       setActionError(blocker);
       go("review"); return;
     }
-    if (!window.confirm(`Opublikować szkic ${revisionRef.current} do zatwierdzonych plików konfiguracji w GitHub main? Nie oznacza to importu stawek do DiscoverCars.`)) return;
+    if(!approved){setPublicationDialog({revision:revisionRef.current});return;}
+    if(publicationDialog?.revision!==revisionRef.current){setActionError("Szkic zmienił się od otwarcia potwierdzenia. Sprawdź zmiany ponownie.");setPublicationDialog(null);return;}
     try {
       await remoteAction(async () => {
         const published = await service.publish(revisionRef.current);
         setNotice(`Opublikowano konfigurację: ${published.revision}. Import stawek nie został potwierdzony.`);
         acceptWorkspace(await service.workspace());
+        setPublicationDialog(null);
       });
     } catch { /* The API error is displayed without retrying publication. */ }
   }
@@ -563,9 +567,9 @@ function App() {
                 <Plus size={17} />Dodaj regułę
               </button>}
               {view === "review" && <span className="disabled-wrapper" tabIndex={publicationBlocker ? 0 : undefined} title={publicationBlocker || "Publikacja konfiguracji do GitHub main, bez importu stawek."}>
-                <button className="button primary" disabled={Boolean(publicationBlocker) || busy || blockedDraft || validation.errors.length > 0} onClick={publishDraft}>
+                <button className="button primary" disabled={Boolean(publicationBlocker) || busy || blockedDraft || validation.errors.length > 0} onClick={()=>publishDraft()}>
                   <LockKeyhole size={16} />
-                  Opublikuj
+                  {publishLabel(changes.length)}
                 </button>
               </span>}
             </div>
@@ -776,6 +780,7 @@ function App() {
                 original,
                 rules,
                 originalRules,
+                amountConfirmations,
                 changes,
                 validation,
                 stale: blockedDraft,
@@ -831,6 +836,7 @@ function App() {
           {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{item.scraper_label}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
+      {publicationDialog&&<PublicationDialog model={model} original={original} confirmations={amountConfirmations} count={changes.length} busy={busy} error={actionError} onClose={()=>setPublicationDialog(null)} onConfirm={()=>publishDraft(true)}/>}
       {editor?.isNew && <BusinessEditor model={model} remote={remote} supported={typeof policy.addFloorMatrix === "function"} onClose={() => setEditor(null)} onSave={async (fields, changeReason) => {
         const next = fields.category === "protected" ? addRule(model, fields) : typeof policy.addFloorMatrix === "function" ? policy.addFloorMatrix(model, fields) : null;
         if (!next) throw new Error("Zapis zakresów oczekuje na integrację silnika reguł.");
@@ -1173,6 +1179,7 @@ function Review({
   original,
   rules,
   originalRules,
+  amountConfirmations = [],
   changes,
   validation,
   stale,
@@ -1221,35 +1228,7 @@ function Review({
             </div>
             <span className="badge amber">Nieopublikowany</span>
           </div>
-          <div className="diff-table">
-            <div className="diff-head">
-              <span>Reguła</span>
-              <span>Obecne zasady</span>
-              <span>Szkic</span>
-            </div>
-            {differences.map(({ before, after }) => (
-              <div className="diff-row" key={(after ?? before).id}>
-                <strong>{(after ?? before).title}</strong>
-                <RuleSummary rule={before} model={model} />
-                <RuleSummary rule={after} model={model} />
-              </div>
-            ))}
-            {groupDiff.map((group) => (
-              <div className="diff-row" key={group}>
-                <strong>{group}</strong>
-                <span>
-                  {original.excel.apply_groups.includes(group)
-                    ? "Rekomendacje włączone"
-                    : "Rekomendacje wyłączone"}
-                </span>
-                <span>
-                  {model.excel.apply_groups.includes(group)
-                    ? "Rekomendacje włączone"
-                    : "Rekomendacje wyłączone"}
-                </span>
-              </div>
-            ))}
-          </div>
+          <ChangeTable model={model} original={original} confirmations={amountConfirmations}/>
           <section className="warning-list" aria-label="Uwagi do szkicu"><h3>Uwagi do szkicu</h3>
             {warnings.added.length?warnings.added.map(item=><p className="new-warning" key={item.key}><TriangleAlert size={16}/>{item.message}</p>):<p className="positive">Ten szkic nie wprowadza nowych ostrzeżeń.</p>}
             <details><summary>Znane nakładania w obecnych zasadach ({warnings.known.length})</summary>{warnings.known.map(item=><p key={item.key}>{item.message}</p>)}</details>
