@@ -5,6 +5,21 @@ zatwierdzania zasad cenowych. Daty oznaczaja pickup/start date, kwoty PLN
 brutto za dobe. Panel nie importuje cen do DiscoverCars i nie promuje
 wygenerowanych Exceli do pliku bazowego.
 
+## Diagnostyka uruchomien
+
+Widok "Ostatnie wyniki" oddziela ostatni rzeczywisty przebieg od ostatnich
+poprawnych plikow Excel. Pominieta proba harmonogramu nie kasuje informacji
+o bledzie poprzedniego scrapera. Link z Telegrama zawiera identyfikator
+konkretnego przebiegu (`?view=results&runId=...`).
+
+Przy blokadzie eksportu widoczne sa przyczyna, zalecany nastepny krok oraz
+lokalizacja, data, klasa, przedzial, stawka i limit. Nowe diagnostyki zapisuja
+rowniez pochodzenie stawki. Starsze logi pokazuja tylko zachowane przyklady,
+bez zgadywania ich zrodla lub pelnej liczby. Tabela ma filtr i strony po 20 pozycji.
+Zasady i potwierdzenie bazy otwieraja sie w wersji uzytej w danym przebiegu,
+nie w aktualnym szkicu. Wygasly/brakujacy artefakt ma jawny komunikat.
+Diagnostyka jest tylko do odczytu: nie zmienia cen, ochrony dat ani bazy.
+
 ## Tryby
 
 - Lokalnie: wspolny szkic na tym komputerze, prywatne pliki w `.local`,

@@ -45,7 +45,7 @@ test('deployment routes every asset through auth and disables preview URLs', asy
   assert.equal(config.assets.directory, './dist');
 });
 
-for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session', '/api/baseline/check', '/api/baseline/publish', '/api/report/file', '/api/report-baseline/check', '/api/report-baseline/publish', '/api/scheduler']) {
+for (const path of ['/', '/index.html', '/policy-snapshot.json', '/assets/app.js', '/api/session', '/api/baseline/check', '/api/baseline/publish', '/api/report/file', '/api/report/diagnostics?runId=123', '/api/report-baseline/check', '/api/report-baseline/publish', '/api/scheduler']) {
   test(`anonymous request cannot read ${path}`, async () => {
     const { env, requests } = setup();
     const response = await worker.fetch(await request(path), env);
@@ -134,6 +134,13 @@ test('session uses signed identity and never returns token', async () => {
   const response = await worker.fetch(await request('/api/session', await token()), env);
   assert.deepEqual(await response.json(), { email: emails[0], publish: false });
   assert.equal(requests.length, 0);
+});
+
+test('diagnostic endpoint is read-only and validates run ids before accessing GitHub', async () => {
+  const {env} = setup({PANEL_WRITES_ENABLED:'true',GITHUB_APP_ID:'1',GITHUB_INSTALLATION_ID:'2',GITHUB_APP_PRIVATE_KEY:'configured',PANEL_PREVIEW_KEY:'configured',RULES_WORKSPACE:{}});
+  const jwt = await token();
+  assert.equal((await worker.fetch(await request('/api/report/diagnostics?runId=bad',jwt),env)).status,422);
+  assert.equal((await worker.fetch(await request('/api/report/diagnostics?runId=123',jwt,{method:'POST'}),env)).status,405);
 });
 
 test('shared mutations require same-origin JSON and forward only signed actor', async () => {

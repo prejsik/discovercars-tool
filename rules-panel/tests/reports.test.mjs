@@ -35,6 +35,57 @@ test('failed report does not hide the older valid Excel and mismatched scopes st
   assert.equal(result.report.quality,'failure'); assert.equal(result.excel.runId,'123');
   assert.ok(result.links.import); assert.equal(result.report.runId,'124');
 });
+
+test('legacy Excel failures expose exact sample positions without claiming a floor or complete list', async () => {
+  const message = 'Blad generowania pliku Excel: ValueError: Final rates violate the city Top1 airport cap after group parity; no workbook changes were saved. CDMV/KRDW/2026-12-09 M: 80 > 77; EDAV/KRDW/2026-12-09 M: 80 > 78; CDMV/PO1/2026-12-07 M: 80 > 79.49';
+  const result = await readOperationalStatus({}, source({report:{...manifest,run_id:'124',status:'failure',quality:{...manifest.quality,blocking_alerts:[message]}}}));
+  const incident = result.report.incident;
+  assert.equal(incident.code, 'city_airport_cap');
+  assert.equal(incident.owner, 'technical');
+  assert.equal(incident.positions.length, 3);
+  assert.equal(incident.complete, false);
+  assert.deepEqual(incident.positions[0], {group:'CDMV',zone:'KRDW',pickupDate:'2026-12-09',column:'M',duration:'8-20',rate:80,limit:77,rateOrigin:'unknown'});
+  assert.equal(incident.positions[2].limit, 79.49);
+  assert.ok(incident.technicalDetails.includes(message));
+  assert.ok(result.links.import);
+});
+
+test('unknown errors never invent positions, origins or advice to lower prices', async () => {
+  const result = await readOperationalStatus({}, source({report:{...manifest,status:'failure',quality:{blocking_alerts:['Unexpected ZIP error']}}}));
+  assert.equal(result.report.incident.code, 'unknown');
+  assert.deepEqual(result.report.incident.positions, []);
+  assert.equal(result.report.incident.complete, false);
+});
+
+test('structured diagnostics preserve provenance and only claim completeness for valid complete rows', async () => {
+  const row={group:'CDMV',zone:'KRDW',pickupDate:'2026-12-09',column:'M',rate:80,limit:77,rateOrigin:'baseline'};
+  const read = async positions => (await readOperationalStatus({},source({report:{...manifest,status:'failure',excel_generation_error:{message:'Cap error',diagnostics:{code:'city_airport_cap',total:1,positions}}}}))).report.incident;
+  const valid=await read([row]);
+  assert.equal(valid.complete,true);
+  assert.equal(valid.positions[0].rateOrigin,'baseline');
+  const invalid=await read([{...row,rate:'80'}]);
+  assert.equal(invalid.complete,false);
+  assert.deepEqual(invalid.positions,[]);
+});
+
+test('many cron guard attempts still use the published run as the evidence anchor', async () => {
+  let jobReads=0;
+  const repository=new GitHubRepository({}, {api:async path=>{
+    if(path.includes('/jobs?')) {jobReads++;return {jobs:[{name:'Freeze scope and collection plan',conclusion:path.includes('/124/') ? 'success' : 'skipped'}]};}
+    return {workflow_runs:[...Array.from({length:12},(_,index)=>({id:200-index,status:'completed',conclusion:'success'})),{id:124,status:'completed',conclusion:'failure'}]};
+  }});
+  const result=await repository.latestRuns({reportRunId:'124'});
+  assert.equal(result.latestScrape.runId,'124');
+  assert.equal(jobReads,7);
+});
+
+test('a newer failure before report publication takes precedence over an older manifest after many guards', async () => {
+  const repository=new GitHubRepository({}, {api:async path=>{
+    if(path.includes('/jobs?'))return {jobs:[{name:'Freeze scope and collection plan',conclusion:path.includes('/125/') ? 'failure' : 'skipped'}]};
+    return {workflow_runs:[...Array.from({length:12},(_,index)=>({id:200-index,status:'completed',conclusion:'success'})),{id:125,status:'completed',conclusion:'failure'},{id:124,status:'completed',conclusion:'success'}]};
+  }});
+  assert.equal((await repository.latestRuns({reportRunId:'124'})).latestScrape.runId,'125');
+});
 test('partial manifest failure preserves remaining usable results',async()=>{
   const result=await readOperationalStatus({},source({report:null}));
   assert.equal(result.available,true); assert.equal(result.report,null); assert.ok(result.links.import); assert.ok(result.warnings.length);
@@ -77,6 +128,18 @@ test('skipped cron attempts are distinguished from completed scraping',async()=>
   const repository=new GitHubRepository({}, {api:async path=>path.includes('/jobs?')?{jobs:[{name:'Freeze scope and collection plan',conclusion:'skipped'}]}:{workflow_runs:[{id:123,status:'completed',conclusion:'success',created_at:'2026-10-15T11:00:00Z'},{id:122,status:'queued',created_at:'2026-10-15T10:00:00Z'}]}});
   const runs=await repository.latestRuns();
   assert.equal(runs.latest.skipped,true); assert.equal(runs.active[0].runId,'122');
+});
+
+test('later successful skipped attempts do not mask the last real failed scraper', async () => {
+  const repository = new GitHubRepository({}, {api:async path => {
+    if (path.includes('/125/jobs?')) return {jobs:[{name:'Freeze scope and collection plan',conclusion:'skipped'}]};
+    if (path.includes('/124/jobs?')) return {jobs:[{name:'Freeze scope and collection plan',conclusion:'success'},{name:'Publish ready report',conclusion:'failure',steps:[{name:'Enforce final quality gate',conclusion:'failure'}]}]};
+    return {workflow_runs:[{id:125,status:'completed',conclusion:'success'},{id:124,status:'completed',conclusion:'failure'}]};
+  }});
+  const runs = await repository.latestRuns({reportRunId:'124'});
+  assert.equal(runs.latest.skipped, true);
+  assert.equal(runs.latestScrape.runId, '124');
+  assert.equal(runs.latestScrape.failureStage, 'Enforce final quality gate');
 });
 test('HTML report refuses another run and checks its recorded hash',async()=>{
   await assert.rejects(loadPublishedReport('999',{},source()),error=>error.status===409);

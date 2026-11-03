@@ -3510,6 +3510,7 @@ def find_city_top1_airport_cap_violations(
     caps: dict[tuple[str, date, int], dict[str, Any]],
     allowed_groups: set[str] | None = None,
     ignored_cap_cells: set[tuple[str, date, int, str]] | None = None,
+    details: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     if not caps:
         return []
@@ -3539,6 +3540,16 @@ def find_city_top1_airport_cap_violations(
                     f"{group}/{zone}/{pickup_date.isoformat()} {get_column_letter(rate_col)}: "
                     f"{format_rate_for_comment(rate)} > {format_rate_for_comment(maximum_rate)}"
                 )
+                if details is not None:
+                    details.append({
+                        "group": group, "zone": zone, "pickupDate": pickup_date.isoformat(),
+                        "column": get_column_letter(rate_col), "cell": ws.cell(row, rate_col).coordinate,
+                        "rate": rate, "limit": maximum_rate,
+                        "location": (config.get("zone_location_labels") or {}).get(zone, zone),
+                        "airportZone": cap_info.get("airport_zone"),
+                        "airportRate": (cap_info.get("airport_rates_by_group") or {}).get(group),
+                        "multiplier": cap_info.get("max_multiplier"),
+                    })
     return violations
 
 
@@ -4442,16 +4453,25 @@ def apply_updates(
         dry_run=dry_run,
     )
 
+    cap_diagnostics: list[dict[str, Any]] = []
     city_top1_airport_cap_violations = (
         [] if dry_run else find_city_top1_airport_cap_violations(
             ws, config,
-            city_top1_airport_caps, allowed_groups, ignored_cap_cells,
+            city_top1_airport_caps, allowed_groups, ignored_cap_cells, details=cap_diagnostics,
         )
     )
     if city_top1_airport_cap_violations:
-        raise ValueError(
+        last_changes = {change["cell"]: change for change in changes if change.get("cell")}
+        for item in cap_diagnostics:
+            change = last_changes.get(item.pop("cell"))
+            kind = change.get("recommendation_type") if change else None
+            item["rateOrigin"] = ("baseline" if change is None else "group_parity" if kind == "group_parity"
+                                  else "mandatory_floor" if is_mandatory_floor_change(change, config) else "market")
+        raise WorkbookValidationError(
             "Final rates violate the city Top1 airport cap after group parity; no workbook changes were saved. "
-            + "; ".join(city_top1_airport_cap_violations[:8])
+            + "; ".join(city_top1_airport_cap_violations[:8]),
+            {"code": "city_airport_cap", "total": len(cap_diagnostics), "positions": cap_diagnostics[:1000]},
+            input_workbook_sha256, baseline_confirmation,
         )
 
     if not dry_run:
@@ -4533,6 +4553,13 @@ def apply_updates(
     }
 
 
+class WorkbookValidationError(ValueError):
+    def __init__(self, message: str, diagnostics: dict[str, Any], workbook_sha256: str, baseline: dict[str, Any]):
+        super().__init__(message)
+        self.diagnostic_report = {"diagnostics": diagnostics, "input_workbook_sha256": workbook_sha256,
+                                  "baseline_confirmation": baseline}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Update rental-rate Excel workbook from pricing recommendations.")
     parser.add_argument("--workbook", required=True, help="Input .xlsx workbook path.")
@@ -4540,6 +4567,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Excel rate update config JSON path.")
     parser.add_argument("--output", help="Output .xlsx path.")
     parser.add_argument("--import-output", help="Optional clean import .xlsx path containing only Sheet1.")
+    parser.add_argument("--diagnostics-output", help="Optional structured failure diagnostic JSON; does not change price validation.")
     parser.add_argument("--groups", help="Comma-separated approved car groups, or 'all' for the configured apply_groups list. Cannot expand class permissions.")
     parser.add_argument("--accepted-only", action="store_true", help="Apply only recommendations marked as accepted.")
     parser.add_argument("--acceptance-workbook", help="Workbook containing a Recommendations Review sheet with Akceptacja?/Accept? decisions.")
@@ -4550,17 +4578,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_config(Path(args.config))
-    summary = apply_updates(
-        workbook_path=Path(args.workbook),
-        recommendations_path=Path(args.recommendations),
-        output_path=Path(args.output) if args.output else None,
-        config=config,
-        cli_groups=args.groups,
-        dry_run=args.dry_run,
-        accepted_only=args.accepted_only,
-        acceptance_workbook_path=Path(args.acceptance_workbook) if args.acceptance_workbook else None,
-        import_output_path=Path(args.import_output) if args.import_output else None,
-    )
+    try:
+        summary = apply_updates(
+            workbook_path=Path(args.workbook),
+            recommendations_path=Path(args.recommendations),
+            output_path=Path(args.output) if args.output else None,
+            config=config,
+            cli_groups=args.groups,
+            dry_run=args.dry_run,
+            accepted_only=args.accepted_only,
+            acceptance_workbook_path=Path(args.acceptance_workbook) if args.acceptance_workbook else None,
+            import_output_path=Path(args.import_output) if args.import_output else None,
+        )
+    except WorkbookValidationError as exc:
+        if args.diagnostics_output:
+            target = Path(args.diagnostics_output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(exc.diagnostic_report, ensure_ascii=False, default=str), encoding="utf-8")
+        raise
     print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
 
 

@@ -37,3 +37,39 @@ test('new manifest carries same-run statistics and report/summary digests withou
     assert.equal(bindReportEvidence(directory).excel_change_statistics,null);
   } finally {await rm(directory,{recursive:true,force:true});}
 });
+
+test('failed Excel diagnostic is bound to the manifest, with no stale failure after success', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'discovercars-error-proof-'));
+  try {
+    await writeFile(join(directory,'run-manifest.json'),JSON.stringify({...manifest,status:'failure'}));
+    const diagnostics={code:'city_airport_cap',total:1,positions:[{group:'CDMV',zone:'KRDW',pickupDate:'2026-12-09',column:'M',rate:80,limit:77,rateOrigin:'baseline'}]};
+    await writeFile(join(directory,'excel-rate-update-summary.json'),JSON.stringify({status:'error',error:{message:'Cap error',diagnostics}}));
+    assert.deepEqual(bindReportEvidence(directory).excel_generation_error.diagnostics,diagnostics);
+    await writeFile(join(directory,'excel-rate-update-summary.json'),JSON.stringify({status:'ok'}));
+    assert.equal(bindReportEvidence(directory).excel_generation_error,undefined);
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
+test('diagnostics from an older run are pinned to its workflow and SHA, not the latest report', async () => {
+  const archive=zipSync({'run-manifest.json':strToU8(JSON.stringify({...manifest,status:'failure',quality:{blocking_alerts:['ZIP error']}}))});
+  const repository=new GitHubRepository({}, {api:async path => {
+    if(path === '/actions/runs/123')return {id:123,path:'.github/workflows/discovercars-daily.yml',head_sha:record.revision,status:'completed',conclusion:'failure'};
+    if(path.includes('/artifacts?'))return {artifacts:[{id:1,name:'discovercars-results-10',size_in_bytes:archive.length}]};
+    if(path.endsWith('/zip'))return archive;
+    if(path.includes('/jobs?'))return {jobs:[]};
+    throw new Error(path);
+  }});
+  const result=await repository.runIncident('123');
+  assert.equal(result.report.runId,'123');
+  assert.equal(result.report.incident.code,'unknown');
+  assert.equal(result.report.revision,record.revision);
+  await assert.rejects(repository.runIncident('../1'),error=>error.status===422);
+});
+
+test('mismatched or oversized historical diagnostic artifacts are rejected', async () => {
+  for (const patch of [{run_id:'999'},{git_sha:'f'.repeat(40)}]) {
+    const archive=zipSync({'run-manifest.json':strToU8(JSON.stringify({...manifest,...patch}))});
+    const repository=new GitHubRepository({}, {api:async path=>path === '/actions/runs/123' ? {id:123,path:'.github/workflows/discovercars-daily.yml',head_sha:record.revision} : path.endsWith('/zip') ? archive : {artifacts:[{id:1,name:'discovercars-results-10',size_in_bytes:archive.length}]}});
+    await assert.rejects(repository.runIncident('123'),error=>error.status===409);
+  }
+});

@@ -76,6 +76,12 @@ export function createWorker({ resolveKeys } = {}) {
 
       const url = new URL(request.url);
       const connected = env.PANEL_WRITES_ENABLED === 'true' && githubConfigured(env) && Boolean(env.RULES_WORKSPACE);
+      if (url.pathname === '/api/report/diagnostics') {
+        if (request.method !== 'GET') return deny('Method not allowed.', 405);
+        if (!connected) return json({error:'Diagnostyka wymaga aktywnej integracji GitHub.'},503);
+        try { return json(await new GitHubRepository(env).runIncident(url.searchParams.get('runId'))); }
+        catch(error) { return json({error:error.status ? error.message : 'Nie można odczytać diagnostyki tego uruchomienia.'},error.status ?? 502); }
+      }
       if (url.pathname === '/api/report/open') {
         if (!['GET', 'HEAD'].includes(request.method)) return deny('Method not allowed.', 405);
         if (!connected) return json({ error: 'Odczyt raportu wymaga aktywnej integracji GitHub.' }, 503);

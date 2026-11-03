@@ -3,6 +3,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { hashJson, PanelError } from '../server/workspace-service.mjs';
 import { encryptEnvelope, decryptEnvelope } from '../server/preview-crypto.mjs';
 import { readLimited } from '../server/http.mjs';
+import { normalize } from '../server/reports.mjs';
 export { readLimited } from '../server/http.mjs';
 export { readOperationalStatus } from '../server/reports.mjs';
 
@@ -78,20 +79,42 @@ export class GitHubRepository {
 
   frozenMarkup(revision) { return this.json('input/broker-markup-frozen.json', revision); }
 
-  async latestRuns() {
+  async latestRuns({ reportRunId } = {}) {
     const { workflow_runs = [] } = await this.api('/actions/workflows/discovercars-daily.yml/runs?per_page=30');
     const runs = workflow_runs.filter(run => /^\d+$/.test(String(run.id))).map(run => ({
       runId: String(run.id), status: run.status, conclusion: run.conclusion, title: run.display_title,
       startedAt: run.run_started_at ?? run.created_at, createdAt: run.created_at,
       url: `https://github.com/${REPOSITORY}/actions/runs/${run.id}`,
     }));
-    if (runs[0]?.status === 'completed') {
-      const { jobs = [] } = await this.api(`/actions/runs/${runs[0].runId}/jobs?per_page=100`);
-      runs[0].skipped = runs[0].conclusion === 'success' && jobs.some(job => job.name === 'Freeze scope and collection plan' && job.conclusion === 'skipped');
+    const inspected = new Set();
+    const inspect = async run => {
+      inspected.add(run.runId);
+      const { jobs = [] } = await this.api(`/actions/runs/${run.runId}/jobs?per_page=100`);
+      run.skipped = run.conclusion === 'success' && jobs.some(job => job.name === 'Freeze scope and collection plan' && job.conclusion === 'skipped');
       const failed = jobs.find(job => job.conclusion === 'failure');
-      runs[0].failureStage = failed?.steps?.find(step => step.conclusion === 'failure')?.name ?? failed?.name ?? null;
+      run.failureStage = failed?.steps?.find(step => step.conclusion === 'failure')?.name ?? failed?.name ?? null;
+      return !run.skipped;
+    };
+    let latestScrape = null;
+    for (const run of runs.filter(item => item.status === 'completed').slice(0,6)) {
+      if (await inspect(run)) { latestScrape = run; break; }
     }
-    return { latest: runs[0] ?? null, active: runs.filter(run => !['completed'].includes(run.status)) };
+    if (!latestScrape) {
+      const anchorIndex = runs.findIndex(item => item.runId === String(reportRunId));
+      const failure = runs.find((item,index) => item.conclusion === 'failure' && !inspected.has(item.runId) && (anchorIndex < 0 || index < anchorIndex));
+      if (failure && await inspect(failure)) latestScrape = failure;
+    }
+    // The published manifest anchors the real scraper even after many cron guard attempts.
+    if (!latestScrape && /^\d+$/.test(String(reportRunId))) {
+      let run = runs.find(item => item.runId === String(reportRunId));
+      if (!run) {
+        const value = await this.api(`/actions/runs/${reportRunId}`);
+        if (value.path !== '.github/workflows/discovercars-daily.yml' || String(value.id) !== String(reportRunId)) throw new PanelError(502,'Nieprawidlowy przebieg scrapera.');
+        run = {runId:String(value.id),status:value.status,conclusion:value.conclusion,createdAt:value.created_at,startedAt:value.run_started_at,url:`https://github.com/${REPOSITORY}/actions/runs/${value.id}`};
+      }
+      if (!inspected.has(run.runId) && await inspect(run)) latestScrape = run;
+    }
+    return { latest: runs[0] ?? null, latestScrape, active: runs.filter(run => !['completed'].includes(run.status)) };
   }
 
   async reportEvidence(record, kind) {
@@ -108,6 +131,28 @@ export class GitHubRepository {
     if (String(manifest.run_id) !== record.runId || manifest.git_sha !== record.revision || manifest.baseline?.workbook_sha256 !== record.baselineSha256 ||
       manifest.excel_files?.['rates-import-ready.xlsx'] !== record.files?.['rates-import-ready.xlsx'] || manifest.excel_files?.['rates-updated.xlsx'] !== record.files?.['rates-updated.xlsx']) throw new PanelError(409, 'Artefakt nie odpowiada wybranemu raportowi.');
     return files;
+  }
+
+  async runIncident(runId) {
+    if (!/^\d{1,20}$/.test(String(runId))) throw new PanelError(422,'Nieprawidlowy identyfikator uruchomienia.');
+    const run = await this.api(`/actions/runs/${runId}`);
+    if (String(run.id) !== String(runId) || run.path !== '.github/workflows/discovercars-daily.yml' || !/^[a-f0-9]{40}$/.test(run.head_sha ?? '')) throw new PanelError(409,'To nie jest przebieg scrapera DiscoverCars.');
+    const record = {runId:String(run.id),status:run.status,conclusion:run.conclusion,createdAt:run.created_at,startedAt:run.run_started_at,revision:run.head_sha,url:`https://github.com/${REPOSITORY}/actions/runs/${run.id}`};
+    const { artifacts = [] } = await this.api(`/actions/runs/${runId}/artifacts?per_page=100`);
+    const matches = artifacts.filter(item => /^discovercars-results-\d+$/.test(item.name) && !item.expired);
+    if (matches.length !== 1) {
+      const {jobs = []} = await this.api(`/actions/runs/${runId}/jobs?per_page=100`);
+      const job = jobs.find(item => item.conclusion === 'failure');
+      record.failureStage = job?.steps?.find(step => step.conclusion === 'failure')?.name ?? job?.name ?? null;
+      return {run:record,report:null,unavailable:'Brak dostępnego raportu diagnostycznego dla tego uruchomienia. Mógł jeszcze nie powstać lub wygasł. Sprawdź etap i logi w GitHub Actions.'};
+    }
+    if (matches[0].size_in_bytes > 32 * 1024 * 1024) throw new PanelError(502,'Raport diagnostyczny przekracza dopuszczalny rozmiar. Szczegóły pozostają w GitHub Actions.');
+    const archive = await this.api(`/actions/artifacts/${matches[0].id}/zip`,{binary:true,maximum:32*1024*1024});
+    const files = unzipSync(archive,{filter:file => file.name === 'run-manifest.json' && file.originalSize <= 8*1024*1024});
+    if (!files['run-manifest.json']) throw new PanelError(502,'Artefakt nie zawiera manifestu diagnostycznego.');
+    const manifest = JSON.parse(strFromU8(files['run-manifest.json']));
+    if (String(manifest.run_id) !== String(runId) || manifest.git_sha !== run.head_sha) throw new PanelError(409,'Diagnostyka dotyczy innego przebiegu lub wersji kodu.');
+    return {run:record,report:normalize(manifest)};
   }
 
   async publishedStatistics(record) {

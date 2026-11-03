@@ -8,6 +8,7 @@ function bindReportEvidence(directory = 'output') {
   delete manifest.excel_change_statistics;
   delete manifest.excel_summary_sha256;
   delete manifest.report_html_sha256;
+  delete manifest.excel_generation_error;
   const summaryPath = path.join(directory, 'excel-rate-update-summary.json');
   if (fs.existsSync(summaryPath)) {
     const bytes = fs.readFileSync(summaryPath);
@@ -15,6 +16,10 @@ function bindReportEvidence(directory = 'output') {
     try { summary = JSON.parse(bytes); } catch { summary = null; }
     manifest.excel_change_statistics = /^[a-f0-9]{64}$/.test(summary?.input_workbook_sha256 ?? '') && summary.input_workbook_sha256 === manifest.baseline?.workbook_sha256 ? summary.change_statistics ?? null : null;
     manifest.excel_summary_sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (summary?.status === 'error' && summary.error && typeof summary.error.message === 'string') {
+      manifest.excel_generation_error = { stage:'excel_generation', message:summary.error.message.slice(0,16000),
+        ...(summary.error.diagnostics ? {diagnostics:summary.error.diagnostics} : {}) };
+    }
   }
   const reportPath = path.join(directory, 'report.html');
   if (fs.existsSync(reportPath)) manifest.report_html_sha256 = crypto.createHash('sha256').update(fs.readFileSync(reportPath)).digest('hex');

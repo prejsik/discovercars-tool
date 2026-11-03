@@ -16,8 +16,8 @@ export class PrivateWorkspaceStore {
   async status() {
     const baseline = (await this.snapshot()).baseline;
     const cached = await this.storage.get('operational-status');
-    if (cached?.schemaVersion === 2 && cached.baseline?.sha256 === baseline.sha256 && cached.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60000) return { ...cached, baseline };
-    const status = await readOperationalStatus(baseline, this.repository.fetcher, this.repository.latestRuns ? () => this.repository.latestRuns() : undefined,
+    if (cached?.schemaVersion === 3 && cached.baseline?.sha256 === baseline.sha256 && cached.checkedAt && Date.now() - Date.parse(cached.checkedAt) < 60000) return { ...cached, baseline };
+    const status = await readOperationalStatus(baseline, this.repository.fetcher, this.repository.latestRuns ? options => this.repository.latestRuns(options) : undefined,
       this.repository.publishedStatistics ? async record => {
         const old = await this.storage.get('report-statistics');
         if (old?.runId === record.runId && old.importSha256 === record.files?.['rates-import-ready.xlsx']) return old;
@@ -25,7 +25,7 @@ export class PrivateWorkspaceStore {
         await this.storage.put('report-statistics', proof);
         return proof;
       } : undefined);
-    status.schemaVersion = 2;
+    status.schemaVersion = 3;
     for (const record of [status.report, status.excel].filter(Boolean)) {
       record.baselineMatchesCurrent = record.baselineSha256 === baseline.sha256;
       if (record.baselineMatchesCurrent) record.baselineFilename = baseline.filename;

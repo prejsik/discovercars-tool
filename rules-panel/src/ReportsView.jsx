@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download, ExternalLink, RotateCcw, Upload } from 'lucide-react';
 import { dateRanges, durationScope, timestamp } from './display.mjs';
+import { RunDiagnostics } from './RunDiagnostics.jsx';
 
 const amount = value => typeof value === 'number' && Number.isFinite(value) ? `${value.toLocaleString('pl-PL', {minimumFractionDigits:2,maximumFractionDigits:2})} PLN/dobę` : 'Brak danych';
 const runLabel = run => !run ? 'Brak danych' : run.skipped ? 'Pominięto powtórne uruchomienie' : run.status !== 'completed' ? (run.status === 'in_progress' ? 'W trakcie' : 'Oczekuje na uruchomienie') : run.conclusion === 'success' ? 'Zakończono' : run.conclusion === 'cancelled' ? 'Anulowano' : 'Błąd';
@@ -12,6 +13,21 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(null);
+  const [diagnostics,setDiagnostics] = useState(null);
+  const requestedId = new URLSearchParams(window.location.search).get('runId');
+  const lastRun = executions?.latestScrape ?? (executions?.latest?.skipped ? null : executions?.latest);
+  const targetId = requestedId ?? lastRun?.runId ?? report?.runId;
+  const needsFetch = Boolean(targetId && targetId !== report?.runId);
+  useEffect(() => {
+    let cancelled = false;
+    setDiagnostics(null);
+    if (needsFetch) {
+      service.diagnostics(targetId).then(result=>{if(!cancelled)setDiagnostics(result);})
+        .catch(error=>{if(!cancelled)setDiagnostics({error:error.message});});
+    }
+    return () => {cancelled=true;};
+  },[targetId,needsFetch,service,status.checkedAt]);
+  const diagnosticRecord = needsFetch ? diagnostics?.report : report;
   const fileSha256 = excel?.files?.['rates-import-ready.xlsx'];
   useEffect(() => { setConfirmed(false); setSaved(null); setError(''); }, [excel?.runId, fileSha256]);
   const setBaseline = async () => {
@@ -28,21 +44,23 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
     finally { setBusy(false); }
   };
   return <section className="reports-view" aria-labelledby="results-heading">
-    <div className="section-title"><h2 id="results-heading">Opublikowane wyniki</h2><button className="icon-button" title="Odśwież wyniki" aria-label="Odśwież wyniki" disabled={busy} onClick={onRefresh}><RotateCcw size={18}/></button></div>
+    <div className="section-title"><h2 id="results-heading">Wyniki scrapera</h2><button className="icon-button" title="Odśwież wyniki" aria-label="Odśwież wyniki" disabled={busy} onClick={onRefresh}><RotateCcw size={18}/></button></div>
     {status.error && <div className="alert error" role="alert">{status.error}</div>}
     {status.warnings?.map((warning,index)=><p className="freshness-warning" key={index}>{warning}</p>)}
-    {executions?.latest?.status === 'completed' && !['success','cancelled','skipped'].includes(executions.latest.conclusion) && <div className="alert error" role="alert">Ostatnie uruchomienie zakończyło się błędem{executions.latest.failureStage ? `: ${executions.latest.failureStage}` : ''}. <a href={executions.latest.url} target="_blank" rel="noreferrer">Szczegóły błędu</a>. Poniżej pozostają ostatnie opublikowane wyniki.</div>}
+    <h3>{requestedId ? 'Wybrane uruchomienie' : 'Ostatni faktyczny przebieg'}</h3>
+    {requestedId && <p><a href="?view=results">Pokaż ostatni przebieg</a></p>}
+    {needsFetch && !diagnostics ? <p role="status">Odczytywanie diagnostyki przebiegu {targetId}…</p> : diagnostics?.error ? <div className="alert error" role="alert">{diagnostics.error} Nie zastępujemy tych danych raportem z innego uruchomienia.</div> : targetId ? <RunDiagnostics key={targetId} record={diagnosticRecord} run={diagnostics?.run ?? lastRun} locations={workspace.snapshot?.documents?.locations} unavailable={diagnostics?.unavailable}/> : <p>Nie potwierdzono jeszcze faktycznego przebiegu.</p>}
     {executions?.active?.length > 0 && <section aria-label="Bieżące uruchomienia"><h3>Bieżące uruchomienia</h3>{executions.active.map(run=><p key={run.runId}><strong>{runLabel(run)}</strong> · {timestamp(run.createdAt)} · <a href={run.url} target="_blank" rel="noreferrer">Zobacz przebieg</a></p>)}</section>}
     <h3>Ostatni raport cenowy</h3>
     {report ? <>
       <ResultFacts record={report}/>
       {report.coverage && <p>Dane cenowe: <strong>{report.coverage.found.toLocaleString('pl-PL')} / {report.coverage.expected.toLocaleString('pl-PL')}</strong> sprawdzeń{report.coverage.expected > 0 ? ` (${(100 * report.coverage.found / report.coverage.expected).toLocaleString('pl-PL',{maximumFractionDigits:2})}%)` : ''}.</p>}
-      {report.quality === 'failure' && <div className="alert error">Raport zawiera błędy. Nie oznacza publikacji nowego Excela.</div>}
-      {report.alerts?.map((alert,index)=><p className="freshness-warning" key={index}>{alert}</p>)}
+      {report.quality === 'failure' && <div className="alert error">Ten raport nie zawiera nowych poprawnych plików Excel. Przyczynę pokazano w diagnostyce uruchomienia.</div>}
+      {!report.incident && report.alerts?.map((alert,index)=><p className="freshness-warning" key={index}>{alert}</p>)}
       {Date.parse(workspace.publication?.approvedAt) > Date.parse(report.sourceStartedAt) && <p className="freshness-warning">Raport powstał na zasadach sprzed ostatniej zatwierdzonej zmiany.</p>}
       {links.report && <a className="button" href={links.report} target="_blank" rel="noreferrer"><ExternalLink size={18}/>Otwórz raport</a>}
     </> : <p>Brak potwierdzonego raportu cenowego.</p>}
-    <h3>Ostatnie pliki Excel</h3>
+    <h3>Ostatnie poprawne pliki Excel</h3>
     {excel ? <>
       {report && report.runId !== excel.runId && <p className="freshness-warning">Excel i raport pochodzą z różnych uruchomień. Zakres i czas Excela podano poniżej.</p>}
       <ResultFacts record={excel}/>

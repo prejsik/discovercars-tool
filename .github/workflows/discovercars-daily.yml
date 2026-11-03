@@ -810,7 +810,7 @@ jobs:
           if [[ -f output/final-pricing-recommendations.json ]]; then
             excel_summary_tmp="output/excel-rate-update-summary.tmp.json"
             excel_error_log="output/excel-rate-update-error.log"
-            rm -f "$excel_summary_tmp" "$excel_error_log" output/excel-rate-update-summary.json
+            rm -f "$excel_summary_tmp" "$excel_error_log" output/excel-rate-update-summary.json output/excel-rate-update-diagnostics.json
             set +e
             python tools/update_excel_rates.py \
               --workbook input/mm-cars-rental-rates-inclusive-fp.xlsx \
@@ -818,6 +818,7 @@ jobs:
               --config excel-rate-update.config.example.json \
               --output output/rates-updated.xlsx \
               --import-output output/rates-import-ready.xlsx \
+              --diagnostics-output output/excel-rate-update-diagnostics.json \
               >"$excel_summary_tmp" 2>"$excel_error_log"
             excel_status=$?
             set -e
@@ -837,14 +838,19 @@ jobs:
           const stderrLines = stderr.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
           const exitCode = Number(process.env.EXCEL_EXIT_CODE) || 1;
           const message = stderrLines[stderrLines.length - 1] || `Generator Excel zakonczyl sie kodem ${exitCode}.`;
+          let detail = {};
+          try { detail = JSON.parse(fs.readFileSync("output/excel-rate-update-diagnostics.json", "utf8")); } catch {}
           const summary = {
             status: "error",
             change_count: 0,
+            input_workbook_sha256: detail.input_workbook_sha256,
+            baseline_confirmation: detail.baseline_confirmation,
             error: {
               stage: "excel_generation",
               exit_code: exitCode,
               message,
-              stderr_log: "excel-rate-update-error.log"
+              stderr_log: "excel-rate-update-error.log",
+              diagnostics: detail.diagnostics
             }
           };
           fs.writeFileSync("output/excel-rate-update-summary.json", `${JSON.stringify(summary, null, 2)}\n`);
@@ -930,6 +936,7 @@ jobs:
             output/rates-import-ready.xlsx
             output/excel-rate-update-summary.json
             output/excel-rate-update-error.log
+            output/excel-rate-update-diagnostics.json
             output/mm-rate-sanity-check.json
             output/broker-markup-calibration.json
             output/quality-alerts.json

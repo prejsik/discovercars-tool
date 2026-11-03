@@ -1,5 +1,6 @@
 import { readLimited } from './http.mjs';
 import { PanelError } from './workspace-service.mjs';
+import { describeIncident } from './incident.mjs';
 
 const PAGE = 'https://prejsik.github.io/discovercars-tool';
 const RUN = 'https://github.com/prejsik/discovercars-tool/actions/runs/';
@@ -23,7 +24,7 @@ export function workbookLink(kind, record) {
   if (!Object.hasOwn(FILES, kind) || !sha(digest)) return null;
   return `/api/report/file?kind=${kind}&runId=${record.runId}&sha256=${digest}`;
 }
-function normalize(value) {
+export function normalize(value) {
   const quality = value.quality ?? {};
   const expected = count(quality.expected_location_check_count); const missing = count(quality.missing_top3_count);
   return { generatedAt: value.generated_at, sourceStartedAt: value.source_started_at, revision: value.git_sha, runId: String(value.run_id),
@@ -32,6 +33,7 @@ function normalize(value) {
     quality: value.status, baselineSha256: value.baseline?.workbook_sha256, files: value.excel_files ?? null, reportSha256: value.report_html_sha256 ?? null,
     coverage: expected !== null && missing !== null && missing <= expected ? { found: expected - missing, expected } : null,
     alerts: (Array.isArray(quality.blocking_alerts) ? quality.blocking_alerts : []).filter(text => typeof text === 'string').slice(0, 3).map(text => text.slice(0, 500)),
+    incident: describeIncident(value),
     runUrl: `${RUN}${value.run_id}` };
 }
 
@@ -41,9 +43,8 @@ export async function readOperationalStatus(baseline, fetcher = (...args) => fet
     try { return await manifest(folder, fetcher); }
     catch (error) { warnings.push(`${folder === 'latest-full' ? 'Raport' : 'Excel'}: ${error instanceof PanelError ? error.message : 'Nie mozna potwierdzic danych.'}`); return null; }
   };
-  const [reportManifest, excelManifest, executions] = await Promise.all([
-    read('latest-full'), read('latest-excel'), runsReader ? runsReader().catch(() => { warnings.push('Nie mozna odczytac stanu uruchomien.'); return null; }) : null,
-  ]);
+  const [reportManifest, excelManifest] = await Promise.all([read('latest-full'), read('latest-excel')]);
+  const executions = runsReader ? await runsReader({reportRunId:reportManifest?.run_id}).catch(() => { warnings.push('Nie mozna odczytac stanu uruchomien.'); return null; }) : null;
   const report = reportManifest && normalize(reportManifest); const excel = excelManifest && normalize(excelManifest);
   if (excelManifest && excelManifest.status !== 'failure') {
     try {

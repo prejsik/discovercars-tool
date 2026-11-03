@@ -249,6 +249,8 @@ function buildPriceConflictAlert(excelSummary) {
 
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
+  const runId = String(env.GITHUB_RUN_ID || String(env.RUN_URL || '').match(/^https:\/\/github\.com\/prejsik\/discovercars-tool\/actions\/runs\/(\d+)$/)?.[1] || '');
+  const panelUrl = /^\d+$/.test(runId) ? `${PANEL_URL}&runId=${runId}` : PANEL_URL;
   const quality = options.qualityAlerts || {};
   const preparationFailureStage = String(env.PREPARATION_FAILURE_STAGE || "").trim();
   const qualityStatus = preparationFailureStage || env.QUALITY_STATUS === "failure" || quality.status === "failure" || quality.publication_status === "blocked"
@@ -312,7 +314,7 @@ function buildTelegramSummary(options = {}) {
       "",
       `Raport: ${reportUrl}`,
       `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
-      `Panel: ${PANEL_URL}`
+      `Panel: ${panelUrl}`
     ].join("\n");
   }
 
@@ -340,7 +342,7 @@ function buildTelegramSummary(options = {}) {
       "",
       `Raport: ${reportUrl}`,
       `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
-      `Panel: ${PANEL_URL}`
+      `Panel: ${panelUrl}`
     ].join("\n");
   }
 
@@ -391,7 +393,7 @@ function buildTelegramSummary(options = {}) {
     `Import: ${excelUrl}`,
     `Rekomendacje: ${excelReportUrl}`,
     `Raport cen: ${reportUrl}`,
-    `Panel: ${PANEL_URL}`
+    `Panel: ${panelUrl}`
   ];
   return lines.join("\n");
 }
