@@ -30,6 +30,7 @@ import {
 import "@fontsource-variable/inter";
 import "./styles.css";
 import * as policy from "./policy.mjs";
+import { warningChanges } from "./warning-presentation.mjs";
 import { createService } from "./service.mjs";
 import { filterRules, groupRuleBands, locationOptions, publishBlocker } from "./editor.mjs";
 import { modeLabel, timestamp } from "./display.mjs";
@@ -1181,6 +1182,7 @@ function Review({
     .filter(
       ({ before, after }) => JSON.stringify(before) !== JSON.stringify(after),
     );
+  const warnings=warningChanges(model,original);
   const groupDiff = knownGroups(original).filter(
     (group) =>
       original.excel.apply_groups.includes(group) !==
@@ -1236,17 +1238,10 @@ function Review({
               </div>
             ))}
           </div>
-          {validation.warnings.length > 0 && (
-            <div className="warning-list">
-              <h3>Uwagi do szkicu</h3>
-              {validation.warnings.map((item, index) => (
-                <p key={index}>
-                  <TriangleAlert size={16} />
-                  {item.message}
-                </p>
-              ))}
-            </div>
-          )}
+          <section className="warning-list" aria-label="Uwagi do szkicu"><h3>Uwagi do szkicu</h3>
+            {warnings.added.length?warnings.added.map(item=><p className="new-warning" key={item.key}><TriangleAlert size={16}/>{item.message}</p>):<p className="positive">Ten szkic nie wprowadza nowych ostrzeżeń.</p>}
+            <details><summary>Znane nakładania w obecnych zasadach ({warnings.known.length})</summary>{warnings.known.map(item=><p key={item.key}>{item.message}</p>)}</details>
+          </section>
           <details className="technical-details">
           <summary>Eksport i przywracanie szkicu</summary>
           <div className="review-actions">
