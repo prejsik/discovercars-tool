@@ -1,4 +1,9 @@
-import { money } from './market-model.mjs';
+import { money,plusDays,warsawToday } from './market-model.mjs';
+
+export function overviewRows(data,today=warsawToday()) {
+  const end=plusDays(today,13);
+  return (data?.rows??[]).filter(row=>row.transmission==='all'&&row.duration>=2&&row.duration<=14&&row.date>=today&&row.date<=end);
+}
 
 export function gapLabel(gap, total=false) {
   if(typeof gap!=='number'||!Number.isFinite(gap))return 'Brak porównania cen';

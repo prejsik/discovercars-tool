@@ -45,6 +45,7 @@ function policySnapshot() {
 }
 
 export default defineConfig({
+  cacheDir: '.local/vite-cache',
   define: { __SCRAPER_PLAN__: JSON.stringify(readSchedulePlan()) },
   optimizeDeps: { include: ['fflate', 'saxes'] },
   plugins: [react(), policySnapshot()],

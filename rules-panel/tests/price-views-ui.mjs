@@ -26,6 +26,7 @@ try {
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:60000});
   assert.equal(writes,0,'Automatic report read must not dispatch or write');
   await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();

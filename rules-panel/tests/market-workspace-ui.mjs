@@ -35,6 +35,8 @@ try {
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('button',{name:'Wykres',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
@@ -49,6 +51,18 @@ try {
   assert.match(await page.locator('.market-detail').innerText(),/90,00/);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+  await page.locator('.dashboard-prices tbody tr').first().waitFor();
+  assert.equal(await page.locator('.dashboard-prices tbody tr').count(),4,'Only four higher-price observations exist in this 14-day fixture');
+  for(const width of [1440,1024,390]){
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`dashboard overflow ${width}`);
+    await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
+  }
+  await page.locator('.dashboard-prices').getByRole('button',{name:'Otwórz',exact:true}).first().click();
+  await page.getByRole('button',{name:'Zamknij szczegóły',exact:true}).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Wykres',exact:true}).click();
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
@@ -64,8 +78,9 @@ try {
   assert.equal(await overview.getByRole('combobox',{name:'Oddziały przeglądu',exact:true}).inputValue(),'all');
   assert.equal(await overview.getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'all');
   assert.equal(await overview.locator('input[type="checkbox"]:checked').count(),13);
+  for(const summary of await overview.locator('.attention-group[open] > summary').all())await summary.click();
   assert.equal(await overview.locator('.attention-table').count(),0,'Collapsed groups do not render thousands of rows');
-  await overview.getByLabel('Powód sprawdzenia').selectOption('outside');
+  await overview.getByRole('button',{name:/^Poza Top1 ·/}).click();
   await overview.getByLabel('Sortowanie').selectOption('above');
   await overview.locator('.attention-group > summary').first().click();
   assert.match(await overview.locator('.attention-table').innerText(),/MM droższe o/);
@@ -74,7 +89,7 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overview overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
-  await overview.getByLabel('Powód sprawdzenia').selectOption('missing');
+  await overview.getByRole('button',{name:/^Brak MM ·/}).click();
   await overview.locator('.attention-group > summary').first().click();
   assert.equal(await page.locator('.attention-table tbody tr').count(),2);
   assert.match(await page.locator('.attention-table').innerText(),/2026-11-07/);

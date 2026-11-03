@@ -53,8 +53,11 @@ test('large amount confirmation is stored privately with verified actor and exac
   const result=await service.save({...input(model),amountConfirmations:[{ruleId:'location:airport',before,after:4999,confirmedBy:'forged@test.example'}]},actor);
   assert.equal(result.draft.amountConfirmations[0].confirmedBy,actor);
   assert.equal(result.draft.amountConfirmations[0].confirmedAt,new Date(now).toISOString());
+  const unrelated=await service.save({...input(updateRule(model,'location:city',{amount:66}),result.draft.revision),amountConfirmations:result.draft.amountConfirmations},'other@example.test');
+  assert.equal(unrelated.draft.savedBy,'other@example.test');
+  assert.equal(unrelated.draft.amountConfirmations[0].confirmedBy,actor,'Unchanged acknowledgements retain their original verified actor');
   const next=updateRule(model,'location:airport',{amount:5000});
-  await assert.rejects(service.save({...input(next,result.draft.revision),amountConfirmations:result.draft.amountConfirmations},actor),error=>error.status===422);
+  await assert.rejects(service.save({...input(next,unrelated.draft.revision),amountConfirmations:result.draft.amountConfirmations},actor),error=>error.status===422);
 });
 
 test('save identifies actor server-side and rejects overwriting another revision', async () => {

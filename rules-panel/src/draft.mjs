@@ -67,6 +67,7 @@ export function readDraft(storage, sourceHash) {
     if (
       draft.schemaVersion !== 1 ||
       !draft.model ||
+      (draft.amountConfirmations !== undefined && (!Array.isArray(draft.amountConfirmations) || !draft.amountConfirmations.every(item => item && typeof item.ruleId === 'string' && typeof item.before === 'number' && Number.isFinite(item.before) && item.before > 0 && typeof item.after === 'number' && Number.isFinite(item.after) && item.after > 0))) ||
       !Array.isArray(draft.history) ||
       !draft.history.every(
         (entry) =>

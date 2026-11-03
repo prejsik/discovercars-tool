@@ -1,6 +1,6 @@
 import { createModel, toDocuments, validateModel } from '../src/policy.mjs';
 import { diffDocuments } from '../src/draft.mjs';
-import { confirmedChanges,requiredConfirmations } from '../src/change-review.mjs';
+import { confirmedChanges,requiredConfirmations,sameConfirmation } from '../src/change-review.mjs';
 
 export class PanelError extends Error {
   constructor(status, message, details) { super(message); this.status = status; this.details = details; }
@@ -59,7 +59,7 @@ export class WorkspaceService {
     if (!changes.length) throw new PanelError(422, 'Szkic nie zmienia aktualnych zasad.');
     const model = createModel(input.model);
     let amountConfirmations;
-    try { amountConfirmations=confirmedChanges(requiredConfirmations(model,createModel(snapshot.documents)),input.amountConfirmations).map(item=>({...item,confirmedBy:actor,confirmedAt:this.clock().toISOString()})); }
+    try { amountConfirmations=confirmedChanges(requiredConfirmations(model,createModel(snapshot.documents)),input.amountConfirmations).map(item=>{const retained=previous?.sourceHash===snapshot.source.policyHash&&previous.amountConfirmations?.find(old=>sameConfirmation(old,item));return {...item,confirmedBy:retained?.confirmedBy??actor,confirmedAt:retained?.confirmedAt??this.clock().toISOString()};}); }
     catch(error) { throw new PanelError(422,error.message); }
     const record = { schemaVersion: 1, sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash,
       baselineSha256: snapshot.baseline.sha256, model, modelHash: await hashJson(model),

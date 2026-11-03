@@ -36,6 +36,13 @@ test("invalid storage is recoverable and never silently applied", () => {
   assert.equal(readDraft(store, "a").state, "invalid");
 });
 
+test('corrupt amount confirmations cannot crash an editor',()=>{
+  for(const amountConfirmations of [{},[null],[{ruleId:'location:airport',before:'bad',after:90}]]){
+    const store={getItem:()=>JSON.stringify({schemaVersion:1,sourceHash:'a',model:edited,history:[],amountConfirmations})};
+    assert.equal(readDraft(store,'a').state,'invalid');
+  }
+});
+
 test("corrupt history entries cannot crash the history view", () => {
   const store = {
     getItem: () =>

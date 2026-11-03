@@ -11,13 +11,13 @@ import './market.css';
 
 const dayLabel=day=>`${day.slice(8)}.${day.slice(5,7)}.${day.slice(0,4)}`;
 const shortMoney=value=>value===null?'—':new Intl.NumberFormat('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}).format(value);
-const tabs=[['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['attention','Do sprawdzenia',ListFilter],['excel','Stawki w Excelu',FileSpreadsheet]];
+const tabs=[['attention','Do sprawdzenia',ListFilter],['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['excel','Stawki w Excelu',FileSpreadsheet]];
 
-export function MarketWorkspace({model,workspace,service,calendar}) {
-  const [view,setView]=useState('chart');const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+export function MarketWorkspace({model,workspace,service,calendar,market,request}) {
+  const [view,setView]=useState('attention');const {data,busy,error,load}=market;const handledRequest=useRef(null);
   const [kind,setKind]=useState('airport');const [location,setLocation]=useState('Krakow Airport (KRK)');const [transmission,setTransmission]=useState('all');
   const [durations,setDurations]=useState([3]);const [from,setFrom]=useState('');const [to,setTo]=useState('');const [month,setMonth]=useState(warsawToday().slice(0,7));
-  const [selected,setSelected]=useState(null);const neighbors=useRef([]);const selectRow=useCallback((row,items=[])=>{neighbors.current=items;setSelected(row);},[]);const pending=useRef(null);
+  const [selected,setSelected]=useState(null);const neighbors=useRef([]);const selectRow=useCallback((row,items=[])=>{neighbors.current=items;setSelected(row);},[]);
   const [excelVisited,setExcelVisited]=useState(false);const [excelZone,setExcelZone]=useState('KRLO');const [excelDuration,setExcelDuration]=useState(3);
   const marketLocations=model.locations.locations??model.locations;
   useEffect(()=>{if(view==='excel')setExcelVisited(true);},[view]);
@@ -30,10 +30,8 @@ export function MarketWorkspace({model,workspace,service,calendar}) {
     if ('from' in patch) {setFrom(patch.from);if(validDate(patch.from))setMonth(patch.from.slice(0,7));}
     if ('to' in patch) setTo(patch.to);
   }
-  const report=workspace?.status?.report;const sourceKey=JSON.stringify([report?.runId,report?.reportSha256]);
-  const sourceRef=useRef(sourceKey);sourceRef.current=sourceKey;
-  useEffect(()=>{setData(null);setError('');setSelected(null);if(report?.runId)void load();},[sourceKey]);
-  async function load(){const current=sourceKey;setBusy(true);setError('');try{if(pending.current?.key!==current){const promise=service.market({reportRunId:report?.runId});pending.current={key:current,promise};promise.finally(()=>{if(pending.current?.promise===promise)pending.current=null;}).catch(()=>{});}const next=await pending.current.promise;if(sourceRef.current!==current)return;setData(next);const dates=[...new Set(next.rows.map(r=>r.date))].sort();const first=dates.find(d=>d>=warsawToday())??dates[0];if(first&&!from&&!to){setFrom(first);setTo(plusDays(first,13)>dates.at(-1)?dates.at(-1):plusDays(first,13));setMonth(first.slice(0,7));}if(location!=='*'&&!next.rows.some(r=>r.location===location))setLocation('*');setSelected(null);}catch(e){if(sourceRef.current===current)setError(e.message);}finally{if(sourceRef.current===current)setBusy(false);}}
+  const report=workspace?.status?.report;
+  useEffect(()=>{if(!data)return;const dates=[...new Set(data.rows.map(row=>row.date))].sort();const first=dates.find(day=>day>=warsawToday())??dates[0];if(first&&!from&&!to){setFrom(first);setTo([plusDays(first,13),dates.at(-1)].sort()[0]);setMonth(first.slice(0,7));}setLocation(old=>old==='*'||data.rows.some(row=>row.location===old)?old:'*');setSelected(null);},[data]);
   const locations=useMemo(()=>[...new Set((data?.rows??[]).filter(r=>kind==='all'||r.type===kind).map(r=>r.location))].sort(),[data,kind]);
   const rangeValid=validDate(from)&&validDate(to)&&from<=to&&Date.parse(to)-Date.parse(from)<366*86400000;
   const rows=useMemo(()=>rangeValid?(data?.rows??[]).filter(r=>r.transmission===transmission&&(kind==='all'||r.type===kind)&&(location==='*'||r.location===location)&&durations.includes(r.duration)&&r.date>=from&&r.date<=to):[],[data,kind,location,transmission,durations,from,to,rangeValid]);
@@ -42,6 +40,7 @@ export function MarketWorkspace({model,workspace,service,calendar}) {
   const applicableZones=data?.locations?.find(l=>l.scraper_label===location)?.zones??[];
   const series=duration=>{const found=new Map(rows.filter(r=>r.duration===duration).map(r=>[r.date,r]));return days.map(date=>found.get(date)??{date,duration,location,transmission,mm:null,competitor:null,marketConfirmed:false,gap:null,missingScenario:true});};
   useEffect(()=>{setSelected(null);},[kind,location,transmission,durations,from,to]);
+  useEffect(()=>{if(!request||handledRequest.current===request.id||!data||!from||!to)return;handledRequest.current=request.id;setView('attention');selectRow(request.row??null,request.neighbors??[]);},[request,data,from,to,selectRow]);
   function preset(count){const dates=[...new Set(data.rows.map(r=>r.date))].sort();const start=dates.find(d=>d>=warsawToday())??dates[0];setFrom(start);setTo(count?([plusDays(start,count-1),dates.at(-1)].sort()[0]):dates.at(-1));setMonth(start.slice(0,7));}
   function changeMonth(value){const dates=monthDates(value);if(dates.length){setMonth(value);setFrom(dates[0]);setTo(dates.at(-1));}}
   function shiftMonth(step){const [y,m]=month.split('-').map(Number);changeMonth(new Date(Date.UTC(y,m-1+step,1)).toISOString().slice(0,7));}
@@ -60,7 +59,7 @@ export function MarketWorkspace({model,workspace,service,calendar}) {
         {data.report.quality==='failure'&&<div className="alert">Dane rynku są dostępne. Ten przebieg nie opublikował nowych plików Excel.</div>}
         {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<div className="alert">Zbieranie danych rozpoczęło się ponad 24 godziny temu. Dokładny czas odczytu poszczególnych cen nie jest zapisany w tym raporcie.</div>}
       </>}
-      <div hidden={view!=='attention'||!data}><AttentionView data={data} onSelect={selectRow} selected={selected}/></div>
+      <div hidden={view!=='attention'||!data}><AttentionView key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
       {data&&<>
         <div hidden={view==='attention'} className="market-filters chart-filters"><label>Oddziały<select value={kind} onChange={e=>{setKind(e.target.value);setLocation('*');}}><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option><option value="branch">Poza lotniskami</option></select></label><label>Lokalizacja rynku<select value={location} onChange={e=>setLocation(e.target.value)}><option value="*">Wszystkie lokalizacje</option>{locations.map(l=><option key={l}>{l}</option>)}</select></label><label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
         <details className="duration-select"><summary>Długość najmu: {durations.length?durations.join(', '):'brak'} dni</summary><fieldset><legend>Długości najmu</legend>{Array.from({length:13},(_,i)=>i+2).map(d=><label key={d}><input type="checkbox" checked={durations.includes(d)} onChange={e=>setDurations(old=>e.target.checked?[...old,d].sort((a,b)=>a-b):old.filter(n=>n!==d))}/>{d} dni</label>)}</fieldset></details>
@@ -88,7 +87,7 @@ function PriceChart({rows,duration,scale,onSelect}) {
   const height=245,left=48,right=16,top=20,bottom=35;
   const {min,max}=scale;
   const x=i=>left+(width-left-right)*(rows.length<=1?.5:i/(rows.length-1));const y=v=>top+(height-top-bottom)*(1-(v-min)/(max-min));
-  const labels=[...new Set([0,Math.floor((rows.length-1)/2),rows.length-1])].filter(i=>i>=0);
+  const labels=rows.length?[...new Set([0,Math.floor((rows.length-1)/2),rows.length-1])].filter(i=>i>=0):[];
   const current=rows.find(r=>r.date===hovered)??null;
   return <section className="market-chart" ref={container} aria-label={`Porównanie cen, ${duration} dni`}><div className="chart-heading"><h2>{duration} dni</h2><div className="chart-legend"><span className="mm-line">MM Cars</span><span className="competitor-line">Najtańszy konkurent</span><span>PLN/dobę</span></div></div>
     <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} aria-label={`Ceny według dat startu, ${duration} dni`}>

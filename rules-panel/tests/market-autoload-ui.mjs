@@ -31,10 +31,12 @@ try {
   assert.equal(reads,1,'A failed automatic read does not loop');
   failed=false;const started=performance.now();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
+  await page.getByText('4225 sprawdzeń w zakresie · 4225 pozycji do sprawdzenia · 25 lokalizacji',{exact:true}).waitFor({timeout:60000});
+  await page.getByRole('button',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:60000});
   const elapsed=Math.round(performance.now()-started);const loadedReads=reads;
   await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
-  await page.getByText('4550 sprawdzeń w zakresie · 4550 pozycji do sprawdzenia · 25 lokalizacji',{exact:true}).waitFor();
+  await page.getByText('4225 sprawdzeń w zakresie · 4225 pozycji do sprawdzenia · 25 lokalizacji',{exact:true}).waitFor();
   assert.equal(await page.locator('.attention-table tr').count(),0);
   await page.locator('.attention-group > summary').first().click();
   assert.equal(await page.locator('.attention-table tbody tr').count(),20);
@@ -49,6 +51,13 @@ try {
   assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all','Overview does not change chart filters');
   await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
   assert.equal(await page.locator('.attention-view').getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'automatic','Overview preserves its own selections');
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+  assert.equal(await page.locator('.counter-item.gap30 strong').innerText(),'4225');
+  const beforeDashboardClick=reads;
+  await page.locator('.operations-dashboard').getByRole('button',{name:/^Top1: zapas co najmniej/}).click();
+  await page.locator('.reason-filters').getByRole('button',{name:/^Top1: zapas ≥30/}).waitFor();
+  assert.equal(await page.locator('.reason-filters').getByRole('button',{name:/^Top1: zapas ≥30/}).getAttribute('aria-pressed'),'true','Dashboard links choose the exact worklist reason');
+  assert.equal(reads,beforeDashboardClick,'Dashboard and prices share the same report');
   assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
   console.log(`Auto-load UI PASS: retry, no loops/duplicate reads/writes, 25 locations, 2-14 durations, bounded rows. Synthetic report ${(bytes.length/1e6).toFixed(2)} MB loaded in ${elapsed} ms locally.`);
 } finally {await browser.close();}

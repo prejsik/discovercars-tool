@@ -212,7 +212,8 @@ try {
   const editorButton=page.locator('[data-rule-id="location:city"]').getByRole('button');
   await editorButton.click();
   await page.getByLabel('Stawka minimalna (PLN / dobę)',{exact:true}).fill('-5');
-  await page.getByRole('button',{name:'Zapisz w szkicu'}).click();
+  assert.equal(await page.getByRole('button',{name:'Zapisz w szkicu'}).isDisabled(),true);
+  await page.getByRole('dialog').getByText('Podaj kwotę większą od 0 i nie większą niż 100 000 PLN.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('dialog').isVisible(),true);
   assert.equal(await page.getByLabel('Stawka minimalna (PLN / dobę)',{exact:true}).evaluate(element=>element.validity.valid),false);
   await page.keyboard.press('Escape');

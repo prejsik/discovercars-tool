@@ -30,9 +30,13 @@ import {
 import "@fontsource-variable/inter";
 import "./styles.css";
 import * as policy from "./policy.mjs";
+import { Dashboard } from "./Dashboard.jsx";
+import { useMarketReport } from "./useMarketReport.mjs";
+import { overviewRows } from "./market-review.mjs";
+import { marketSignals } from "./market-model.mjs";
 import { ChangeTable,PublicationDialog,publishLabel } from "./ChangeReview.jsx";
 import { AmountField } from "./AmountField.jsx";
-import { amountChange,amountValid,confirmedChanges,requiredConfirmations,ruleScope,sameConfirmation } from "./change-review.mjs";
+import { amountChange,amountValid,confirmedChanges,requiredConfirmations,ruleDifferences,originalRuleFor,ruleScope,sameConfirmation } from "./change-review.mjs";
 import { warningChanges } from "./warning-presentation.mjs";
 import { createService } from "./service.mjs";
 import { filterRules, groupRuleBands, locationOptions, publishBlocker } from "./editor.mjs";
@@ -170,6 +174,9 @@ function App() {
   const [publicationDialog,setPublicationDialog]=useState(null);
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
+  const [marketRequest,setMarketRequest]=useState(null);
+  const market=useMarketReport(service,workspaceData?.status?.report,view==='results'||pricesVisited);
+  const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).length).length:null,[market.data]);
   const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -368,6 +375,7 @@ function App() {
       window.scrollTo(0, 0);
     }, 0);
   }
+  function openMarket(reason='all',row=null,neighbors=[]) {setMarketRequest({id:crypto.randomUUID(),reason,row,neighbors});go('prices');}
   async function commit(next, label, changeReason = reason, confirmations = []) {
     if (blockedDraft)
       throw new Error("Rozpocznij nowy szkic na aktualnej wersji zasad.");
@@ -551,6 +559,8 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
+              {id==="prices"&&attentionCount>0&&<span className="nav-count">{attentionCount}</span>}
+              {id==="rules"&&changes.length>0&&<span className="nav-count">{changes.length}</span>}
             </button>
           ))}
         </nav>
@@ -748,7 +758,7 @@ function App() {
               </>}
             </>
           )}
-          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents}/></div>}
+          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
@@ -832,7 +842,7 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changes={changes} confirmations={amountConfirmations} onReview={()=>go('review')} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
           {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{item.scraper_label}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
@@ -1188,19 +1198,7 @@ function Review({
   reset,
   remote,
 }) {
-  const differences = [
-    ...new Set([
-      ...rules.map((rule) => rule.id),
-      ...originalRules.map((rule) => rule.id),
-    ]),
-  ]
-    .map((id) => ({
-      before: originalRules.find((rule) => rule.id === id),
-      after: rules.find((rule) => rule.id === id),
-    }))
-    .filter(
-      ({ before, after }) => JSON.stringify(before) !== JSON.stringify(after),
-    );
+  const differences=ruleDifferences(model,original);
   const warnings=warningChanges(model,original);
   const groupDiff = knownGroups(original).filter(
     (group) =>
@@ -1259,26 +1257,6 @@ function Review({
     </section>
   );
 }
-function RuleSummary({ rule, model }) {
-  return !rule ? (
-    <span className="muted">Brak reguły</span>
-  ) : (
-    <div className="rule-summary">
-      <strong>
-        {rule.amount === null || rule.amount === undefined
-          ? "Ochrona cen"
-          : `${money(rule.amount)} PLN / dobę`}
-      </strong>
-      <span>
-        {days(rule)} · {scopeText(rule, model)}
-      </span>
-      <span>{groupText(rule)}</span>
-      <span>{period(rule)}</span>
-      {rule.overrideProtected && <span>Wyjątek od ochrony dat</span>}
-    </div>
-  );
-}
-
 function Sources({ snapshot, model, remote, capabilities }) {
   const hostedPreview = snapshot.capabilities?.mode === "hosted-preview";
   return (
@@ -1399,7 +1377,7 @@ function RuleEditor({ rule, isNew, model, original, amountConfirmations = [], re
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState("");
   const [confirmations,setConfirmations]=useState(amountConfirmations);
-  const before=buildRules(original??model).find(item=>item.id===rule?.id)?.amount;
+  const before=originalRuleFor(rule,model,original??model)?.amount;
   const amountDelta=amountChange(before,form.amount);
   const currentConfirmation=amountDelta?{ruleId:rule?.id,before:amountDelta.before,after:amountDelta.after}:null;
   const amountBlocked=form.category!=="protected"&&(!amountValid(form.amount)||(amountDelta?.large&&!confirmations.some(item=>sameConfirmation(item,currentConfirmation))));
