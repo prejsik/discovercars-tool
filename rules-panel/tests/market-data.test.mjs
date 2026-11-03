@@ -83,7 +83,9 @@ test('display helpers distinguish price gaps, missing MM, missing market and sta
   assert.deepEqual(model.marketSignals({mm:80,competitor:110,rank:1,gap:30,marketConfirmed:true},report,now),['gap30']);
   assert.deepEqual(model.marketSignals({mm:null,competitor:100,marketConfirmed:true},report,now),['missing']);
   assert.deepEqual(model.marketSignals({mm:null,competitor:null,marketConfirmed:false},report,now),['unavailable']);
-  assert.deepEqual(model.marketSignals({mm:80,competitor:70,rank:2,gap:-10,marketConfirmed:true},{sourceStartedAt:'2026-11-01T10:00:00Z'},now),['outside','stale']);
+  assert.deepEqual(model.marketSignals({mm:80,competitor:70,rank:2,gap:-10,marketConfirmed:true},{sourceStartedAt:'2026-11-01T10:00:00Z'},now),['outside']);
+  assert.deepEqual(model.marketSignals({mm:80,competitor:90,rank:1,gap:10,marketConfirmed:true},{sourceStartedAt:'2026-11-02T10:00:00Z'},now),[],'Old reports do not flag every otherwise healthy row');
+  assert.equal(Object.hasOwn(model.marketSignalLabels,'stale'),false);
 });
 
 test('chart geometry leaves gaps and calendar dates respect leap years and Monday alignment',async()=>{

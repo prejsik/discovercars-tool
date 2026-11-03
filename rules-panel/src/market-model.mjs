@@ -1,4 +1,4 @@
-export const marketSignalLabels={missing:'Brak MM',outside:'Poza Top1',gap20:'Top1: zapas 20–29,99 PLN/d',gap30:'Top1: zapas ≥30 PLN/d',unavailable:'Brak potwierdzonych danych',stale:'Raport starszy niż 24 h'};
+export const marketSignalLabels={missing:'Brak MM',outside:'Poza Top1',gap20:'Top1: zapas 20–29,99 PLN/d',gap30:'Top1: zapas ≥30 PLN/d',unavailable:'Brak potwierdzonych danych'};
 export const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'Brak danych';
 export const warsawToday=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw'}).format(new Date());
 export const validDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number(value.slice(0,4))>=1900&&Number(value.slice(0,4))<=2200&&Number.isFinite(Date.parse(value))&&new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;
@@ -12,7 +12,6 @@ export function marketSignals(row,report,now=Date.now()) {
   else if(row.rank>1||row.rankLabel==='Poza Top3')signals.push('outside');
   else if(row.rank===1&&row.gap>=30)signals.push('gap30');
   else if(row.rank===1&&row.gap>=20)signals.push('gap20');
-  if(Number.isFinite(Date.parse(report?.sourceStartedAt))&&now-Date.parse(report.sourceStartedAt)>86400000)signals.push('stale');
   return signals;
 }
 export function lineSegments(rows,key,x,y) {
