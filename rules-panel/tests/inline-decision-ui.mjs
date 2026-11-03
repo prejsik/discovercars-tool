@@ -29,7 +29,7 @@ try {
  assert.equal(reads,0,'Compact dashboard does not download entire market dataset');
  await page.getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
  await page.getByRole('button',{name:'Sprawdź oddział',exact:true}).waitFor();
- await page.getByRole('button',{name:'Wykres',exact:true}).click();
+ await page.getByRole('tab',{name:'Wykres',exact:true}).click();
  await page.getByRole('button',{name:'04.11.2026, MM 80,00 PLN, konkurencja 74,00 PLN',exact:true}).click();
  const detail=page.locator('.inline-decision');
  await detail.getByText('Zapisana decyzja',{exact:true}).waitFor();

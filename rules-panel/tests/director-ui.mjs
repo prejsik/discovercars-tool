@@ -135,7 +135,7 @@ try {
   await dialog.waitFor({ state: "hidden" });
   assert.equal(saves, 1);
   await page.getByRole("status").filter({ hasText: "Zapisano szkic współdzielony" }).waitFor();
-  await page.getByRole("button", { name: "Historia zmian", exact: true }).click();
+  await page.getByRole("tab", { name: "Historia zmian", exact: true }).click();
   await page.getByLabel('Pokaż również szkice i kroki techniczne').check();
   await page.locator(".history-list").getByText("Korekta minimum po analizie", { exact: true }).waitFor();
   let rollbackCalls = 0;

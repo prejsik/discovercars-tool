@@ -24,3 +24,10 @@ export function scenarioLink(runId,row) {
   const query=new URLSearchParams({runId,view:row.transmission,from:row.date,to:row.date,duration:String(row.duration),location:row.location,branches:'all'});
   return `/api/report/open?${query}`;
 }
+export const NEUTRAL_BAND_PLN=5;
+export function priceTone(value){
+ if(!Number.isFinite(value))return 'nodata';
+ if(value>=40)return 'over-4';if(value>=20)return 'over-3';if(value>=10)return 'over-2';if(value>5)return 'over-1';
+ if(value<=-30)return 'under-3';if(value<=-20)return 'under-2';if(value < -5)return 'under-1';
+ return 'neutral';
+}

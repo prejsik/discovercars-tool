@@ -26,10 +26,10 @@ try {
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:60000});
   assert.equal(writes,0,'Automatic report read must not dispatch or write');
-  await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
+  await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.getByRole('button',{name:'Dlaczego?',exact:true}).click({timeout:60000});
   await page.getByText('Zapisana decyzja',{exact:true}).waitFor();

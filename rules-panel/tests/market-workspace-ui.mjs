@@ -34,9 +34,9 @@ try {
     catch(e){await r.fulfill({status:e.status??500,json:{error:e.message}});}
   });
   await page.goto(`${origin}/?view=prices`);
-  await page.getByRole('button',{name:'Wykres',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-pressed'),'true');
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).waitFor();
+  assert.equal(await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-selected'),'true');
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
@@ -60,7 +60,7 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
   }
   await page.locator('.operations-dashboard').getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
@@ -71,7 +71,7 @@ try {
     assert.ok(await page.locator('.market-chart polyline').count()>3);
     await page.screenshot({path:fileURLToPath(new URL(`chart-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
   const overview=page.locator('.attention-view');
   assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
   assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
@@ -89,7 +89,7 @@ try {
   assert.match(await page.locator('.market-detail').innerText(),/07.11.2026.*3 dni/s);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
-  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   assert.equal(await page.locator('.market-calendar-grid button').count(),60);
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
@@ -100,7 +100,7 @@ try {
   await page.getByLabel('Lokalizacja wydarzenia').selectOption('KRLO');
   await page.getByRole('button',{name:'Zapisz wydarzenie',exact:true}).click();
   await page.getByText('Targi listopadowe',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   assert.ok(await page.locator('.event-day-marker').count()>=6);
   for(const width of [1440,390,320]) {
     await page.setViewportSize({width,height:1000});
@@ -115,10 +115,10 @@ try {
   assert.equal((await readCalendarEvents(storage)).items[0].active,true);
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
   const reads=requests.filter(url=>url.includes('/api/report/')).length;
-  await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
+  await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
   assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
   assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();

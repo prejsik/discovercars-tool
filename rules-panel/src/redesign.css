@@ -1,0 +1,22 @@
+:root{--bg:#F4F5F7;--surface:#FFFFFF;--line:#E3E6EA;--line-soft:#EEF0F3;--ink:#14171C;--ink-2:#3A404B;--muted:#5B6271;--accent:#2457D6;--brand:#F2C230;--nav-active:#ECEEF2;--over-1:#FDE4E2;--over-1-ink:#7A1712;--over-2:#F7B9B3;--over-2-ink:#5F120D;--over-3:#E5675C;--over-3-ink:#2B0603;--over-4:#B42318;--over-4-ink:#FFFFFF;--under-1:#DFF3E5;--under-1-ink:#14532D;--under-2:#A8DDB8;--under-2-ink:#0E3B20;--under-3:#237A45;--under-3-ink:#FFFFFF;--neutral:#F1F2F5;--neutral-ink:#5B6271;--missing:#1B2230;--missing-ink:#FFFFFF;--font-sans:"IBM Plex Sans",Arial,sans-serif;--font-mono:"IBM Plex Mono",monospace;--blue:var(--accent);font-family:var(--font-sans);font-variant-numeric:tabular-nums;color:var(--ink);background:var(--bg)}
+body{background:var(--bg)}.brand-symbol{width:28px;height:28px;background:var(--brand)}.brand-symbol svg{width:20px;height:20px}
+.nav-item.active{background:var(--nav-active);border-color:transparent;color:var(--ink);font-weight:600}.nav-count{white-space:nowrap;font-size:12px}
+.code,code,.inline-decision select,.band-workspace select{font-family:var(--font-mono);font-size:12px}.code{background:var(--neutral);padding:1px 5px;border-radius:3px}
+.view-tabs{display:flex;flex-wrap:wrap;gap:18px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.view-tabs button{display:inline-flex;gap:6px;align-items:center;min-height:44px;padding:8px 0;background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--muted);font:inherit}
+.view-tabs [aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+.button,.icon-button,.text-button{min-height:40px}.rules-view-switch{gap:0;justify-content:start}.rules-view-switch .button{border-radius:0}.rules-view-switch [aria-pressed=true]{background:var(--ink);color:white;border-color:var(--ink)}
+.price-badge{display:inline-block;border-radius:3px;padding:2px 6px;white-space:nowrap;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
+.tone-over-1{background:var(--over-1);color:var(--over-1-ink)}
+.tone-over-2{background:var(--over-2);color:var(--over-2-ink)}
+.tone-over-3{background:var(--over-3);color:var(--over-3-ink)}
+.tone-over-4{background:var(--over-4);color:var(--over-4-ink)}
+.tone-under-1{background:var(--under-1);color:var(--under-1-ink)}
+.tone-under-2{background:var(--under-2);color:var(--under-2-ink)}
+.tone-under-3{background:var(--under-3);color:var(--under-3-ink)}
+.tone-neutral{background:var(--neutral);color:var(--neutral-ink)}
+.tone-missing{background:var(--missing);color:var(--missing-ink)}
+.tone-nodata{background:repeating-linear-gradient(45deg,#d7dbe1 0 2px,#fff 2px 5px);color:#14171c}
+.prices-view td:not(:first-child),.source-list dd,.review-table td:not(:first-child),.rule-amount{text-align:right}
+.technical-details{padding:10px 0}.band-workspace>.technical-details{margin:0;padding:8px 0}
+@media(max-width:760px){.view-tabs{gap:6px 14px}.view-tabs button{font-size:13px}.view-tabs svg{display:none}}

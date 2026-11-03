@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<title>Propozycja – widok oddziału z pasmami Excela</title>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457D6}a:hover{color:#173E9E}
+</style>
+</head>
+<body>
+
+
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #14171C; background: #F4F5F7; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 1080px; font-size: 14px">
+  <nav aria-label="Menu panelu" style="flex: 1 1 200px; max-width: 216px; box-sizing: border-box; background: #FFFFFF; border-right: 1px solid #E3E6EA; padding: 20px 12px; display: flex; flex-direction: column; gap: 2px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px 20px">
+      <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 7px; background: #F2C230"></div>
+      <div style="display: flex; flex-direction: column; line-height: 1.2"><strong style="font-size: 14px; font-weight: 600">MM Cars Rental</strong><span style="font-size: 12px; color: #5B6271">Panel cen DiscoverCars</span></div>
+    </div>
+    <a href="#pulpit" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Pulpit</a>
+    <a href="#ceny" aria-current="page" style="display: flex; justify-content: space-between; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; background: #ECEEF2; color: #14171C; font-weight: 600; text-decoration: none">Ceny i rynek <span style="font-size: 12px; font-weight: 600">126</span></a>
+    <a href="#zasady" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Zasady cenowe</a>
+    <a href="#baza" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 6px; color: #3A404B; text-decoration: none">Baza i lokalizacje</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 20px 28px 40px; display: flex; flex-direction: column; gap: 14px">
+    <div role="tablist" aria-label="Widok cen" style="display: flex; gap: 22px; border-bottom: 1px solid #E3E6EA">
+      <button type="button" role="tab" aria-selected="true" style="font: inherit; font-weight: 600; min-height: 40px; padding: 0; border: 0; border-bottom: 2px solid #14171C; background: transparent; color: #14171C">Do sprawdzenia</button>
+      <button type="button" role="tab" aria-selected="false" style="font: inherit; min-height: 40px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #5B6271">Wykres</button>
+      <button type="button" role="tab" aria-selected="false" style="font: inherit; min-height: 40px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #5B6271">Kalendarz cen</button>
+      <button type="button" role="tab" aria-selected="false" style="font: inherit; min-height: 40px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #5B6271">Stawki w Excelu</button>
+      <span style="margin-left: auto; align-self: center; font-size: 12px; color: #5B6271">Raport 3.11, 14:41 · Excel 3.11, 14:41</span>
+    </div>
+
+    <header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+        <a href="#oddzialy" style="font-size: 13px; text-decoration: none">Wszystkie oddziały</a><span aria-hidden="true" style="color: #9AA0AB">›</span>
+        <button type="button" aria-label="Poprzedni oddział" style="width: 32px; height: 32px; border: 1px solid #E3E6EA; border-radius: 6px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewbox="0 0 12 12" aria-hidden="true"><path d="M8 2L4 6l4 4" stroke="#3A404B" stroke-width="1.6" fill="none" stroke-linecap="round"></path></svg></button>
+        <h1 style="margin: 0; font-size: 22px; font-weight: 600">Kraków · Lotnisko</h1>
+        <button type="button" aria-label="Następny oddział" style="width: 32px; height: 32px; border: 1px solid #E3E6EA; border-radius: 6px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewbox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="#3A404B" stroke-width="1.6" fill="none" stroke-linecap="round"></path></svg></button>
+        <span style="font-size: 13px; color: #5B6271">8 z 25 w przeglądzie</span>
+      </div>
+      <div style="display: flex; gap: 14px; font-size: 13px; color: #3A404B; flex-wrap: wrap">
+        <span><strong style="color: #14171C">5</strong> dni bez MM</span>
+        <span><strong style="color: #A1170F">29 z 164</strong> MM droższe &gt;10</span>
+        <span><strong style="color: #14171C">0</strong> brak danych</span>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; padding: 8px 12px">
+      <button type="button" style="font: inherit; font-size: 13px; min-height: 34px; padding: 0 10px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF; color: #14171C">wt 03.11 – pn 16.11 ▾</button>
+      <div role="group" aria-label="Skrzynia" style="display: inline-flex; border: 1px solid #CDD2D9; border-radius: 6px; overflow: hidden">
+        <button type="button" aria-pressed="true" style="font: inherit; font-size: 13px; min-height: 32px; padding: 0 10px; border: 0; background: #14171C; color: #FFFFFF">Wszystkie auta</button>
+        <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; min-height: 32px; padding: 0 10px; border: 0; border-left: 1px solid #CDD2D9; background: #FFFFFF; color: #14171C">Automaty</button>
+      </div>
+      <span aria-hidden="true" style="width: 1px; height: 24px; background: #E3E6EA"></span>
+      <span style="font-size: 13px; color: #5B6271">Stawka z Excela dla</span>
+      <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #5B6271">klasy
+        <select style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-height: 34px; padding: 0 6px; border: 1px solid #CDD2D9; border-radius: 6px; background: #FFFFFF; color: #14171C"><option>CDMV</option></select>
+      </label>
+      <div role="group" aria-label="Kod strefy" style="display: inline-flex; border: 1px solid #CDD2D9; border-radius: 6px; overflow: hidden; font-family: 'IBM Plex Mono', monospace">
+        <button type="button" aria-pressed="true" style="font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border: 0; background: #ECEEF2; color: #14171C; font-weight: 600">KRLO</button>
+        <button type="button" aria-pressed="false" style="font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border: 0; border-left: 1px solid #CDD2D9; background: #FFFFFF; color: #14171C">KRTI</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section aria-label="Stawki według pasm Excela" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; overflow: hidden">
+        <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); font-size: 12px; color: #5B6271; border-bottom: 1px solid #E3E6EA; background: #F9FAFB">
+          <span style="padding: 8px 12px">Start</span>
+          <span style="padding: 8px 12px; text-align: right">2 dni</span>
+          <span style="padding: 8px 12px; text-align: right">3–4 dni</span>
+          <span style="padding: 8px 12px; text-align: right">5–7 dni</span>
+          <span style="padding: 8px 12px; text-align: right">8–20 dni <span style="font-size: 11px">(rynek 8–14)</span></span>
+        </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">śr</span> <strong style="font-weight: 600">04.11</strong></span>
+            
+              <button type="button" aria-label="04.11, pasmo 2 dni: stawka 104,57, różnica +7,20 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+7,20</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">104,57</strong>
+              </button>
+            
+              <button type="button" aria-label="04.11, pasmo 3–4 dni: stawka 93,18, różnica +8,10 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: #EAF0FD; color: #14171C; cursor: pointer; outline: 2px solid #14171C; outline-offset: -2px;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+8,10</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">93,18</strong>
+              </button>
+            
+              <button type="button" aria-label="04.11, pasmo 5–7 dni: stawka 78,27, różnica ±4,44 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±4,44</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">78,27</strong>
+              </button>
+            
+              <button type="button" aria-label="04.11, pasmo 8–20 dni: stawka 60,19, brak oferty MM" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1B2230; color: #FFFFFF">brak MM</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">60,19</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">cz</span> <strong style="font-weight: 600">05.11</strong></span>
+            
+              <button type="button" aria-label="05.11, pasmo 2 dni: stawka 105,54, różnica −5,65 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−5,65</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">105,54</strong>
+              </button>
+            
+              <button type="button" aria-label="05.11, pasmo 3–4 dni: stawka 92,00, różnica −6,00 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−6,00</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">92,00</strong>
+              </button>
+            
+              <button type="button" aria-label="05.11, pasmo 5–7 dni: stawka 76,03, różnica ±2,93 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±2,93</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">76,03</strong>
+              </button>
+            
+              <button type="button" aria-label="05.11, pasmo 8–20 dni: stawka 58,95, brak oferty MM" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1B2230; color: #FFFFFF">brak MM</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">58,95</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">pt</span> <strong style="font-weight: 600">06.11</strong></span>
+            
+              <button type="button" aria-label="06.11, pasmo 2 dni: stawka 105,98, różnica ±3,73 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±3,73</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">105,98</strong>
+              </button>
+            
+              <button type="button" aria-label="06.11, pasmo 3–4 dni: stawka 90,39, różnica +40,10 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #B42318; color: #FFFFFF">+40,10</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">90,39</strong>
+              </button>
+            
+              <button type="button" aria-label="06.11, pasmo 5–7 dni: stawka 73,84, różnica +9,63 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+9,63</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">73,84</strong>
+              </button>
+            
+              <button type="button" aria-label="06.11, pasmo 8–20 dni: stawka 58,20, różnica +36,64 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+36,64</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">58,20</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #F9FAFB">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">sb</span> <strong style="font-weight: 600">07.11</strong></span>
+            
+              <button type="button" aria-label="07.11, pasmo 2 dni: stawka 105,86, różnica −8,99 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−8,99</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">105,86</strong>
+              </button>
+            
+              <button type="button" aria-label="07.11, pasmo 3–4 dni: stawka 88,43, różnica +10,69 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+10,69</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">88,43</strong>
+              </button>
+            
+              <button type="button" aria-label="07.11, pasmo 5–7 dni: stawka 71,86, różnica +9,88 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+9,88</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">71,86</strong>
+              </button>
+            
+              <button type="button" aria-label="07.11, pasmo 8–20 dni: stawka 58,01, brak oferty MM" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1B2230; color: #FFFFFF">brak MM</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">58,01</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #F9FAFB">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">nd</span> <strong style="font-weight: 600">08.11</strong></span>
+            
+              <button type="button" aria-label="08.11, pasmo 2 dni: stawka 105,18, różnica −8,36 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−8,36</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">105,18</strong>
+              </button>
+            
+              <button type="button" aria-label="08.11, pasmo 3–4 dni: stawka 86,27, różnica +6,37 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+6,37</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">86,27</strong>
+              </button>
+            
+              <button type="button" aria-label="08.11, pasmo 5–7 dni: stawka 70,19, różnica +9,15 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+9,15</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">70,19</strong>
+              </button>
+            
+              <button type="button" aria-label="08.11, pasmo 8–20 dni: stawka 58,37, różnica +35,44 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+35,44</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">58,37</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">pn</span> <strong style="font-weight: 600">09.11</strong></span>
+            
+              <button type="button" aria-label="09.11, pasmo 2 dni: stawka 104,00, różnica −5,21 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−5,21</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">104,00</strong>
+              </button>
+            
+              <button type="button" aria-label="09.11, pasmo 3–4 dni: stawka 84,03, różnica +16,84 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+16,84</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">84,03</strong>
+              </button>
+            
+              <button type="button" aria-label="09.11, pasmo 5–7 dni: stawka 68,95, różnica ±2,29 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±2,29</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">68,95</strong>
+              </button>
+            
+              <button type="button" aria-label="09.11, pasmo 8–20 dni: stawka 59,27, różnica +28,46 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+28,46</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">59,27</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">wt</span> <strong style="font-weight: 600">10.11</strong></span>
+            
+              <button type="button" aria-label="10.11, pasmo 2 dni: stawka 102,39, różnica +12,51 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+12,51</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">102,39</strong>
+              </button>
+            
+              <button type="button" aria-label="10.11, pasmo 3–4 dni: stawka 81,84, różnica +8,80 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+8,80</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">81,84</strong>
+              </button>
+            
+              <button type="button" aria-label="10.11, pasmo 5–7 dni: stawka 68,20, różnica +26,74 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+26,74</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">68,20</strong>
+              </button>
+            
+              <button type="button" aria-label="10.11, pasmo 8–20 dni: stawka 60,65, różnica +36,63 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+36,63</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">60,65</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">śr</span> <strong style="font-weight: 600">11.11</strong></span>
+            
+              <button type="button" aria-label="11.11, pasmo 2 dni: stawka 100,43, różnica ±4,77 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±4,77</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">100,43</strong>
+              </button>
+            
+              <button type="button" aria-label="11.11, pasmo 3–4 dni: stawka 79,86, różnica ±4,26 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±4,26</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">79,86</strong>
+              </button>
+            
+              <button type="button" aria-label="11.11, pasmo 5–7 dni: stawka 68,01, różnica +27,91 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+27,91</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">68,01</strong>
+              </button>
+            
+              <button type="button" aria-label="11.11, pasmo 8–20 dni: stawka 62,43, różnica +8,73 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+8,73</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">62,43</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">cz</span> <strong style="font-weight: 600">12.11</strong></span>
+            
+              <button type="button" aria-label="12.11, pasmo 2 dni: stawka 98,27, różnica ±4,73 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±4,73</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">98,27</strong>
+              </button>
+            
+              <button type="button" aria-label="12.11, pasmo 3–4 dni: stawka 78,19, różnica +6,12 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+6,12</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">78,19</strong>
+              </button>
+            
+              <button type="button" aria-label="12.11, pasmo 5–7 dni: stawka 68,37, różnica +5,58 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+5,58</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">68,37</strong>
+              </button>
+            
+              <button type="button" aria-label="12.11, pasmo 8–20 dni: stawka 64,49, różnica +27,20 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+27,20</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">64,49</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">pt</span> <strong style="font-weight: 600">13.11</strong></span>
+            
+              <button type="button" aria-label="13.11, pasmo 2 dni: stawka 96,03, różnica +26,62 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+26,62</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">96,03</strong>
+              </button>
+            
+              <button type="button" aria-label="13.11, pasmo 3–4 dni: stawka 76,95, różnica ±4,77 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±4,77</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">76,95</strong>
+              </button>
+            
+              <button type="button" aria-label="13.11, pasmo 5–7 dni: stawka 69,27, różnica ±2,76 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±2,76</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">69,27</strong>
+              </button>
+            
+              <button type="button" aria-label="13.11, pasmo 8–20 dni: stawka 66,70, brak oferty MM" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1B2230; color: #FFFFFF">brak MM</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">66,70</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #F9FAFB">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">sb</span> <strong style="font-weight: 600">14.11</strong></span>
+            
+              <button type="button" aria-label="14.11, pasmo 2 dni: stawka 93,84, różnica +32,12 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+32,12</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">93,84</strong>
+              </button>
+            
+              <button type="button" aria-label="14.11, pasmo 3–4 dni: stawka 76,20, różnica +26,67 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+26,67</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">76,20</strong>
+              </button>
+            
+              <button type="button" aria-label="14.11, pasmo 5–7 dni: stawka 70,65, różnica +32,85 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+32,85</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">70,65</strong>
+              </button>
+            
+              <button type="button" aria-label="14.11, pasmo 8–20 dni: stawka 68,94, różnica +9,78 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #FDE4E2; color: #7A1712">+9,78</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">68,94</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #F9FAFB">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">nd</span> <strong style="font-weight: 600">15.11</strong></span>
+            
+              <button type="button" aria-label="15.11, pasmo 2 dni: stawka 91,86, różnica −7,03 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #DFF3E5; color: #14532D">−7,03</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">91,86</strong>
+              </button>
+            
+              <button type="button" aria-label="15.11, pasmo 3–4 dni: stawka 76,01, różnica ±2,22 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±2,22</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">76,01</strong>
+              </button>
+            
+              <button type="button" aria-label="15.11, pasmo 5–7 dni: stawka 72,43, brak oferty MM" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1B2230; color: #FFFFFF">brak MM</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">72,43</strong>
+              </button>
+            
+              <button type="button" aria-label="15.11, pasmo 8–20 dni: stawka 71,05, różnica +14,09 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+14,09</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">71,05</strong>
+              </button>
+            
+          </div>
+        
+          <div style="display: grid; grid-template-columns: 92px repeat(4, minmax(0, 1fr)); min-height: 44px; border-bottom: 1px solid #EEF0F3; background: #FFFFFF">
+            <span style="padding: 0 12px; align-self: center; font-size: 13px"><span style="color: #5B6271">pn</span> <strong style="font-weight: 600">16.11</strong></span>
+            
+              <button type="button" aria-label="16.11, pasmo 2 dni: stawka 90,19, różnica +12,11 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+12,11</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">90,19</strong>
+              </button>
+            
+              <button type="button" aria-label="16.11, pasmo 3–4 dni: stawka 76,37, różnica ±1,26 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F1F2F5; color: #5B6271">±1,26</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">76,37</strong>
+              </button>
+            
+              <button type="button" aria-label="16.11, pasmo 5–7 dni: stawka 74,49, różnica +36,32 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #E5675C; color: #2B0603">+36,32</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">74,49</strong>
+              </button>
+            
+              <button type="button" aria-label="16.11, pasmo 8–20 dni: stawka 72,91, różnica +16,58 PLN/d" style="font: inherit; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; border: 0; background: transparent; color: #14171C; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #F7B9B3; color: #5F120D">+16,58</span>
+                <strong style="font-weight: 600; font-size: 14px; min-width: 52px; text-align: right">72,91</strong>
+              </button>
+            
+          </div>
+        
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 12px; border-top: 1px solid #E3E6EA; font-size: 12px; color: #3A404B">
+          <span>Liczba: stawka do importu · etykieta: najgorsza różnica rynku MM − konkurent w paśmie</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 14px; height: 12px; background: #1B2230; border-radius: 2px"></span>brak MM w paśmie</span>
+        </div>
+      </section>
+
+      <aside aria-label="Wybrane pasmo" style="flex: 1 1 300px; max-width: 340px; background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+          <div>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">śr 04.11 · pasmo 3–4 dni</h2>
+            <p style="margin: 2px 0 0; font-size: 13px; color: #5B6271">Kraków · Lotnisko · <span style="font-family: 'IBM Plex Mono', monospace">CDMV KRLO</span></p>
+          </div>
+          <button type="button" aria-label="Zamknij" style="width: 36px; height: 36px; border-radius: 6px; border: 1px solid #E3E6EA; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewbox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="#3A404B" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border-radius: 6px; background: #F4F5F7">
+          <div style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5B6271">Baza</span><strong style="font-size: 16px; font-weight: 600">85,00</strong></div>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5B6271">Do importu</span><strong style="font-size: 16px; font-weight: 600">93,18</strong><span style="font-size: 11px; color: #3A404B">+8,18</span></div>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5B6271">Minimum reguł</span><strong style="font-size: 16px; font-weight: 600">30,00</strong></div>
+        </div>
+        <div>
+          <p style="margin: 0 0 6px; font-size: 12px; color: #5B6271">Rynek w tym paśmie · PLN/dobę</p>
+          <div style="display: grid; grid-template-columns: 48px 1fr 1fr 64px 44px; gap: 6px 8px; font-size: 13px; align-items: center">
+            <span style="font-size: 11px; color: #5B6271">Najem</span><span style="font-size: 11px; color: #5B6271; text-align: right">MM</span><span style="font-size: 11px; color: #5B6271; text-align: right">Konkurent</span><span style="font-size: 11px; color: #5B6271; text-align: right">Różnica</span><span></span>
+            <span>3 dni</span><span style="text-align: right; font-weight: 600">90,05</span><span style="text-align: right">96,76</span><span style="text-align: right; font-weight: 600; color: #166534">−6,71</span><span style="font-size: 12px; color: #5B6271; text-align: right">Top 1</span>
+            <span>4 dni</span><span style="text-align: right; font-weight: 600">95,28</span><span style="text-align: right">87,18</span><span style="text-align: right; font-weight: 600; color: #A1170F">+8,10</span><span style="font-size: 12px; color: #5B6271; text-align: right">Top 2</span>
+          </div>
+          <p style="margin: 6px 0 0; font-size: 12px; color: #3A404B">Konkurenci: Kaizen Rent (3 dni), Avis (4 dni)</p>
+        </div>
+        <p role="note" style="margin: 0; padding: 10px 12px; border-radius: 6px; background: #FDE4E2; color: #7A1712; font-size: 13px">Niespójne pasmo: jedna stawka 3–4 dni, a 3 dni są tańsze, 4 dni droższe od konkurenta.</p>
+        <p style="margin: 0; font-size: 13px; color: #3A404B">Uzasadnienie z Excela: brak zapisu dla tej pozycji.</p>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <a href="#reguly" style="display: flex; align-items: center; justify-content: center; min-height: 40px; border-radius: 6px; background: #2457D6; color: #FFFFFF; font-weight: 600; text-decoration: none; font-size: 13px">Zobacz reguły dla tej pozycji</a>
+          <div style="display: flex; gap: 8px">
+            <a href="#raport" style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 38px; border-radius: 6px; border: 1px solid #CDD2D9; color: #14171C; text-decoration: none; font-size: 13px">Scenariusz</a>
+            <a href="#stawki" style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 38px; border-radius: 6px; border: 1px solid #CDD2D9; color: #14171C; text-decoration: none; font-size: 13px">Pełna tabela</a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+
+
+
+</body></html>

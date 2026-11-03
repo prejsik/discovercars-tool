@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChartLine, ChevronLeft, ChevronRight, ExternalLink, FileSpreadsheet, ListFilter, Search } from 'lucide-react';
+import {ViewTabs} from './ViewTabs.jsx';
 import { MarketDetail } from './MarketDetail.jsx';
 import { AttentionView } from './AttentionView.jsx';
 import { gapLabel,priceScale } from './market-review.mjs';
@@ -48,10 +49,10 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
   function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){changeExcel({zone:zones[0],duration:row.duration,transmission:row.transmission,from:row.date,to:row.date});setView('excel');}}
   const reportLink=report?`/api/report/open?runId=${report.runId}`:null;
   return <section className={`market-workspace ${selected?'has-detail':''}`}>
-    <div className="market-toolbar"><div className="market-tabs" role="group" aria-label="Widok cen">{tabs.map(([id,label,Icon])=><button className="button" key={id} aria-pressed={view===id} onClick={()=>setView(id)}><Icon size={16}/>{label}</button>)}</div>{reportLink&&<a className="text-button" href={reportLink} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Pełny raport HTML</a>}</div>
+    <div className="market-toolbar"><ViewTabs items={tabs} value={view} onChange={setView} label="Widok cen"/>{reportLink&&<a className="text-button" href={reportLink} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Pełny raport HTML</a>}</div>
     {excelVisited&&<div hidden={view!=='excel'}><PricesView selection={excelSelection} onSelectionChange={changeExcel} model={model} workspace={workspace} service={service}/></div>}
     <div hidden={view==='excel'}>
-      <div className="market-source"><span>{data?`Raport: ${timestamp(data.report.generatedAt)} · zbieranie danych od ${timestamp(data.report.sourceStartedAt)}`:report?`Dostępny raport: ${timestamp(report.generatedAt)}`:'Brak potwierdzonego raportu cenowego.'}</span><button className="button primary" disabled={busy||!report} onClick={load}><Search size={16}/>{busy?'Odczytywanie…':data?'Odśwież ceny':'Pokaż ceny'}</button></div>
+      <div className="market-source"><span>{data?`Raport: ${timestamp(data.report.generatedAt)} · zbieranie danych od ${timestamp(data.report.sourceStartedAt)}`:report?`Dostępny raport: ${timestamp(report.generatedAt)}`:'Brak potwierdzonego raportu cenowego.'}</span><button className="button" disabled={busy||!report} onClick={load}><Search size={16}/>{busy?'Odczytywanie…':data?'Odśwież ceny':'Pokaż ceny'}</button></div>
       {error&&<div className="alert error" role="alert">{error}</div>}
       {busy&&<p role="status">Odczytywanie raportu cenowego…</p>}
 

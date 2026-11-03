@@ -71,7 +71,7 @@ try {
     /75/,
   );
   await page
-    .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
+    .getByRole("tab", { name: "Sprawdź minimum i ochronę", exact: true })
     .click();
   await page.getByLabel("Lokalizacja", { exact: true }).selectOption("WR1");
   assert.match(await page.locator(".result-primary").innerText(), /75 PLN/);
@@ -109,14 +109,14 @@ try {
     .waitFor();
   await page.unroute("**/policy-snapshot.json");
   await page
-    .getByRole("button", { name: "Klasy pojazdów", exact: true })
+    .getByRole("tab", { name: "Klasy pojazdów", exact: true })
     .click();
   const toggle = page.getByRole("switch", { name: "Rekomendacje dla CDMV" });
   await toggle.click();
   await page.waitForFunction(() => document.querySelector('[aria-label="Rekomendacje dla CDMV"]').checked === false);
   assert.equal(await toggle.isChecked(), false);
   await page
-    .getByRole("button", { name: "Historia zmian", exact: true })
+    .getByRole("tab", { name: "Historia zmian", exact: true })
     .click();
   assert.ok((await page.locator(".history-list li").count()) >= 2);
   await page
@@ -161,7 +161,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
+    .getByRole("tab", { name: "Sprawdź minimum i ochronę", exact: true })
     .click();
   await page.getByLabel("Stawka z bazy (PLN / dobę)").fill("30");
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -199,7 +199,7 @@ try {
       `rules overflow at ${width}`,
     );
     await page
-      .getByRole("button", { name: "Sprawdź minimum i ochronę", exact: true })
+      .getByRole("tab", { name: "Sprawdź minimum i ochronę", exact: true })
       .click();
   }
   const badWrite = await context.request.post(

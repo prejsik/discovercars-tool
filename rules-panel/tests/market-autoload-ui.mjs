@@ -32,10 +32,10 @@ try {
   failed=false;const started=performance.now();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.locator('.attention-table tbody tr').nth(24).waitFor({timeout:60000});
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:60000});
   const elapsed=Math.round(performance.now()-started);const loadedReads=reads;
-  await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
   await page.locator('.attention-table tbody tr').nth(24).waitFor();
   assert.equal(await page.locator('.attention-table tbody tr').count(),25);
   await page.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
@@ -49,9 +49,9 @@ try {
   assert.equal(reads,loadedReads,'Returning to the panel reuses the loaded report');
   assert.equal(await page.locator('.band-date').count(),40,'Expanded group and pagination survive navigation');
   await page.locator('.attention-view').getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).selectOption('automatic');
-  await page.getByRole('button',{name:'Wykres',exact:true}).click();
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all','Overview does not change chart filters');
-  await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
   assert.equal(await page.locator('.attention-view').getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'automatic','Overview preserves its own selections');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   assert.equal(await page.locator('.counter-strip').count(),0,'No duplicated dashboard counters');

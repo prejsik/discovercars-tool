@@ -4,7 +4,7 @@ import { locationOptions } from './editor.mjs';
 import { knownGroups, DURATION_BANDS } from './policy.mjs';
 import { timestamp } from './display.mjs';
 import './price-views.css';
-import {dayLabel} from './operations.mjs';
+import {weekdayDate as dayLabel} from './visual-format.mjs';
 
 const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'Brak danych';
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};

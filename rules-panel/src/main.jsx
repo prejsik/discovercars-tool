@@ -28,7 +28,12 @@ import {
   Upload as UploadIcon,
   X,
 } from "lucide-react";
-import "@fontsource-variable/inter";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import {ViewTabs} from "./ViewTabs.jsx";
+import "./redesign.css";
 import "./styles.css";
 import * as policy from "./policy.mjs";
 import { Dashboard } from "./Dashboard.jsx";
@@ -562,8 +567,8 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id==="prices"&&attentionCount>0&&<span className="nav-count">Brak MM: {attentionCount}</span>}
-              {id==="rules"&&changes.length>0&&<span className="nav-count">{changes.length}</span>}
+              {id==="prices"&&attentionCount>0&&<span className="nav-count" aria-label={`${attentionCount} pozycji bez oferty MM`}>{attentionCount}</span>}
+              {id==="rules"&&changes.length>0&&<span className="nav-count">szkic</span>}
             </button>
           ))}
         </nav>
@@ -591,7 +596,7 @@ function App() {
             <span>{changes.length ? 'Edycja szkicu' : snapshot.capabilities?.mode === 'github' ? 'Opublikowane zasady' : 'Zasady źródłowe'} · {modeLabel(snapshot.capabilities?.mode)}</span>
             {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{countLabel(changes.length,'zmiana','zmiany','zmian')} · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
           </div>}
-          {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="section-tabs" role="group" aria-label="Sekcje zasad">{ruleSections.map(([id,label,Icon]) => <button key={id} className="button" aria-pressed={view === id} onClick={() => go(id)}><Icon size={16}/>{label}</button>)}</div>}
+          {(ruleSections.some(([section]) => section === view) || view === 'review') && <ViewTabs items={ruleSections} value={view} onChange={go} label="Sekcje zasad"/>}
           {actionError && <div className="alert error" role="alert"><TriangleAlert size={18} /><div><p>{actionError}</p>{pendingModelRef.current && !draftConflict && <button className="text-button" onClick={() => downloadJson({ sourceHash: snapshot.source.policyHash, model: pendingModelRef.current }, "discovercars-niezapisany-szkic.json")}>Pobierz niezapisane zmiany</button>}{loadError && <button className="text-button" disabled={busy} onClick={refreshWorkspace}>Ponów odczyt</button>}</div></div>}
           {notice && (
             <div className="notice" role="status">
