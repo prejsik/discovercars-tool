@@ -1,6 +1,6 @@
 export const dayLabel=value=>/^\d{4}-\d{2}-\d{2}$/.test(value??'')?value.split('-').reverse().join('.'):value??'Brak danych';
 export function locationLabel(value) {
-  return String(value??'').replace('Galeria Krakowska Shopping Mall','Kraków · Galeria Krakowska').replace('Szczecin Goleniow Airport (SZZ)','Szczecin · Lotnisko (SZZ)').replace('Warsaw Chopin Airport (WAW)','Warszawa · Lotnisko Chopina (WAW)').replace('Lodz Lublinek Airport (LCJ)','Łódź · Lotnisko (LCJ)').replace(/Gdansk|Krakow|Lodz|Poznan|Torun|Warsaw|Wroclaw/g,x=>({Gdansk:'Gdańsk',Krakow:'Kraków',Lodz:'Łódź',Poznan:'Poznań',Torun:'Toruń',Warsaw:'Warszawa',Wroclaw:'Wrocław'}[x])).replace('West Train Station','· Dworzec Zachodni').replace('Train Station','· Dworzec kolejowy').replace('Downtown','· Miasto').replace('Airport','· Lotnisko');
+  return String(value??'').replace('Galeria Krakowska Shopping Mall','Kraków · Galeria Krakowska').replace('Szczecin Goleniow Airport (SZZ)','Szczecin · Lotnisko (SZZ)').replace('Warsaw Chopin Airport (WAW)','Warszawa · Lotnisko Chopina (WAW)').replace('Lodz Lublinek Airport (LCJ)','Łódź · Lotnisko (LCJ)').replace(/\b(Gdansk|Krakow|Lodz|Poznan|Torun|Warsaw|Wroclaw)\b/g,x=>({Gdansk:'Gdańsk',Krakow:'Kraków',Lodz:'Łódź',Poznan:'Poznań',Torun:'Toruń',Warsaw:'Warszawa',Wroclaw:'Wrocław'}[x])).replace('West Train Station','· Dworzec Zachodni').replace('Train Station','· Dworzec kolejowy').replace('Downtown','· Miasto').replace('Airport','· Lotnisko');
 }
 export function branchOverview(rows) {
   const groups=new Map();

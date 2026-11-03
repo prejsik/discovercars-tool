@@ -19,6 +19,7 @@ test('display labels translate known pickup points without changing unknown labe
  assert.equal(locationLabel('Warsaw West Train Station'),'Warszawa · Dworzec Zachodni');
  assert.equal(locationLabel('Krakow Airport (KRK)'),'Kraków · Lotnisko (KRK)');
  assert.equal(locationLabel('Lodz Lublinek Airport (LCJ)'),'Łódź · Lotnisko (LCJ)');
+ assert.equal(locationLabel('Galeria Krakowska Shopping Mall'),'Kraków · Galeria Krakowska');
  assert.equal(locationLabel('WR2'),'WR2');
  assert.equal(locationLabel('New pickup point'),'New pickup point');
  assert.equal(dayLabel('2027-01-02'),'02.01.2027');
