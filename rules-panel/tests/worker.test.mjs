@@ -79,6 +79,13 @@ test('missing server configuration denies before asset lookup', async () => {
   }
 });
 
+test('price evidence endpoint remains private and read-only',async()=>{
+  const {env,requests}=setup();
+  assert.equal((await worker.fetch(await request('/api/report/prices'),env)).status,401);
+  assert.equal((await worker.fetch(await request('/api/report/prices',await token(),{method:'POST'}),env)).status,405);
+  assert.equal(requests.length,0);
+});
+
 for (const email of emails) {
   test(`signed approved identity can read all protected assets: ${email}`, async () => {
     const { env, requests } = setup();

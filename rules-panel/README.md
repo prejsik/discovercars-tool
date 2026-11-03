@@ -5,6 +5,25 @@ zatwierdzania zasad cenowych. Daty oznaczaja pickup/start date, kwoty PLN
 brutto za dobe. Panel nie importuje cen do DiscoverCars i nie promuje
 wygenerowanych Exceli do pliku bazowego.
 
+## Ceny, decyzje i kalendarz
+
+`Ceny i rynek` odczytuje istniejacy raport i Excel po wybraniu filtrow.
+Cena MM i konkurencji oznacza najtansza oferte w wybranym widoku skrzyn,
+nie oferte konkretnej klasy. Klasa filtruje stawki Excel. Baza pochodzi
+z wersji repozytorium uzytej w danym przebiegu, z kontrola SHA256; brak
+zgodnosci nie jest uzupelniany dzisiejsza baza. Oba uruchomienia sa jawne.
+
+`Dlaczego?` pokazuje zapisany arkusz Recommendations Review i dokladne
+szczegoly z powiazanego hashem podsumowania, jesli istnieja. Podsumowanie
+zawiera tylko pierwsze 100 zmian; zbiorczy opis pozostaje dostepny z pelnego
+arkusza. Brak danych nie jest zgadywany ani przeliczany aktualnymi regulami.
+Niejednoznaczne przedzialy bazy nie otrzymuja arbitralnie wybranej ceny.
+
+`Zasady cenowe > Kalendarz` korzysta z istniejacego previewPolicy, obejmuje
+dowolny miesiac i rozroznia szkic od zasad opublikowanych. Edycja otwiera
+ten sam formularz co lista. Nie zmienia priorytetow, ochrony dat, wykluczen,
+narzutow, generatora Excel, harmonogramu ani scrapera.
+
 ## Diagnostyka uruchomien
 
 Widok "Ostatnie wyniki" oddziela ostatni rzeczywisty przebieg od ostatnich

@@ -7,11 +7,16 @@ const worker = await unstable_dev('tests/report-runtime-worker.mjs', {
 });
 const failures = [];
 try {
-  for (const path of ['/status','/incident','/status-redirect','/incident-redirect']) {
+  for (const path of ['/status','/incident','/status-redirect','/incident-redirect','/prices']) {
     try {
       const response = await worker.fetch(path);
       const body = await response.json();
-      if (path === '/status') {
+      if(path==='/prices') {
+        assert.equal(response.status,200,JSON.stringify(body));
+        assert.equal(body.result.rows[0].importRate,63);
+        assert.equal(body.result.rows[0].baseline,65);
+        assert.deepEqual(body.result.warnings,[]);
+      } else if (path === '/status') {
         assert.equal(body.result.available,true,JSON.stringify(body));
         assert.equal(body.result.report.runId,'123');
         assert.equal(body.result.excel.runId,'123');

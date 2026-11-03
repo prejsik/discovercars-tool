@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '../../node_modules/playwright/index.mjs';
+import { buildRules } from '../src/policy.mjs';
 
 const origin = process.env.PANEL_URL ?? 'http://127.0.0.1:4317';
 const browser = await chromium.launch({ headless: true });
@@ -19,7 +20,13 @@ try {
   assert.equal(await page.locator('.topbar').count(), 0, 'No duplicate technical header');
   assert.equal(await page.getByRole('button', { name: 'Opublikuj', exact: true }).count(), 0, 'Publication belongs to review only');
   await page.getByLabel('Okres reguł').selectOption('all');
-  for (const name of ['Minima podstawowe', 'Minima szczególne', 'Chronione terminy', 'Cel cenowy']) await page.getByRole('heading', { name, exact: true }).waitFor();
+  const initialSnapshot = await (await context.request.get(`${origin}/policy-snapshot.json`)).json();
+  const configuredRules = buildRules(initialSnapshot.documents);
+  for (const [category, name] of [['location', 'Minima podstawowe'], ['mandatory', 'Minima szczególne'], ['protected', 'Chronione terminy'], ['priority', 'Cel cenowy']]) {
+    const heading = page.getByRole('heading', { name, exact: true });
+    if (configuredRules.some(rule => rule.category === category)) await heading.waitFor();
+    else assert.equal(await heading.count(), 0, `No empty section: ${name}`);
+  }
   const legacy = page.locator('.supplementary-rules');
   assert.equal(await legacy.getAttribute('open'), null);
   assert.equal(await legacy.locator('.rule-row:visible').count(), 0);

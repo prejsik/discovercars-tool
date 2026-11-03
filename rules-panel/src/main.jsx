@@ -37,6 +37,8 @@ import { BusinessEditor, ReasonField } from "./BusinessEditor.jsx";
 import { OperationalStatus, SharedHistory } from "./WorkspaceViews.jsx";
 import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
+import { PricesView } from './PricesView.jsx';
+import { RuleCalendar } from './RuleCalendar.jsx';
 import {
   createModel,
   buildRules,
@@ -87,6 +89,7 @@ const knownGroups = (model) =>
     ...new Set([...model.excel.apply_groups, ...model.excel.excluded_groups]),
   ].sort();
 const nav = [
+  ["prices", "Ceny i rynek", Search],
   ["results", "Ostatnie wyniki", Download],
   ["rules", "Zasady cenowe", SlidersHorizontal],
   ["groups", "Klasy pojazdów", Layers3],
@@ -97,6 +100,7 @@ const nav = [
   ["sources", "Źródła i publikacja", GitBranch],
 ];
 const titles = {
+  prices: "Ceny i rynek",
   results: "Ostatnie wyniki",
   rules: "Zasady cenowe",
   groups: "Klasy pojazdów",
@@ -152,7 +156,8 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [view, setView] = useState(() => window.location.hash === '#results' || new URLSearchParams(window.location.search).get('view') === 'results' ? 'results' : 'rules');
+  const [view, setView] = useState(() => {const requested=new URLSearchParams(window.location.search).get('view');return nav.some(([id])=>id===requested)?requested:window.location.hash==='#results'?'results':'rules';});
+  const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [rulePeriod, setRulePeriod] = useState("current");
@@ -640,6 +645,8 @@ function App() {
 
           {view === "rules" && (
             <>
+              <div className="rules-view-switch" role="group" aria-label="Widok zasad"><button className="button" aria-pressed={ruleView==='list'} onClick={()=>setRuleView('list')}><ListFilter size={17}/>Lista</button><button className="button" aria-pressed={ruleView==='calendar'} onClick={()=>setRuleView('calendar')}><CalendarDays size={17}/>Kalendarz</button></div>
+              {ruleView==='calendar'?<RuleCalendar model={model} rules={rules} onEdit={rule=>setEditor({rule})} blocked={blockedDraft||busy} draft={changes.length>0}/>:<>
               <div className="section-toolbar">
                 <div className="search-control">
                   <Search size={18} />
@@ -714,8 +721,10 @@ function App() {
                   />
                 )}
               </div>
+              </>}
             </>
           )}
+          {view === 'prices' && <PricesView model={original} workspace={workspaceData} service={service}/>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}

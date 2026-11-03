@@ -1,13 +1,14 @@
 import { readLimited } from './http.mjs';
 import { PanelError } from './workspace-service.mjs';
 import { describeIncident } from './incident.mjs';
+import { workbookRows, selectRates, selectReviews, readMarket, combineEvidence } from './price-evidence.mjs';
 
 const PAGE = 'https://prejsik.github.io/discovercars-tool';
 const RUN = 'https://github.com/prejsik/discovercars-tool/actions/runs/';
 const FILES = { import: 'rates-import-ready.xlsx', recommendations: 'rates-updated.xlsx' };
 const sha = value => /^[a-f0-9]{64}$/.test(value ?? '');
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
-const signature = value => JSON.stringify([value.run_id, value.generated_at, value.git_sha, value.excel_files, value.report_html_sha256]);
+const signature = value => JSON.stringify([value.run_id, value.generated_at, value.git_sha, value.excel_files, value.report_html_sha256, value.excel_summary_sha256, value.baseline?.workbook_sha256]);
 
 async function published(name, fetcher, maximum = 4 * 1024 * 1024) {
   // Workers supports manual/follow only; reject redirects via the status check below.
@@ -99,4 +100,49 @@ export function workbookInput(file) {
   let content = '';
   for (let offset = 0; offset < file.bytes.length; offset += 24576) content += btoa(String.fromCharCode(...file.bytes.subarray(offset, offset + 24576)));
   return { filename: file.filename, content };
+}
+
+export async function loadPriceEvidence(input, repository, fetcher = (...args) => fetch(...args)) {
+  if (!/^[A-Z0-9]{2,8}$/.test(input.zone??'') || !/^[A-Z0-9]{4}$/.test(input.group??'') ||
+    !Number.isInteger(input.duration) || input.duration<1 || input.duration>35 || !['all','automatic'].includes(input.transmission) ||
+    !/^\d{1,20}$/.test(input.reportRunId??'') || !/^\d{1,20}$/.test(input.excelRunId??'')) throw new PanelError(422,'Nieprawidłowe filtry cen.');
+  const reportManifest=await manifest('latest-full',fetcher);
+  const excelManifest=await manifest('latest-excel',fetcher);
+  if(String(reportManifest.run_id)!==input.reportRunId || String(excelManifest.run_id)!==input.excelRunId) throw new PanelError(409,'Opublikowano nowszy wynik. Odśwież panel.');
+  if(excelManifest.status==='failure') throw new PanelError(409,'Ten przebieg nie opublikował poprawnego Excela.');
+  const report=normalize(reportManifest);const excel=normalize(excelManifest);const warnings=[];
+  const locations=await repository.json('locations.config.json',excel.revision);
+  const location=locations?.locations?.find(row=>row.zones?.includes(input.zone));
+  if(!location) throw new PanelError(422,'Nie ma tej lokalizacji w konfiguracji użytej przez Excel.');
+  const file=await loadPublishedWorkbook({kind:'recommendations',runId:excel.runId,sha256:excel.files?.['rates-updated.xlsx']},fetcher);
+  const final=selectRates(workbookRows(file.bytes,'Sheet1'),input);
+  const reviews=selectReviews(workbookRows(file.bytes,'Recommendations Review'),input);
+  let base=[];let market=[];let changes=[];
+  const digest=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+  try {
+    const bytes=await repository.baselineBytes(excel.revision);
+    if(await digest(bytes)!==excel.baselineSha256) throw new Error('different baseline');
+    base=selectRates(workbookRows(bytes,'Sheet1'),input);
+  } catch {warnings.push('Nie potwierdzono historycznej bazy tego Excela. Nie zastąpiono jej obecną bazą.');}
+  try {
+    market=readMarket(await loadPublishedReport(report.runId,repository,fetcher),{...input,location:location.scraper_label});
+  } catch(error) {
+    if(error.status===409)throw error;
+    warnings.push('Nie można odczytać cen rynkowych. Stawki i uzasadnienia z Excela są nadal dostępne.');
+  }
+  if(sha(excelManifest.excel_summary_sha256)) {
+    try {
+      const bytes=await published('latest-excel/excel-rate-update-summary.json',fetcher,8*1024*1024);
+      if(await digest(bytes)!==excelManifest.excel_summary_sha256)throw new Error('summary changed');
+      const summary=JSON.parse(new TextDecoder().decode(bytes));
+      if(summary.input_workbook_sha256!==excel.baselineSha256)throw new Error('different baseline');
+      changes=Array.isArray(summary.changes)?summary.changes:[];
+    } catch {warnings.push('Szczegóły liczbowe decyzji są niedostępne. Dostępne uzasadnienia pochodzą z arkusza rekomendacji.');}
+  }
+  // Never combine a newer market with an old Excel without displaying both run identities.
+  if(signature(reportManifest)!==signature(await manifest('latest-full',fetcher)) || signature(excelManifest)!==signature(await manifest('latest-excel',fetcher))) throw new PanelError(409,'Wyniki zmieniły się podczas odczytu. Odśwież panel.');
+  const dates=[...new Set([...report.startDates,...excel.startDates,...market.map(row=>row.date)])].sort();
+  return {query:input,report,excel,warnings,location:location.scraper_label,
+    rows:combineEvidence({dates,base,final,reviews,changes,market,sameRun:report.runId===excel.runId,query:input}),
+    baselineVerified:base.length>0,reviewCount:reviews.length};
 }

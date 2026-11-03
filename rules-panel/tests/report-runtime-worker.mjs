@@ -1,6 +1,7 @@
 import { readOperationalStatus } from '../server/reports.mjs';
 import { GitHubRepository } from '../worker/github.mjs';
 import { zipSync, strToU8 } from 'fflate';
+import { priceFixture } from './price-fixture.mjs';
 
 const manifest = {
   generated_at:'2026-11-03T03:34:00Z', source_started_at:'2026-11-02T17:07:00Z',
@@ -13,6 +14,7 @@ export default {
     const path = new URL(request.url).pathname;
     const calls = [];
     try {
+      if(path==='/prices') return Response.json({result:await priceFixture(),calls});
       // Construct real Workers Requests before supplying upstream fixture responses.
       // Node-only mocks previously hid unsupported redirect modes.
       const fetcher = async (url, init) => {

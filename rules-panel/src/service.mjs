@@ -42,6 +42,7 @@ export function createService(fetcher = (...args) => fetch(...args)) {
   return {
     workspace,
     diagnostics: runId => request(`/api/report/diagnostics?runId=${encodeURIComponent(runId)}`),
+    prices: query => request(`/api/report/prices?${new URLSearchParams(query)}`),
     async save(input) {
       const reason = input.reason?.trim() ?? "";
       if (reason.length < 3 || reason.length > 500) throw new Error("Powód zmiany musi mieć od 3 do 500 znaków.");
