@@ -16,7 +16,9 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
   const {zone,duration,transmission,from,to}=selection;
   const setZone=zone=>onSelectionChange({zone});const setDuration=duration=>onSelectionChange({duration});
   const setTransmission=transmission=>onSelectionChange({transmission});const setFrom=from=>onSelectionChange({from});const setTo=to=>onSelectionChange({to});
-  const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
+  const [localGroup,setLocalGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
+  const group=selection.group??localGroup;
+  const setGroup=value=>{setLocalGroup(value);onSelectionChange({group:value});};
   const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [selected,setSelected]=useState('');const [limit,setLimit]=useState(20);
   const report=workspace?.status?.report;const excel=workspace?.status?.excel;

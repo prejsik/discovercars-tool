@@ -39,7 +39,7 @@ export function ruleScope(model,rule) {
   const groups=rule.groups.includes('*')?knownGroups(model):rule.groups;
   const active=points.filter(zone=>groups.some(group=>!(model.excel.omitted_group_zones?.[zone]??[]).includes(group)));
   const count=(model.locations.locations??model.locations).filter(point=>point.zones.some(zone=>active.includes(zone))).length;
-  return `${rule.kind==='airport'?countLabel(count,'lotnisko','lotniska','lotnisk'):countLabel(count,'punkt odbioru','punkty odbioru','punktów odbioru')} (${countLabel(active.length,'kod','kody','kodów')} stref) · ${countLabel(groups.length,'klasa','klasy','klas')} · ${rule.minDays}–${rule.maxDays} dni`;
+  return `${rule.kind==='airport'?countLabel(count,'lotnisko','lotniska','lotnisk'):countLabel(count,'punkt odbioru','punkty odbioru','punktów odbioru')} (${countLabel(active.length,'kod strefy','kody stref','kodów stref')}) · ${countLabel(groups.length,'klasa','klasy','klas')} · ${rule.minDays}–${rule.maxDays} dni`;
 }
 export function nextSchedule(plan,now=new Date()) {
   const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now).split(' ');

@@ -20,7 +20,7 @@ export function PriceCalendar({month,rows,duration,events,zones,onSelect,reportD
    const missing=row?.marketConfirmed&&row.mm===null;
    const tone=missing?'missing':row?.marketConfirmed&&Number.isFinite(row.gap)?priceTone(-row.gap):'nodata';
    const entries=eventsForDay(events,day,zones);
-   const description=outside?'poza raportem':!row?'poza filtrem dat':!row.marketConfirmed?'brak potwierdzonych danych':missing?`brak MM, konkurent ${money(row.competitor)} PLN/d`:`MM ${money(row.mm)}, konkurent ${money(row.competitor)}, różnica ${signedPrice(-row.gap)} PLN/d`;
+   const description=outside?'poza raportem':!row?'poza filtrem dat':!row.marketConfirmed?'brak potwierdzonych danych':missing?`brak MM, konkurent ${money(row.competitor)} PLN/d`:`MM ${money(row.mm)}, konkurent ${money(row.competitor)}, różnica ${Number.isFinite(row.gap)?signedPrice(-row.gap)+' PLN/d':'brak porównania'}`;
    return <button key={day} disabled={!enabled} className={`market-day tone-${tone} ${outside||!row?'outside-report':''} ${isWeekend(day)?'weekend':''} ${day===warsawToday()?'today':''}`} aria-label={`${weekdayDate(day)}, ${description}`} onClick={()=>onSelect(row)}><span>{Number(day.slice(8))}{entries.length>0&&<CalendarDays className="event-day-marker" size={12} aria-label={entries.map(e=>e.title).join(', ')}/>}</span>{outside||!row?<small>{outside?'poza raportem':'poza filtrem'}</small>:<><strong>{missing?'brak MM':row.marketConfirmed?shortMoney(row.mm):'?'}</strong><small>konk. {row.marketConfirmed?shortMoney(row.competitor):'?'}</small><small>{Number.isFinite(row.gap)&&row.marketConfirmed?signedPrice(-row.gap,0):'?'}</small></>}</button>;
   })}</div>
  </section>;

@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useMemo} from 'react';
-import {X,ChevronUp,ChevronDown,ExternalLink,FileSpreadsheet} from 'lucide-react';
+import {X,ChevronUp,ChevronDown,ExternalLink,FileSpreadsheet,ArrowRight} from 'lucide-react';
 import {previewPolicy} from './policy.mjs';
 import {bandLabel,bandEvidence} from './band-matrix.mjs';
 import {money,scenarioLink} from './market-model.mjs';
@@ -9,10 +9,10 @@ import {PriceBadge} from './PriceBadge.jsx';
 import {InlineDecision} from './InlineDecision.jsx';
 import {mixedBand} from './attention-map.mjs';
 
-export function BandDetail({date,cell,zone,group,result,location,transmission,data,model,workspace,service,onClose,onMove,canPrevious,canNext,onSelect,onRules,onExcel}) {
+export function BandDetail({date,cell,zone,group,result,location,transmission,data,model,workspace,service,onClose,onMove,canPrevious,canNext,onSelect,onRules,onExcel,rulesModel=model}) {
  const dialog=useRef(null),heading=useRef(null),previous=useRef(document.activeElement);
  const evidence=bandEvidence(result,cell.band[0]),record=evidence?.rows.find(row=>row.date===date);
- const minima=useMemo(()=>Array.from({length:cell.band[1]-cell.band[0]+1},(_,i)=>previewPolicy(model,{zone,group,pickupDate:date,duration:cell.band[0]+i}).floor).filter(Number.isFinite),[model,zone,group,date,cell.band]);
+ const minima=useMemo(()=>!zone||!group?[]:Array.from({length:cell.band[1]-cell.band[0]+1},(_,i)=>previewPolicy(rulesModel,{zone,group,pickupDate:date,duration:cell.band[0]+i}).floor).filter(Number.isFinite),[rulesModel,zone,group,date,cell.band]);
  const floor=minima.length?(Math.min(...minima)===Math.max(...minima)?money(minima[0]):money(Math.min(...minima))+'–'+money(Math.max(...minima))):'Brak minimum';
  const enriched=row=>({...row,excelSelection:{zone,group},excelEvidence:evidence});
  const selected=enriched(cell.rows[0]??{date,duration:cell.band[0],location,transmission});
@@ -37,7 +37,7 @@ export function BandDetail({date,cell,zone,group,result,location,transmission,da
   <section className="band-scenarios" aria-label={`Najem ${bandLabel(cell.band)} dni`}><h3>Rynek w tym paśmie</h3>
    {cell.band[1]===20&&<p className="evidence-note">15–20 dni: brak sprawdzeń rynku. Stawka Excela obejmuje cały przedział 8–20.</p>}
    {cell.unavailable>0&&<p className="evidence-note">Brak potwierdzonych cen dla: {cell.expected.filter(d=>!cell.rows.some(r=>r.duration===d&&r.marketConfirmed)).join(', ')} dni.</p>}
-   <table><thead><tr><th>Najem</th><th>MM</th><th>Konkurent</th><th>Różnica</th><th>Pozycja</th><th></th></tr></thead><tbody>{cell.rows.map(row=><tr key={row.key}><th>{row.duration} dni</th><td>{row.marketConfirmed?money(row.mm):'?'}</td><td>{row.marketConfirmed?money(row.competitor):'?'}<small>{row.provider}</small></td><td><PriceBadge gap={row.gap} missing={row.marketConfirmed&&row.mm===null} unavailable={!row.marketConfirmed}/></td><td>{row.rankLabel??'Brak danych'}</td><td><button className="text-button" onClick={()=>{onClose();onSelect(enriched(row),cell.rows.map(enriched));}}>Szczegóły</button></td></tr>)}</tbody></table>
+   <table><thead><tr><th>Najem</th><th>MM</th><th><abbr title="Najtańszy konkurent">Konk.</abbr></th><th>Różnica</th><th>Pozycja</th><th></th></tr></thead><tbody>{cell.rows.map(row=><tr key={row.key}><th>{row.duration} dni</th><td>{row.marketConfirmed?money(row.mm):'?'}</td><td>{row.marketConfirmed?money(row.competitor):'?'}<small>{row.provider}</small></td><td><PriceBadge gap={row.gap} missing={row.marketConfirmed&&row.mm===null} unavailable={!row.marketConfirmed}/></td><td>{row.rankLabel??'Brak danych'}</td><td><button className="icon-button" title="Szczegóły scenariusza" aria-label="Szczegóły" onClick={()=>{onClose();onSelect(enriched(row),cell.rows.map(enriched));}}><ArrowRight size={15}/></button></td></tr>)}</tbody></table>
    {!cell.rows.length&&<p>Brak sprawdzonych scenariuszy w tym przedziale.</p>}
   </section>
   <details className="technical-details"><summary>Szczegóły zapisanej decyzji</summary>{evidence?<InlineDecision lockedSelection key={date+'-'+group+'-'+zone} row={selected} data={data} model={model} workspace={workspace} service={service}/>:<p>Brak odczytanego zapisu Excela dla tego pasma.</p>}</details>

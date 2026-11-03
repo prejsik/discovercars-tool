@@ -65,7 +65,7 @@ try {
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   assert.equal(await page.locator('.counter-strip').count(),0,'No duplicated dashboard counters');
   const beforeDashboardClick=reads;
-  await page.locator('.operations-dashboard').getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
+  await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
   await page.locator('.attention-view').waitFor();
   assert.equal(reads,beforeDashboardClick,'Dashboard link reuses loaded prices');
   assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);

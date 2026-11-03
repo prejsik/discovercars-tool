@@ -32,3 +32,13 @@ test('calendar summary excludes unconfirmed/missing prices from comparison denom
  assert.deepEqual(calendarSummary([{marketConfirmed:true,mm:10,competitor:20,gap:10,rank:1},{marketConfirmed:true,mm:30,competitor:20,gap:-10,rank:2},{marketConfirmed:false,mm:10,competitor:20,gap:10,rank:1},{marketConfirmed:true,mm:null,competitor:20,gap:null}]),{comparable:2,top1:1,average:-0});
  assert.equal(calendarSummary([]).average,null);
 });
+import {dashboardOverview,matchesReview} from '../src/dashboard-model.mjs';
+test('dashboard counts use next 14 days, all cars and 2-14 days, with missing first',()=>{
+ const row={location:'A',date:'2026-11-04',duration:3,transmission:'all',marketConfirmed:true,mm:80,competitor:60,gap:-20};
+ const data={rows:[row,{...row,mm:null,gap:null},{...row,marketConfirmed:false},{...row,transmission:'automatic'},{...row,date:'2026-11-17'},{...row,duration:15}]};
+ const result=dashboardOverview(data,'2026-11-03');
+ assert.equal(result.rows.length,3);assert.deepEqual(result.metrics.map(m=>m.count),[1,1,0,1]);
+ assert.equal(result.urgent[0].mm,null);assert.equal(result.metrics[0].days.length,14);
+ assert.equal(matchesReview({...row,rank:1,gap:30},'reserve'),true);
+ assert.equal(matchesReview({...row,marketConfirmed:false,rank:1,gap:30},'reserve'),false);
+});

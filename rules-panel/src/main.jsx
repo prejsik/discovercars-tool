@@ -28,10 +28,14 @@ import {
   Upload as UploadIcon,
   X,
 } from "lucide-react";
-import "@fontsource/ibm-plex-sans/400.css";
-import "@fontsource/ibm-plex-sans/500.css";
-import "@fontsource/ibm-plex-sans/600.css";
-import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-ext-400.css";
+import "@fontsource/ibm-plex-sans/latin-500.css";
+import "@fontsource/ibm-plex-sans/latin-ext-500.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/ibm-plex-sans/latin-ext-600.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
+import "@fontsource/ibm-plex-mono/latin-ext-500.css";
 import {ViewTabs} from "./ViewTabs.jsx";
 import "./styles.css";
 import * as policy from "./policy.mjs";
@@ -182,7 +186,7 @@ function App() {
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [marketRequest,setMarketRequest]=useState(null);
-  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited);
+  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited||view==='results');
   const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
   const [ruleContext,setRuleContext]=useState(null);
   const [ruleView, setRuleView] = useState('list');
@@ -767,7 +771,7 @@ function App() {
               </>)}
             </>
           )}
-          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
+          {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace active={view==='prices'} rulesModel={model} onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
@@ -851,7 +855,7 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><Dashboard workspace={workspaceData} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>{const details=document.querySelector('.reports-diagnostics');if(details){details.open=true;details.scrollIntoView({block:'start'});}}} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
           {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{locationLabel(item.scraper_label)}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>

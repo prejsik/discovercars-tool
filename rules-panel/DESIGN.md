@@ -1,44 +1,45 @@
 # Operating design
 
 ## Direction
-An operational tariff register: stable columns, compact amounts, explicit scope
-and exceptions, and a separate before/after review. This is a work surface for
-repeated scanning and controlled edits, never a marketing page.
+An operational pricing workbench for a daily review, following the approved
+ui-redesign-3 mockups. Presentation only: no change to pricing, evidence sources,
+publication gates, authentication, baseline, scraper or schedules.
 
 ## Structure
-Persistent product navigation at desktop width; wrapping navigation on mobile.
-One unframed main work area. Table rows become labeled records on small screens.
-An edit dialog reserves focus; the preview stays on its own view.
-The business editor uses searchable checkbox groups for locations and classes,
-six stable duration inputs and explicit pickup-date bounds. Current/upcoming
-rules are the default; expired rules remain available through a filter.
-The main register separates basic minima, special minima, protected dates and
-pricing goals. Identical business scopes share a collapsed duration summary;
-search and explicit category filters expose their rows. Supplementary rules
-remain available in a disclosure. Technical identifiers and JSON export are
-secondary details. Publication appears only in the change review, with all
-validation and confirmation gates retained. No duplicate technical top bar.
+Four main sections: Pulpit, Ceny i rynek, Zasady cenowe, Baza i lokalizacje.
+Price review defaults to a branch/date map; the branch table remains available.
+A branch uses exact Excel bands 2, 3-4, 5-7 and 8-20 (market observations 8-14).
+A side panel explains all observed durations, the base/import rates, and current
+minimum separately from the historical Excel decision. No averaging of rates.
+The calendar shows MM, competitor and absolute daily gap for each selected
+duration. The dashboard uses the same loaded report as the market workspace.
+Diagnostics and technical sources are disclosures; incident status remains
+visible on the dashboard. Import/recommendations links retain their scoped IDs.
 
-## System
-Self-hosted Inter variable, 14px base, 28px page heading, zero letter spacing.
-White and neutral gray surfaces, charcoal text. Gold is the restrained brand
-accent, blue marks actions, green validated state, amber draft or exception.
-Hairline separators, 6px control radii, no floating section cards or decoration.
-Lucide icons share 18px size and 1.8px stroke. Prices use tabular numerals.
+## Visual system
+Local IBM Plex Sans 400/500/600 and IBM Plex Mono 500 for codes. Tabular numbers,
+zero letter spacing, right-aligned numeric table columns. White and cool gray
+surfaces, charcoal text, blue actions, yellow restricted to the brand symbol.
+Active navigation is gray; tabs use an underline; segments use a dark selection.
+Each surface has one primary action. Repeated metric items may have a 6px radius;
+sections remain unframed with hairline separators.
 
-## Truth and state
-Current repository snapshot, local draft and production are never conflated.
-No display of fabricated last-run statistics. Publishing stays disabled until
-authenticated GitHub integration is implemented and authorized.
-Keyboard focus, accessible labels, error and empty states are required.
-Every source label derives from the same mode: local, hosted snapshot or GitHub.
-Report and Excel manifests are separate; neither means broker import completed.
-Preview totals and at most 20 example cells are distinct from market coverage.
-Preserved market evidence is labelled rather than presented as a new scrape.
+## Price language
+The source gap is competitor minus MM; presentation is always MM minus competitor.
+Positive is MM more expensive, negative cheaper. Preserve the actual sign even
+inside the neutral +/-5 PLN range. Colors accompany a sign, value or state label.
+Missing MM means a confirmed missing offer; hatched question marks mean no
+confirmed data. No inference of pricing permission from a market gap alone.
+Dates use Polish labels and weekdays. Large changes use PLN and a multiplier
+instead of very large percentages. Local browser storage is not described as
+shared between users/computers.
 
-## Reference judgment
-The design seed was considered against the operational brief. The selected
-register direction keeps aligned measures and stable state cells. Decorative
-specimen, character catalog, folio, metro-tile and map treatments do not support
-this tool's dense rule comparison and were not adopted. Timetable discipline
-informs scope and duration columns, without slanted surfaces or lateral scroll.
+## Interaction and evidence
+Native buttons, links, disclosure and dialogs; focus-visible and keyboard tabs.
+Side panels use a mobile modal bottom sheet; up/down selects adjacent days in
+the same band, Escape closes. Desktop/mobile page must not scroll horizontally.
+Only the branch/date map can scroll horizontally, with a sticky branch column.
+Current rules (including draft) are not historical recommendation evidence.
+Never substitute stale classes or mismatched runs; keep warnings, hashes,
+confirmation gates and pinned Excel reuse. No new API endpoints or reads beyond
+the existing shared market load.

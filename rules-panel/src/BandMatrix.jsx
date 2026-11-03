@@ -8,7 +8,7 @@ import {BandDetail} from './BandDetail.jsx';
 const dayLabel=value=>weekdayDate(value,true);
 
 
-export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect,highlight,filters,onRules,onExcel}) {
+export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect,highlight,filters,onRules,onExcel,activeView=true,rulesModel=model}) {
  const groups=knownGroups(model),zones=data.locations.find(l=>l.scraper_label===location)?.zones??[];
  const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]);
  const [chosen,setChosen]=useState('');const zone=zones.includes(chosen)?chosen:zones[0];
@@ -23,6 +23,7 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
  },[key,attempt,service]);
  useEffect(()=>{setExpanded(null);setLimit(20);onSelect(null);},[key,dates.join(','),transmission,onSelect]);
  useEffect(()=>{if(!highlight)return;setLimit(n=>Math.max(n,dates.indexOf(highlight)+1));requestAnimationFrame(()=>document.getElementById('band-day-'+highlight)?.scrollIntoView({block:'nearest'}));},[highlight,dates.join(',')]);
+ useEffect(()=>{if(!activeView)setExpanded(null);},[activeView]);
  const current=state.key===key?state:{};
  const matrix=useMemo(()=>buildBandMatrix(dates,rows,data.report.durations),[dates,rows,data.report.durations]);
  const active=matrix.flatMap(day=>day.cells.map(cell=>({date:day.date,cell}))).find(item=>expanded===item.date+'-'+item.cell.band[0]);
@@ -41,7 +42,7 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
    return <td key={id}><button className="band-cell" aria-label={`${weekdayDate(day.date)} · ${bandLabel(cell.band)} dni${cell.missingMM?' · brak MM w '+cell.missingMM+' z '+cell.expected.length+' długości':''}`} aria-expanded={open} onClick={()=>setExpanded(open?null:id)}><small className="mobile-band">{bandLabel(cell.band)} dni</small><PriceBadge gap={cell.worstGap} missing={cell.missingMM>0} unavailable={cell.worstGap===null&&!cell.missingMM}/><strong>{current.busy?'Odczyt…':rate==null?'Brak stawki':money(rate)}</strong>{cell.unavailable>0&&<small className="band-unavailable">? {cell.unavailable}/{cell.expected.length}</small>}</button></td>;
   })}</tr>)}</tbody></table>
   <p className="evidence-note">Liczba: stawka do importu · etykieta: najgorsza różnica rynku MM − konkurent w paśmie · brak MM: potwierdzony brak oferty w paśmie</p>
-  {active&&<BandDetail {...active} zone={zone} group={group} result={current.data} location={location} transmission={transmission} data={data} model={model} workspace={workspace} service={service} onClose={()=>setExpanded(null)} onMove={moveDay} canPrevious={dayIndex>0} canNext={dayIndex<matrix.length-1} onSelect={onSelect} onRules={onRules} onExcel={onExcel}/>}
+  {active&&<BandDetail rulesModel={rulesModel} {...active} zone={zone} group={group} result={current.data} location={location} transmission={transmission} data={data} model={model} workspace={workspace} service={service} onClose={()=>setExpanded(null)} onMove={moveDay} canPrevious={dayIndex>0} canNext={dayIndex<matrix.length-1} onSelect={onSelect} onRules={onRules} onExcel={onExcel}/>}
   {matrix.length>limit&&<button className="button" onClick={()=>setLimit(n=>n+20)}>Pokaż kolejne 20 dat</button>}
  </section>;
 }

@@ -17,17 +17,19 @@ const dayLabel=day=>`${day.slice(8)}.${day.slice(5,7)}.${day.slice(0,4)}`;
 const shortMoney=value=>value===null?'—':new Intl.NumberFormat('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}).format(value);
 const tabs=[['attention','Do sprawdzenia',ListFilter],['chart','Wykres',ChartLine],['calendar','Kalendarz cen',CalendarDays],['excel','Stawki w Excelu',FileSpreadsheet]];
 
-export function MarketWorkspace({model,workspace,service,calendar,market,request,onRules}) {
+export function MarketWorkspace({model,workspace,service,calendar,market,request,onRules,active=true,rulesModel=model}) {
   const [view,setView]=useState('attention');const {data,busy,error,load}=market;const handledRequest=useRef(null);
   const [kind,setKind]=useState('airport');const [location,setLocation]=useState('Krakow Airport (KRK)');const [transmission,setTransmission]=useState('all');
   const [durations,setDurations]=useState([3]);const [from,setFrom]=useState('');const [to,setTo]=useState('');const [month,setMonth]=useState(warsawToday().slice(0,7));
   const [selected,setSelected]=useState(null);const neighbors=useRef([]);const selectRow=useCallback((row,items=[])=>{neighbors.current=items;setSelected(row);},[]);
+  const [excelGroup,setExcelGroup]=useState(undefined);
   const [excelVisited,setExcelVisited]=useState(false);const [excelZone,setExcelZone]=useState('KRLO');const [excelDuration,setExcelDuration]=useState(3);
   const marketLocations=model.locations.locations??model.locations;
   useEffect(()=>{if(view==='excel')setExcelVisited(true);},[view]);
   useEffect(()=>{const zones=marketLocations.find(l=>l.scraper_label===location)?.zones??[];setExcelZone(old=>zones.includes(old)?old:zones[0]??'');},[location,model.locations]);
-  const excelSelection={zone:excelZone,duration:durations.includes(excelDuration)?excelDuration:durations[0]??3,transmission,from,to};
+  const excelSelection={group:excelGroup,zone:excelZone,duration:durations.includes(excelDuration)?excelDuration:durations[0]??3,transmission,from,to};
   function changeExcel(patch) {
+    if ('group' in patch) setExcelGroup(patch.group);
     if ('zone' in patch) {setExcelZone(patch.zone);const item=marketLocations.find(l=>l.zones.includes(patch.zone));if(item){setLocation(item.scraper_label);setKind(item.kind==='airport'?'airport':'branch');}}
     if ('duration' in patch) {setExcelDuration(patch.duration);setDurations([patch.duration]);}
     if ('transmission' in patch) setTransmission(patch.transmission);
@@ -43,12 +45,12 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
   const days=useMemo(()=>rangeValid?dateRange(from,to):[],[from,to,rangeValid]);
   const applicableZones=data?.locations?.find(l=>l.scraper_label===location)?.zones??[];
   const series=duration=>{const found=new Map(rows.filter(r=>r.duration===duration).map(r=>[r.date,r]));return days.map(date=>found.get(date)??{date,duration,location,transmission,mm:null,competitor:null,marketConfirmed:false,gap:null,missingScenario:true});};
-  useEffect(()=>{setSelected(null);},[kind,location,transmission,durations,from,to]);
-  useEffect(()=>{if(!request||handledRequest.current===request.id||!data||!from||!to)return;handledRequest.current=request.id;setView('attention');selectRow(request.row??null,request.neighbors??[]);},[request,data,from,to,selectRow]);
+  useEffect(()=>{setSelected(null);},[kind,location,transmission,durations,from,to,view,active]);
+  useEffect(()=>{if(!request||handledRequest.current===request.id||!data||!from||!to)return;handledRequest.current=request.id;setView('attention');selectRow(null);},[request,data,from,to,selectRow]);
   function preset(count){const dates=[...new Set(data.rows.map(r=>r.date))].sort();const start=dates.find(d=>d>=warsawToday())??dates[0];setFrom(start);setTo(count?([plusDays(start,count-1),dates.at(-1)].sort()[0]):dates.at(-1));setMonth(start.slice(0,7));}
   function changeMonth(value){const dates=monthDates(value);if(dates.length){setMonth(value);setFrom(dates[0]);setTo(dates.at(-1));}}
   function shiftMonth(step){const [y,m]=month.split('-').map(Number);changeMonth(new Date(Date.UTC(y,m-1+step,1)).toISOString().slice(0,7));}
-  function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){changeExcel({zone:zones[0],duration:row.duration,transmission:row.transmission,from:row.date,to:row.date});setView('excel');}}
+  function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){changeExcel({zone:row.excelSelection?.zone??zones[0],group:row.excelSelection?.group??excelGroup,duration:row.duration,transmission:row.transmission,from:row.date,to:row.date});setView('excel');}}
   const reportLink=report?`/api/report/open?runId=${report.runId}`:null;
   return <section className={`market-workspace ${selected?'has-detail':''}`}>
     <div className="market-toolbar"><ViewTabs items={tabs} value={view} onChange={setView} label="Widok cen"/>{reportLink&&<a className="text-button" href={reportLink} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Pełny raport HTML</a>}</div>
@@ -63,7 +65,7 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
         {data.report.quality==='failure'&&<div className="alert">Dane rynku są dostępne. Ten przebieg nie opublikował nowych plików Excel.</div>}
         {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<div className="alert">Zbieranie danych rozpoczęło się ponad 24 godziny temu. Dokładny czas odczytu poszczególnych cen nie jest zapisany w tym raporcie.</div>}
       </>}
-      <div hidden={view!=='attention'||!data}><AttentionView onRules={onRules} onExcel={openExcel} calendar={calendar} model={model} workspace={workspace} service={service} key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
+      <div hidden={view!=='attention'||!data}><AttentionView active={active&&view==='attention'} rulesModel={rulesModel} onRules={onRules} onExcel={openExcel} calendar={calendar} model={model} workspace={workspace} service={service} key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
       {data&&<>
         <div hidden={view==='attention'} className="market-filters chart-filters"><label>Oddziały<select value={kind} onChange={e=>{setKind(e.target.value);setLocation('*');}}><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option><option value="branch">Poza lotniskami</option></select></label><label>Lokalizacja rynku<select value={location} onChange={e=>setLocation(e.target.value)}><option value="*">Wszystkie lokalizacje</option>{locations.map(l=><option key={l} value={l}>{locationLabel(l)}</option>)}</select></label><label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
         {view==='calendar'?<DurationChips values={durations} onChange={setDurations}/>:<details className="duration-select"><summary>Długość najmu: {durations.length?durations.join(', '):'brak'} dni</summary><fieldset><legend>Długości najmu</legend>{Array.from({length:13},(_,i)=>i+2).map(d=><label key={d}><input type="checkbox" checked={durations.includes(d)} onChange={e=>setDurations(old=>e.target.checked?[...old,d].sort((a,b)=>a-b):old.filter(n=>n!==d))}/>{d} dni</label>)}</fieldset></details>}

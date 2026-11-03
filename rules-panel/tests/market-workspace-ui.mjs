@@ -53,13 +53,21 @@ try {
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   await page.locator('.operations-dashboard').waitFor();
-  assert.equal(await page.locator('.dashboard-prices').count(),0,'Dashboard no longer duplicates market tables');
+  await page.locator('.dashboard-metric').first().waitFor();
+  assert.equal(await page.locator('.dashboard-metric').count(),4);
+  assert.equal(await page.locator('.dashboard-urgent tbody tr').count(),2,'Confirmed missing MM ordered first, no minor gaps');
+  await page.locator('.dashboard-metric').first().click();
+  await page.getByLabel('Pozycje przeglądu').waitFor();
+  assert.equal(await page.getByLabel('Pozycje przeglądu').inputValue(),'missing');
+  assert.equal(await page.locator('.attention-map tbody tr').count(),1);
+  await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   for(const width of [1440,1024,390]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`dashboard overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-5-${width}.png`,fullPage:true});
   }
-  await page.locator('.operations-dashboard').getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
+  await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();

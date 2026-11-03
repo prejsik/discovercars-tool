@@ -79,6 +79,7 @@ try {
   const { readFile } = await import("node:fs/promises");
   assert.equal(JSON.parse(await readFile(await download.path(), "utf8")).model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city, 77);
   await page.getByRole("button", { name: "Pulpit", exact: true }).click();
+  await page.locator(".reports-diagnostics > summary").click();
   await page.getByText('Wersje raportu i Excela',{exact:true}).click();
   await page.getByText("report-v1", { exact: true }).waitFor();
   workspace.status.baseline.approvedAt = "2026-10-13";
@@ -89,6 +90,7 @@ try {
   workspace.snapshot = { ...workspace.snapshot, capabilities: { ...snapshot.capabilities, mode: "github" } };
   await page.reload();
   await page.getByRole("button", { name: "Pulpit", exact: true }).click();
+  await page.locator(".reports-diagnostics > summary").click();
   await page.getByText("Szczegóły raportu i plików", {exact:true}).click();
   await page.getByText("16.10–29.11.2026", { exact: true }).waitFor();
   await page.getByText("2–14 dni", { exact: true }).waitFor();

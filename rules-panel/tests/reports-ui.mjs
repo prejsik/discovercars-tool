@@ -25,6 +25,7 @@ try {
   });
   await page.goto(`${origin}/?view=results`);
   await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
+  await page.locator('.reports-diagnostics > summary').click();
   await page.getByText('Oczekuje na uruchomienie',{exact:true}).waitFor();
   await page.getByText('Szczegóły raportu i plików',{exact:true}).click();
   await page.getByText('Excel i raport pochodzą z różnych uruchomień. Zakres i czas Excela podano poniżej.',{exact:true}).waitFor();

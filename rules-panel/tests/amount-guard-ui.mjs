@@ -13,7 +13,8 @@ try {
   const dialog=page.getByRole('dialog');const amount=dialog.getByLabel('Stawka minimalna (PLN / dobę)',{exact:true});const save=dialog.getByRole('button',{name:'Zapisz w szkicu',exact:true});
   for(const bad of ['', '0', '-1']){await amount.fill(bad);assert.equal(await save.isDisabled(),true);await dialog.getByText('Podaj kwotę większą od 0 i nie większą niż 100 000 PLN.',{exact:true}).waitFor();}
   await amount.fill('4999');await dialog.getByRole('alert').filter({hasText:'Duża zmiana kwoty'}).waitFor();assert.equal(await save.isDisabled(),true);
-  assert.match(await dialog.locator('.amount-delta').innerText(),/PLN · \+.*% · ×/);
+  assert.match(await dialog.locator('.amount-delta').innerText(),/PLN · ×166,63$/);
+  assert.doesNotMatch(await dialog.locator('.amount-delta').innerText(),/%/);
   await dialog.getByRole('checkbox',{name:/Potwierdzam kwotę/}).check();assert.equal(await save.isEnabled(),true);
   await amount.fill('4998');assert.equal(await save.isDisabled(),true,'Changing an amount invalidates confirmation');
   await amount.fill('4999');await dialog.getByRole('checkbox',{name:/Potwierdzam kwotę/}).check();
@@ -26,7 +27,7 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:/Zmiany do publikacji:/}).click();
   await page.locator('.change-review-table').getByText('Duża zmiana · potwierdzona',{exact:true}).waitFor();
-  assert.match(await page.locator('.change-review-table [data-label="Zmiana"]').innerText(),/PLN · \+.*% · ×/);
+  assert.match(await page.locator('.change-review-table [data-label="Zmiana"]').innerText(),/PLN · ×166,63$/);
   for(const width of [1440,1024,390]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:fileURLToPath(new URL(`review-${width}.png`,output)),fullPage:true});}
   assert.deepEqual(errors,[]);
   console.log('Amount guard UI PASS: invalid input, exact acknowledgement, scope, mobile, persistent draft metadata.');

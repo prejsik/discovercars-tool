@@ -26,8 +26,9 @@ try {
  });
  await page.goto(`${origin}/?view=results`);
  await page.locator('.operations-dashboard').waitFor();
- assert.equal(reads,0,'Compact dashboard does not download entire market dataset');
- await page.getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
+ await page.locator('.dashboard-metrics').waitFor();
+ assert.equal(reads,3,'Dashboard reads report once, retaining metadata signature verification before/after and no Excel read');
+ await page.getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
  await page.locator('.attention-map').waitFor();
  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
  await page.getByRole('button',{name:'04.11.2026, MM 80,00 PLN, konkurencja 74,00 PLN',exact:true}).click();

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {chromium} from '../../node_modules/playwright/index.mjs';
+import {createModel,previewPolicy} from '../src/policy.mjs';
 import {priceFixture} from './price-fixture.mjs';
 const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});
@@ -9,8 +10,10 @@ try {
  const errors=[],writes=[],reads=[];page.on('pageerror',e=>errors.push(e.message));
  page.on('request',r=>{if(r.method()==='POST')writes.push(r.url());});
  const snapshot=await(await page.request.get(origin+'/policy-snapshot.json')).json();
+ const draft=structuredClone(snapshot.documents);draft.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport=55;
+ const expectedFloor=previewPolicy(createModel(draft),{zone:'KRLO',group:'CDMV',pickupDate:'2026-11-04',duration:3}).floor.toLocaleString('pl-PL',{minimumFractionDigits:2});
  const proof=await priceFixture(),transport=await priceFixture({transportOnly:true});
- await page.route('**/api/workspace',r=>r.fulfill({json:{snapshot,draft:null,history:[],capabilities:{publish:true},status:{report:proof.report,excel:proof.excel}}}));
+ await page.route('**/api/workspace',r=>r.fulfill({json:{snapshot,draft:{revision:'ui-draft',model:draft,sourceRevision:snapshot.source.revision,sourceHash:snapshot.source.policyHash},history:[],capabilities:{sharedDraft:true,publish:true},status:{report:proof.report,excel:proof.excel}}}));
  await page.context().route(/\/api\/report\/(prices|price-source)\?/,async r=>{
   reads.push(r.request().url());
   const response=await transport(r.request().url());
@@ -26,6 +29,7 @@ try {
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
  await page.locator('.band-detail').waitFor();
  assert.match(await page.locator('.band-key-rates').innerText(),/65,00.*63,00.*Minimum reguł teraz/s);
+ assert.equal(await page.locator('.band-key-rates > div').last().locator('dd').innerText(),expectedFloor,'Current minimum uses displayed draft, not original policy');
  await page.keyboard.press('ArrowDown');await page.getByRole('heading',{name:'cz 05.11 · pasmo 3–4 dni'}).waitFor();
  await page.keyboard.press('ArrowUp');await page.getByRole('heading',{name:'śr 04.11 · pasmo 3–4 dni'}).waitFor();
  for(const width of [1440,1024,390,320]){
@@ -55,6 +59,15 @@ try {
  await page.getByLabel('Klasa w tabeli').selectOption('EDMV');
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).getByText('Brak stawki',{exact:true}).waitFor();
  assert.doesNotMatch(await page.locator('.band-matrix').innerText(),/63,00/);
+ await page.setViewportSize({width:1440,height:1000});
+ await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
+ await page.locator('.band-detail').getByRole('button',{name:'Pełna tabela',exact:true}).click();
+ assert.equal(await page.locator('.prices-view').getByLabel('Klasa w Excelu').inputValue(),'EDMV','Full table retains chosen matrix class');
+ await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
+ await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
+ await page.locator('.band-detail').waitFor();
+ await page.getByRole('button',{name:'Pulpit',exact:true}).click();
+ assert.equal(await page.locator('.band-detail[open]').count(),0,'No orphan dialog after leaving the market');
  assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
  console.log('Matrix/rules UI PASS: exact band rates, visible filters, context preserved, full edit scope, responsive, class switch, no writes.');
 } finally {await browser.close();}
