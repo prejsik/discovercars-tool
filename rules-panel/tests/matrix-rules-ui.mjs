@@ -17,7 +17,8 @@ try {
   await r.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
  });
  await page.goto(origin+'/?view=prices');
- await page.getByRole('button',{name:'Sprawdź oddział',exact:true}).click();
+ await page.locator('.attention-map').getByRole('button',{name:/04.11.2026: MM droższe/}).click();
+ assert.equal(await page.locator('#band-day-2026-11-04.highlight-day').count(),1);
  await page.locator('.band-matrix').waitFor();
  assert.equal(await page.getByLabel('Oddziały przeglądu').isVisible(),true);
  assert.equal(await page.getByLabel('Skrzynia w przeglądzie').isVisible(),true);

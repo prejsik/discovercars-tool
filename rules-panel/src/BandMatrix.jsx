@@ -5,7 +5,7 @@ import {money} from './market-model.mjs';
 import {dayLabel} from './operations.mjs';
 import {gapLabel} from './market-review.mjs';
 
-export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect}) {
+export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect,highlight}) {
  const groups=knownGroups(model),zones=data.locations.find(l=>l.scraper_label===location)?.zones??[];
  const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]);
  const [chosen,setChosen]=useState('');const zone=zones.includes(chosen)?chosen:zones[0];
@@ -19,6 +19,7 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
   return()=>{active=false;};
  },[key,attempt,service]);
  useEffect(()=>{setExpanded(null);setLimit(20);onSelect(null);},[key,dates.join(','),transmission,onSelect]);
+ useEffect(()=>{if(!highlight)return;setLimit(n=>Math.max(n,dates.indexOf(highlight)+1));requestAnimationFrame(()=>document.getElementById('band-day-'+highlight)?.scrollIntoView({block:'nearest'}));},[highlight,dates.join(',')]);
  const current=state.key===key?state:{};
  const matrix=useMemo(()=>buildBandMatrix(dates,rows,data.report.durations),[dates,rows,data.report.durations]);
  function enriched(row){return {...row,excelSelection:{zone,group},excelEvidence:bandEvidence(current.data,row.duration)};}
@@ -28,7 +29,7 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
   {current.error&&<p role="alert">{current.error}<button className="text-button" onClick={()=>setAttempt(n=>n+1)}>Ponów odczyt Excela</button></p>}
   {current.data&&current.data.report.runId!==current.data.excel.runId&&<p className="alert">Excel i rynek pochodzą z różnych uruchomień. Nie traktuj stawki importowej jako aktualnej ceny na stronie.</p>}
   {current.data?.warnings?.map((w,i)=><p className="alert" key={i}>{w}</p>)}
-  <table className="band-matrix"><thead><tr><th>Data startu</th>{MATRIX_BANDS.map(b=><th key={b[0]}>{bandLabel(b)} dni{b[1]===20&&<small>rynek 8–14 dni</small>}</th>)}</tr></thead><tbody>{matrix.slice(0,limit).map(day=><React.Fragment key={day.date}><tr className="band-date"><th scope="row">{dayLabel(day.date)}</th>{day.cells.map(cell=>{
+  <table className="band-matrix"><thead><tr><th>Data startu</th>{MATRIX_BANDS.map(b=><th key={b[0]}>{bandLabel(b)} dni{b[1]===20&&<small>rynek 8–14 dni</small>}</th>)}</tr></thead><tbody>{matrix.slice(0,limit).map(day=><React.Fragment key={day.date}><tr id={'band-day-'+day.date} className={'band-date '+(day.date===highlight?'highlight-day':'')}><th scope="row">{dayLabel(day.date)}</th>{day.cells.map(cell=>{
    const id=day.date+'-'+cell.band[0],open=expanded===id;
    const rate=bandEvidence(current.data,cell.band[0])?.rows.find(r=>r.date===day.date)?.importRate;
    return <td key={id}><button className="band-cell" aria-label={`${dayLabel(day.date)} · ${bandLabel(cell.band)} dni`} aria-expanded={open} onClick={()=>setExpanded(open?null:id)}><small className="mobile-band">{bandLabel(cell.band)} dni</small><strong>{current.busy?'Odczyt…':rate==null?'Brak stawki':money(rate)}</strong><span className={cell.worstGap<0?'above':''}>{gapLabel(cell.worstGap)}</span>{cell.missingMM>0&&<small>Brak MM: {cell.missingMM}</small>}{cell.unavailable>0&&<small>Brak danych: {cell.unavailable}/{cell.expected.length}</small>}{!cell.expected.length&&<small>Brak odczytów</small>}</button></td>;

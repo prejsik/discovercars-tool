@@ -31,6 +31,13 @@ try {
   assert.equal(reads,1,'A failed automatic read does not loop');
   failed=false;const started=performance.now();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
+  await page.locator('.attention-map tbody tr').nth(24).waitFor({timeout:60000});
+  for(const width of [1440,1024,390,320]){
+   await page.setViewportSize({width,height:1000});
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'map overflow '+width);
+   if(width===390||width===1440)await page.screenshot({path:'docs/ui-redesign-3/verification/stage-2-'+width+'.png',fullPage:true});
+  }
+  await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
   await page.locator('.attention-table tbody tr').nth(24).waitFor({timeout:60000});
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   await page.locator('.market-chart').waitFor({timeout:60000});

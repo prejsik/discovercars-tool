@@ -20,3 +20,13 @@ body{background:var(--bg)}.brand-symbol{width:28px;height:28px;background:var(--
 .prices-view td:not(:first-child),.source-list dd,.review-table td:not(:first-child),.rule-amount{text-align:right}
 .technical-details{padding:10px 0}.band-workspace>.technical-details{margin:0;padding:8px 0}
 @media(max-width:760px){.view-tabs{gap:6px 14px}.view-tabs button{font-size:13px}.view-tabs svg{display:none}}
+.segmented{display:flex;flex-wrap:wrap;gap:0;align-items:center;margin:10px 0}
+.segmented button{min-height:40px;padding:6px 12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+.segmented button:first-child{border-radius:4px 0 0 4px}.segmented button:last-child{border-radius:0 4px 4px 0}.segmented button[aria-pressed=true]{background:var(--ink);color:white}
+.map-legend{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted);margin:16px 0}
+.attention-map-scroll{max-width:100%;overflow:auto;isolation:isolate}.attention-map{border-collapse:separate;border-spacing:3px;min-width:100%;font-size:12px;table-layout:fixed}
+.attention-map th{white-space:nowrap;padding:4px;text-align:center;font-weight:500}.attention-map th:first-child{position:sticky;left:0;background:var(--bg);z-index:2;min-width:190px;text-align:left}
+.attention-map th:first-child button{display:flex;gap:8px;align-items:center;text-align:left;min-height:40px;background:none;border:0;color:var(--ink);font:inherit;font-weight:500}
+.attention-map th:first-child .code{margin-left:auto}.attention-map td{padding:0}.attention-map .map-cell{display:flex;gap:3px;align-items:center;justify-content:center;min-height:40px;min-width:52px;width:100%;border:0;border-radius:3px;font:inherit;font-weight:500}
+.attention-map .map-total{text-align:center;font-weight:600;padding:8px}.attention-map .weekend{background:var(--nav-active)}.attention-map small{display:block;font-size:10px}.highlight-day>th{box-shadow:inset 3px 0 var(--accent);background:#eaf0fd}
+@media(max-width:760px){.attention-map th:first-child{min-width:150px;max-width:160px;white-space:normal}.attention-map th:first-child button{display:block}.attention-map th:first-child .code{display:block;width:fit-content}}

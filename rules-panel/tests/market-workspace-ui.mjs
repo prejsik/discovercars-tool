@@ -73,6 +73,7 @@ try {
   }
   await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
   const overview=page.locator('.attention-view');
+  await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
   assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
   assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
   for(const width of [1440,390,320]){
@@ -81,7 +82,7 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
   await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
-  assert.equal(await overview.locator('.band-date').count(),13,'One row per date, not one per scenario');
+  assert.equal(await overview.locator('.band-date').count(),14,'One row per date, not one per scenario');
   await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).click();
   assert.match(await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).innerText(),/Brak MM: 1/);
   await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
@@ -129,6 +130,7 @@ try {
   meta.report.reportSha256='f'.repeat(64);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   const refreshed=page.waitForResponse(response=>response.url().includes('/api/report/prices?'));
+  await page.locator('.reports-diagnostics > summary').click();
   await page.getByRole('button',{name:'Odśwież wyniki',exact:true}).click();
   await refreshed;
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
