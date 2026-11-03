@@ -40,7 +40,7 @@ body{background:var(--bg)}.brand-symbol{width:28px;height:28px;background:var(--
 @media(max-width:760px){.branch-header{display:block}.band-filters{display:flex}.band-filters .range-picker{width:100%}.band-filters .range-picker>summary{justify-content:space-between}.band-matrix thead{display:table-header-group}.band-matrix tbody{display:table-row-group}.band-matrix .band-date{display:table-row}.band-matrix .band-date>th,.band-matrix .band-date>td{display:table-cell;padding:1px}.band-matrix th{font-size:10px}.band-matrix .band-cell{display:flex;flex-direction:column;justify-content:center;padding:4px 1px;gap:3px;min-height:60px}.band-matrix .band-cell strong{font-size:11px}.band-matrix .price-badge{font-size:10px;padding:2px}.band-detail[open]{width:100%;max-width:100%;padding:16px}.band-key-rates dd{font-size:15px}.band-detail table{font-size:11px}.band-detail .text-button{font-size:11px;padding:3px}.band-detail .price-badge{white-space:normal}}
 .duration-chips{display:flex;align-items:center;flex-wrap:wrap;gap:4px;align-self:end}.duration-chips button,.duration-chips summary{min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;background:white;border:1px solid var(--line);border-radius:4px;padding:5px 8px;cursor:pointer}.duration-chips button[aria-pressed=true]{background:var(--ink);color:white}.duration-chips details{position:relative}.duration-chips details>div{position:absolute;z-index:6;top:100%;left:0;width:180px;display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:white;border:1px solid var(--line)}
 .calendar-section-heading{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:12px 0}.calendar-section-heading>span{color:var(--muted);font-size:12px}
-.market-calendar-grid .market-day{min-height:106px;padding:8px;border:1px solid transparent;border-radius:4px;display:flex;flex-direction:column;align-items:start;gap:4px;text-align:left}.market-calendar-grid .market-day strong{font-size:18px;font-weight:600}.market-calendar-grid .market-day small{font-size:12px;color:inherit}.market-calendar-grid .market-day>span{font-size:12px;display:flex;justify-content:space-between;width:100%}.market-calendar-grid .outside-report{border:1px dashed var(--line);background:transparent;color:var(--muted);opacity:1}.market-calendar-grid .weekend>span{font-weight:600;text-decoration:underline;text-underline-offset:3px}.market-calendar-grid .today{outline:2px solid var(--ink);outline-offset:-2px}
+.market-calendar-grid .market-day{min-height:106px;padding:8px;border:1px solid transparent;border-radius:4px;display:flex;flex-direction:column;align-items:start;gap:4px;text-align:left}.market-calendar-grid .market-day strong{font-size:18px;font-weight:600}.market-calendar-grid .market-day small{font-size:12px;color:inherit}.market-calendar-grid .market-day>span{font-size:12px;display:flex;justify-content:space-between;width:100%}.market-calendar-grid .outside-report{border:1px dashed var(--line);background:transparent;color:var(--muted);opacity:1}.market-calendar-grid .weekend>span{font-weight:600;text-decoration:none}.market-calendar-grid .today{outline:2px solid var(--ink);outline-offset:-2px}
 @media(max-width:760px){.market-calendar-grid{gap:3px}.market-calendar-grid .market-day{min-height:95px;padding:4px 2px;gap:3px}.market-calendar-grid .market-day strong{font-size:16px}.market-calendar-grid .market-day small{font-size:10px;overflow-wrap:anywhere}.market-calendar-grid .market-day>span{font-size:10px}.calendar-section-heading{display:block}.duration-chips details>div{left:auto;right:0}}
 .dashboard-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-block:1px solid var(--line);padding:14px 0;gap:16px}.dashboard-status>div{display:flex;flex-direction:column;align-items:start;gap:5px;min-width:0}.dashboard-status span,.dashboard-status small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.dashboard-status strong{font-size:15px;font-weight:500}.dashboard-status .text-button{padding:0;min-height:40px;text-align:left;white-space:normal}
 .dashboard-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 12px}.dashboard-heading h2{font-size:22px;margin:0}.dashboard-heading p{font-size:13px;color:var(--muted)}.dashboard-heading .button{flex-shrink:0}
@@ -55,3 +55,41 @@ body{background:var(--bg)}.brand-symbol{width:28px;height:28px;background:var(--
 .attention-map .map-cell { min-height: 64px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; }
 .attention-map .map-cell small { font-size: 10px; white-space: normal; }
 .chart-filters .range-picker { min-width: 220px; }
+.map-cell{position:relative}.partial-missing-dot{position:absolute;right:4px;top:4px;width:6px;height:6px;border-radius:50%;background:#8a3918}
+.band-layout,.band-matrix-pane{min-width:0}
+.band-matrix-scroll{max-width:100%;overflow:auto}
+@media(min-width:1024px){
+ .band-layout.has-band-detail{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,42%);gap:16px;align-items:start}
+ .band-layout.has-band-detail .band-matrix{min-width:540px}
+ .band-layout .band-detail[open]{position:sticky;inset:auto;top:16px;width:100%;max-width:100%;max-height:calc(100dvh - 32px);margin:0;box-sizing:border-box;box-shadow:none;z-index:1;padding:16px}
+}
+.shared-market-filters{display:flex;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.shared-market-filters>label{flex:0 1 220px;min-width:0}
+.shared-market-filters .segmented{margin:0}
+.shared-market-filters select{max-width:100%}
+.shared-market-filters .duration-select{min-width:0}
+@media(max-width:600px){.shared-market-filters>label,.shared-market-filters>.range-picker{flex:1 1 100%;width:100%}.shared-market-filters .range-picker>div{width:100%;max-width:100%;box-sizing:border-box}.shared-market-filters .range-picker>summary{justify-content:space-between}}
+.band-workspace .band-matrix{min-width:720px}
+.band-matrix .band-date{height:44px}
+.band-matrix .band-date>td{padding:0 2px}
+.band-matrix .band-date>th{padding:0 6px;vertical-align:middle}
+.band-matrix .band-cell{position:relative;height:43px;min-height:0;box-sizing:border-box;flex-direction:row;flex-wrap:nowrap;justify-content:space-between;align-items:center;padding:4px 10px;gap:6px}
+.band-matrix .band-cell strong{font-size:13px;white-space:nowrap}
+.band-matrix .price-badge{font-size:11px;white-space:nowrap;padding:2px 4px}
+.band-matrix .band-unavailable{position:absolute;top:0;right:2px;font-size:9px;line-height:10px}
+.branch-header{display:flex;align-items:center;gap:12px;min-width:0;width:100%;box-sizing:border-box}
+.branch-breadcrumb{display:flex;align-items:center;gap:4px;min-width:0;flex:1}
+.branch-breadcrumb .branch-back{white-space:nowrap;font-size:12px;padding-inline:0}
+.branch-breadcrumb h2{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0;min-width:0}
+.branch-breadcrumb .icon-button{flex:none;padding:4px;width:32px;min-width:32px}
+.branch-position{white-space:nowrap;font-size:12px;color:var(--muted)}
+.branch-header>p{font-size:11px;max-width:32%;text-align:right}
+.mobile-back-label{display:none}
+@media(max-width:760px){.branch-header{flex-wrap:wrap}.branch-breadcrumb{width:100%;flex:0 0 100%}.branch-breadcrumb h2{font-size:13px;flex:1}.branch-back>span:first-child{display:none}.branch-back .mobile-back-label{display:inline}.branch-header>p{min-width:0;max-width:100%;flex:1 1 100%;text-align:left}}
+.calendar-week span:nth-last-child(-n+2){background:var(--line);color:var(--ink)}
+.market-calendar-grid{position:relative;isolation:isolate}
+.market-calendar-grid::before{content:"";position:absolute;inset:0 0 0 auto;width:calc(100% * 2 / 7);background:var(--line);z-index:-1;pointer-events:none}
+.map-legend{gap:8px 16px;line-height:1.5;max-width:none;width:100%}
+.map-legend>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.legend-square{display:inline-block;width:10px;height:10px;border:1px solid #0002;flex:none}
+.legend-partial{display:inline-block;width:6px;height:6px;border-radius:50%;background:#8a3918}

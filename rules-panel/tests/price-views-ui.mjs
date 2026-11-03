@@ -27,7 +27,7 @@ try {
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
- await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
+ await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
   await page.locator('.market-chart').waitFor({timeout:60000});
   assert.equal(writes,0,'Automatic report read must not dispatch or write');
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
@@ -41,7 +41,8 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`prices overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`prices-${width}.png`,directory)),fullPage:true});
   }
-  await page.locator('.prices-view').getByLabel('Start od',{exact:true}).fill('2027-01-01');
+  await page.locator('.shared-market-filters .range-picker > summary').click();
+  await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2027-01-01');
   await page.getByText('Brak pozycji w wybranym zakresie.',{exact:true}).waitFor();
   await page.getByLabel('Klasa w Excelu').selectOption('EDMV');
   assert.equal(await page.locator('.prices-table').count(),0,'Filter change cannot display a previous class result');

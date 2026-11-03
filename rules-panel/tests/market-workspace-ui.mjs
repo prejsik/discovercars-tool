@@ -37,7 +37,7 @@ try {
   await page.getByRole('tab',{name:'Wykres',exact:true}).waitFor();
   assert.equal(await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
-  await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
+  await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
   assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
   await page.locator('.market-chart').waitFor({timeout:20000});
@@ -70,18 +70,18 @@ try {
   await page.locator('.dashboard-metric').first().click();
   await page.getByLabel('Pozycje przeglądu').waitFor();
   assert.equal(await page.getByLabel('Pozycje przeglądu').inputValue(),'missing');
-  assert.equal(await page.getByRole('group',{name:'Skrzynia w przeglądzie'}).getByRole('button',{name:'Automaty',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   assert.equal(await page.locator('.attention-map tbody tr').count(),1);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   for(const width of [1440,1024,390]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`dashboard overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
-    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-5-${width}.png`,fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`../output/market-dashboard-${width}.png`,fullPage:true});
   }
   await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
-  await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
+  await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
@@ -95,7 +95,7 @@ try {
   await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
   const overview=page.locator('.attention-view');
   await page.getByRole('button',{name:'Wszystkie oddziały ›',exact:true}).click();
-  await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).count(),0,'Only the map remains');
   assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
   assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
   for(const width of [1440,390,320]){
@@ -103,7 +103,7 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overview overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
-  await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
+  await overview.locator('.attention-map tbody th button').first().click();
   await overview.getByRole('button',{name:'Następny oddział',exact:true}).click();
   await overview.getByRole('heading',{name:/Warszawa/}).waitFor();
   await overview.getByRole('button',{name:'Poprzedni oddział',exact:true}).click();
@@ -118,6 +118,10 @@ try {
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   assert.equal(await page.locator('.market-calendar-grid button').count(),30);
+  assert.equal(await page.locator('.calendar-month strong').count(),1);
+  assert.doesNotMatch(await page.locator('.calendar-section-heading h2').innerText(),/listopad/,'Only one month heading');
+  assert.equal(await page.locator('.market-day.weekend > span').first().evaluate(e=>getComputedStyle(e).textDecorationLine),'none');
+  assert.notEqual(await page.locator('.market-calendar-grid').evaluate(e=>getComputedStyle(e,'::before').backgroundColor),'rgba(0, 0, 0, 0)','Weekend columns have a background');
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),16);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
   assert.doesNotMatch(await page.locator('.market-calendar-grid').first().innerText(),/%/);
@@ -130,11 +134,11 @@ try {
   await page.getByRole('button',{name:'Następny miesiąc cen',exact:true}).click();
   assert.match(await page.locator('.calendar-month').innerText(),/grudzień 2026/);
   await page.getByRole('button',{name:'Poprzedni miesiąc cen',exact:true}).click();
-  // Restore the original 14-day window after month navigation.
-  await page.locator('.chart-filters .range-picker > summary').click();
-  await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
-  await page.locator('.chart-filters').getByLabel('Start do',{exact:true}).fill('2026-11-17');
-  await page.locator('.chart-filters .range-picker > summary').click();
+  assert.equal(await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).count(),0,'Calendar has no date range fields');
+  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  assert.equal(await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).inputValue(),'2026-11-04');
+  assert.equal(await page.locator('.shared-market-filters').getByLabel('Start do',{exact:true}).inputValue(),'2026-11-17');
+  await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
   await page.locator('.market-calendar').first().getByRole('button',{name:/śr 04.11.2026,/}).click();
   await page.locator('.market-detail').waitFor();await page.keyboard.press('Escape');
   await page.locator('.market-workspace summary').filter({hasText:'Wydarzenia i święta'}).click();
@@ -150,7 +154,7 @@ try {
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
-    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-4-${width}.png`,fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`docs/market-filters/verification/calendar-${width}.png`,fullPage:true});
   }
   // Event management remains inside the price calendar, not a separate main tab.
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
@@ -161,16 +165,16 @@ try {
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
   const reads=requests.filter(url=>url.includes('/api/report/')).length;
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
-  assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
-  await page.locator('.prices-view').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
+  assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+  await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
-  assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
+  assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
   assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
   assert.equal(await page.locator('.market-chart').count(),2,'Returning does not clear loaded data');
   assert.equal(requests.filter(url=>url.includes('/api/report/')).length,reads,'Returning does not re-download prices');
-  const selectedFrom=await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).inputValue();
+  const selectedFrom=await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).inputValue();
   meta.report.reportSha256='f'.repeat(64);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   const refreshed=page.waitForResponse(response=>response.url().includes('/api/report/prices?'));
@@ -181,7 +185,7 @@ try {
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
   await page.locator('.market-chart').first().waitFor();
   assert.ok(requests.filter(url=>url.includes('/api/report/')).length>reads,'Changed source is reloaded automatically');
-  assert.equal(await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).inputValue(),selectedFrom,'Automatic refresh retains date filters');
+  assert.equal(await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).inputValue(),selectedFrom,'Automatic refresh retains date filters');
   assert.ok(selectedFrom,'The previous report had a selected date range');
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();

@@ -11,16 +11,20 @@ test('small differences retain direction and dates use Polish weekday',()=>{
  assert.equal(monthLabel('2026-11'),'listopad 2026');
 });
 import {mapCell,buildAttentionMap} from '../src/attention-map.mjs';
-test('map cells distinguish no data, missing MM and worst confirmed gap',()=>{
- assert.equal(mapCell([{marketConfirmed:false,mm:null}]).tone,'nodata');
- assert.equal(mapCell([{marketConfirmed:true,mm:null},{marketConfirmed:true,mm:60,gap:-40}]).tone,'over-4');
- const partial=mapCell([{duration:3,marketConfirmed:true,mm:null},{duration:4,marketConfirmed:true,mm:60,gap:20},{duration:5,marketConfirmed:false}]);
- assert.equal(partial.value,-20);assert.equal(partial.missing,1);assert.equal(partial.total,3);assert.deepEqual(partial.missingDurations,[3]);assert.equal(partial.problem,true);
- assert.equal(mapCell([{marketConfirmed:true,mm:60,gap:-7},{marketConfirmed:true,mm:60,gap:20}]).value,7);
- assert.equal(mapCell([{marketConfirmed:false,mm:60,gap:-90},{marketConfirmed:true,mm:60,gap:10}]).value,-10);
- assert.equal(mapCell([{marketConfirmed:true,mm:60,gap:-10}]).problem,false);
- assert.equal(mapCell([{marketConfirmed:true,mm:60,gap:-10.01}]).problem,true);
- const map=buildAttentionMap([{location:'B',date:'2026-11-03',marketConfirmed:true,mm:20,gap:-15},{location:'A',date:'2026-11-03',marketConfirmed:true,mm:20,gap:0}],['2026-11-03','2026-11-04']);
+test('map uses band median, majority missing and identical summary criteria',()=>{
+ const row=(duration,gap,extra={})=>({duration,marketConfirmed:true,mm:60,gap,...extra});
+ assert.equal(mapCell([row(3,-90,{marketConfirmed:false})]).tone,'nodata');
+ assert.equal(mapCell([row(3,-40),row(4,20),row(5,-100)]).value,10);
+ const partial=mapCell([row(3,null,{mm:null}),row(4,20)]);
+ assert.equal(partial.value,-20);assert.equal(partial.missing,1);assert.equal(partial.total,2);assert.deepEqual(partial.missingDurations,[3]);assert.equal(partial.problem,false);
+ assert.equal(mapCell([row(3,null,{mm:null}),row(4,null,{mm:null})]).tone,'missing');
+ assert.equal(mapCell([row(3,null,{mm:null})]).tone,'nodata','Unknown lengths are not missing MM');
+ assert.equal(mapCell([row(2,-10)],'2').problem,false);
+ assert.equal(mapCell([row(2,-10.01)],'2').problem,true);
+ assert.equal(mapCell([row(5,-90),row(6,-7),row(7,20)],'5-7').value,7);
+ assert.equal(mapCell([8,9,10,11,12,13,14].map(d=>row(d,d-12)),'8-20').value,1);
+ assert.equal(mapCell([8,9,10,11].map(d=>row(d,null,{mm:null})),'8-20').tone,'missing');
+ const map=buildAttentionMap([{...row(3,-15),location:'B',date:'2026-11-03'},{...row(3,0),location:'A',date:'2026-11-03'}],['2026-11-03','2026-11-04']);
  assert.equal(map[0].location,'B');assert.equal(map[0].problems,1);assert.equal(map[0].cells[1].tone,'nodata');
 });
 import {mixedBand} from '../src/attention-map.mjs';
@@ -43,4 +47,10 @@ test('dashboard counts use next 14 days, all cars and 2-14 days, with selected t
  assert.equal(dashboardOverview(data,'2026-11-03').rows.length,1);assert.equal(result.metrics[0].days.length,14);
  assert.equal(matchesReview({...row,rank:1,gap:30},'reserve'),true);
  assert.equal(matchesReview({...row,marketConfirmed:false,rank:1,gap:30},'reserve'),false);
+});
+import {initialMarketWindow} from '../src/market-model.mjs';
+test('initial window follows report start dates, including a first date without rows',()=>{
+ assert.deepEqual(initialMarketWindow({report:{startDates:['2026-11-04','2026-11-02']},rows:[{date:'2026-11-04'}]}),{from:'2026-11-02',to:'2026-11-15'});
+ assert.deepEqual(initialMarketWindow({rows:[{date:'2026-12-28'}]}),{from:'2026-12-28',to:'2027-01-10'});
+ assert.deepEqual(initialMarketWindow(null),{from:'',to:''});
 });
