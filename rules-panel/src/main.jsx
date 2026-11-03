@@ -30,6 +30,8 @@ import {
 import "@fontsource-variable/inter";
 import "./styles.css";
 import * as policy from "./policy.mjs";
+import { AmountField } from "./AmountField.jsx";
+import { amountChange,amountValid,confirmedChanges,requiredConfirmations,ruleScope,sameConfirmation } from "./change-review.mjs";
 import { warningChanges } from "./warning-presentation.mjs";
 import { createService } from "./service.mjs";
 import { filterRules, groupRuleBands, locationOptions, publishBlocker } from "./editor.mjs";
@@ -161,6 +163,7 @@ function App() {
   const publicationBlocker = publishBlocker(workspaceData, clockTick);
   const [model, setModel] = useState(null);
   const [history, setHistory] = useState([]);
+  const [amountConfirmations,setAmountConfirmations]=useState([]);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   const [view, setView] = useState(routeView);
@@ -227,6 +230,7 @@ function App() {
     setWorkspaceData(alreadyPublished ? { ...data, draft: null } : data);
     setSnapshot(data.snapshot);
     setModel(restored);
+    setAmountConfirmations(alreadyPublished||sourceChanged?[]:data.draft?.amountConfirmations??[]);
     setHistory(data.history ?? []);
     setSaved(alreadyPublished ? null : data.draft?.savedAt ?? null);
     revisionRef.current = data.draft?.revision ?? null;
@@ -314,6 +318,7 @@ function App() {
       setSnapshot(data);
       setWorkspaceData(workspace);
       setModel(restored);
+      setAmountConfirmations(local.state==="restored"?local.draft.amountConfirmations??[]:[]);
     } catch (error) {
       setLoadError(error.message);
       setNotice(error.message);
@@ -359,19 +364,20 @@ function App() {
       window.scrollTo(0, 0);
     }, 0);
   }
-  async function commit(next, label, changeReason = reason) {
+  async function commit(next, label, changeReason = reason, confirmations = []) {
     if (blockedDraft)
       throw new Error("Rozpocznij nowy szkic na aktualnej wersji zasad.");
     const expectedRevision = revisionRef.current;
     const checked = validateModel(next, original);
     if (checked.errors.length)
       throw new Error(checked.errors.map((item) => item.message).join(" "));
+    const accepted=confirmedChanges(requiredConfirmations(next,original),[...amountConfirmations,...confirmations]);
     const delta = diffDocuments(toDocuments(model), toDocuments(next));
     if (!delta.length) return;
     if (remote) {
       pendingModelRef.current = next;
       await remoteAction(async () => {
-        const result = await service.save({ expectedRevision, sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash, model: next, reason: changeReason });
+        const result = await service.save({ expectedRevision, sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash, model: next, reason: changeReason, amountConfirmations:accepted });
         if (!result.draft?.revision) throw new Error("Serwer nie potwierdził zapisu szkicu. Zachowano bieżącą wersję.");
         acceptWorkspace(result);
         setReason("");
@@ -390,6 +396,7 @@ function App() {
           sourceHash: snapshot.source.policyHash,
           model: next,
           history: nextHistory,
+          amountConfirmations:accepted,
           expectedRevision,
         }),
       );
@@ -409,12 +416,13 @@ function App() {
       setSaved(null);
     }
     setModel(next);
+    setAmountConfirmations(accepted);
     setHistory(nextHistory);
   }
   async function reset() {
     if (remote) {
       if (!window.confirm("Rozpocząć edycję od aktualnego źródła? Poprzedni szkic pozostanie w historii; nowe zmiany wymagają zapisu z powodem.")) return;
-      setModel(original); setStale(null); pendingModelRef.current = null;
+      setModel(original); setAmountConfirmations([]); setStale(null); pendingModelRef.current = null;
       setNotice("Rozpoczęto edycję od aktualnego źródła. Szkic współdzielony zostanie zastąpiony dopiero po zapisaniu zmian.");
       return;
     }
@@ -438,6 +446,7 @@ function App() {
       setStale(null);
       setDraftConflict(false);
       setModel(original);
+      setAmountConfirmations([]);
       setHistory([]);
       setSaved(null);
       setNotice("Wczytano zasady źródłowe. Produkcja nie została zmieniona.");
@@ -833,9 +842,11 @@ function App() {
           key={editor.rule?.id ?? "new"}
           {...editor}
           model={model}
+          original={original}
+          amountConfirmations={amountConfirmations}
           remote={remote}
           onClose={() => setEditor(null)}
-          onSave={async (patch, changeReason) => {
+          onSave={async (patch, changeReason, confirmations) => {
             const next = editor.isNew
               ? addRule(model, patch)
               : updateRule(model, editor.rule.id, patch);
@@ -845,6 +856,7 @@ function App() {
                 ? "Dodano regułę"
                 : `Zmieniono: ${editor.rule.title}`,
               changeReason,
+              confirmations,
             );
             setEditor(null);
           }}
@@ -1386,7 +1398,7 @@ function Sources({ snapshot, model, remote, capabilities }) {
   );
 }
 
-function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
+function RuleEditor({ rule, isNew, model, original, amountConfirmations = [], remote, onClose, onSave, onDelete }) {
   const dialog = useRef(null);
   const [form, setForm] = useState(
     rule
@@ -1407,6 +1419,11 @@ function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState("");
+  const [confirmations,setConfirmations]=useState(amountConfirmations);
+  const before=buildRules(original??model).find(item=>item.id===rule?.id)?.amount;
+  const amountDelta=amountChange(before,form.amount);
+  const currentConfirmation=amountDelta?{ruleId:rule?.id,before:amountDelta.before,after:amountDelta.after}:null;
+  const amountBlocked=form.category!=="protected"&&(!amountValid(form.amount)||(amountDelta?.large&&!confirmations.some(item=>sameConfirmation(item,currentConfirmation))));
   const [confirmOverride, setConfirmOverride] = useState(
     Boolean(rule?.overrideProtected),
   );
@@ -1429,7 +1446,8 @@ function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
         throw new Error(
           "Potwierdź świadome zastosowanie minimum w chronionych terminach.",
         );
-      await onSave(form, reason);
+      if(amountBlocked)throw new Error("Sprawdź i potwierdź kwotę przed zapisem.");
+      await onSave(form, reason, confirmations);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1455,7 +1473,7 @@ function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
       }}
       aria-labelledby="editor-title"
     >
-      <form onSubmit={submit}>
+      <form onSubmit={submit} noValidate>
         <header className="dialog-header">
           <div>
             <h2 id="editor-title">{isNew ? "Nowa reguła" : rule.title}</h2>
@@ -1536,24 +1554,7 @@ function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
           )}
           {form.category !== "protected" && (
             <>
-              <label>
-                Stawka minimalna (PLN / dobę)
-                <input
-                  autoFocus
-                  required
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max="100000"
-                  value={form.amount ?? ""}
-                  onChange={(e) =>
-                    set(
-                      "amount",
-                      e.target.value === "" ? "" : Number(e.target.value),
-                    )
-                  }
-                />
-              </label>
+              <AmountField label="Stawka minimalna (PLN / dobę)" before={before} value={form.amount} onChange={value=>{set("amount",value);setConfirmations(old=>old.filter(item=>item.ruleId!==rule?.id));}} ruleId={rule?.id} scope={ruleScope(model,form)} confirmations={confirmations} onConfirm={(item,checked)=>setConfirmations(old=>[...old.filter(record=>record.ruleId!==item.ruleId),...(checked?[item]:[])])} autoFocus/>
               {isNew ? (
                 <label>
                   Przedział najmu
@@ -1674,7 +1675,7 @@ function RuleEditor({ rule, isNew, model, remote, onClose, onSave, onDelete }) {
           <button type="button" className="button" disabled={saving} onClick={onClose}>
             Anuluj
           </button>
-          <button type="submit" className="button primary" disabled={saving}>
+          <button type="submit" className="button primary" disabled={saving||amountBlocked}>
             <Check size={17} />
             Zapisz w szkicu
           </button>

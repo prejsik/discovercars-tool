@@ -22,7 +22,7 @@ export function diffDocuments(before, after, path = "") {
 
 export function persistDraft(
   storage,
-  { sourceHash, model, history, expectedRevision = null },
+  { sourceHash, model, history, expectedRevision = null, amountConfirmations = [] },
 ) {
   const previous = storage.getItem(KEY);
   let actualRevision = null;
@@ -43,6 +43,7 @@ export function persistDraft(
     revision: crypto.randomUUID(),
     sourceHash,
     model,
+    amountConfirmations,
     history: history.slice(-50),
     savedAt: new Date().toISOString(),
   };

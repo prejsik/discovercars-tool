@@ -1,5 +1,6 @@
 import { createModel, toDocuments, validateModel } from '../src/policy.mjs';
 import { diffDocuments } from '../src/draft.mjs';
+import { confirmedChanges,requiredConfirmations } from '../src/change-review.mjs';
 
 export class PanelError extends Error {
   constructor(status, message, details) { super(message); this.status = status; this.details = details; }
@@ -57,10 +58,13 @@ export class WorkspaceService {
     const changes = diffDocuments(toDocuments(snapshot.documents), toDocuments(input.model));
     if (!changes.length) throw new PanelError(422, 'Szkic nie zmienia aktualnych zasad.');
     const model = createModel(input.model);
+    let amountConfirmations;
+    try { amountConfirmations=confirmedChanges(requiredConfirmations(model,createModel(snapshot.documents)),input.amountConfirmations).map(item=>({...item,confirmedBy:actor,confirmedAt:this.clock().toISOString()})); }
+    catch(error) { throw new PanelError(422,error.message); }
     const record = { schemaVersion: 1, sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash,
       baselineSha256: snapshot.baseline.sha256, model, modelHash: await hashJson(model),
       reason: input.reason.trim(), savedBy: actor, savedAt: this.clock().toISOString(), action, revertedFrom,
-      changes, warnings: validation.warnings };
+      changes, warnings: validation.warnings, amountConfirmations };
     await this.store.saveDraft(record, input.expectedRevision ?? null);
     return this.workspace();
   }
@@ -101,6 +105,6 @@ export class WorkspaceService {
     if (!record?.model) throw new PanelError(404, 'Nie znaleziono wersji szkicu.');
     const snapshot = await this.store.snapshot();
     return this.save({ sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash,
-      expectedRevision: input.expectedRevision, model: record.model, reason: `Przywrocenie szkicu ${input.revision.slice(0, 8)}: ${record.reason}`.slice(0, 500) }, actor, 'rollback', input.revision);
+      expectedRevision: input.expectedRevision, model: record.model, amountConfirmations:record.amountConfirmations??[], reason: `Przywrocenie szkicu ${input.revision.slice(0, 8)}: ${record.reason}`.slice(0, 500) }, actor, 'rollback', input.revision);
   }
 }

@@ -41,7 +41,7 @@ export class PrivateWorkspaceStore {
   async saveDraft(record, expectedRevision) {
     const draft = { ...record, revision: crypto.randomUUID() };
     const entry = { revision: draft.revision, at: record.savedAt, actor: record.savedBy, reason: record.reason,
-      action: record.action ?? 'save', revertedFrom: record.revertedFrom ?? null, sourceRevision: record.sourceRevision, changes: record.changes };
+      action: record.action ?? 'save', revertedFrom: record.revertedFrom ?? null, sourceRevision: record.sourceRevision, changes: record.changes, amountConfirmations:record.amountConfirmations??[] };
     await this.storage.transaction(async transaction => {
       const current = await transaction.get('draft');
       if ((current?.revision ?? null) !== expectedRevision) throw new PanelError(409, 'Nowszy szkic zostal juz zapisany.');
@@ -98,7 +98,7 @@ export class PrivateWorkspaceStore {
     const approvalId = crypto.randomUUID();
     const entry = { revision: record.draft.revision, at: record.approvedAt, actor: record.actor,
       action: 'approval_pending', approvalId, reason: record.draft.reason, sourceRevision: record.draft.sourceRevision,
-      changes: record.draft.changes };
+      changes: record.draft.changes, amountConfirmations:record.draft.amountConfirmations??[] };
     // Persist the identity before an external commit that may succeed despite a lost response.
     await this.storage.put({ [`approval:${approvalId}`]: entry, [auditKey(entry.at, approvalId)]: entry });
     const result = await this.repository.publish({ ...record, approvalId });

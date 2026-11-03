@@ -46,6 +46,17 @@ test('workspace service is an executable public interface', () => {
   assert.equal(typeof workspace.WorkspaceService, 'function');
 });
 
+test('large amount confirmation is stored privately with verified actor and exact values',async()=>{
+  const {service}=setup();const model=updateRule(createModel(snapshot.documents),'location:airport',{amount:4999});
+  await assert.rejects(service.save(input(model),actor),error=>error.status===422&&/Potwierdź/.test(error.message));
+  const before=snapshot.documents.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport;
+  const result=await service.save({...input(model),amountConfirmations:[{ruleId:'location:airport',before,after:4999,confirmedBy:'forged@test.example'}]},actor);
+  assert.equal(result.draft.amountConfirmations[0].confirmedBy,actor);
+  assert.equal(result.draft.amountConfirmations[0].confirmedAt,new Date(now).toISOString());
+  const next=updateRule(model,'location:airport',{amount:5000});
+  await assert.rejects(service.save({...input(next,result.draft.revision),amountConfirmations:result.draft.amountConfirmations},actor),error=>error.status===422);
+});
+
 test('save identifies actor server-side and rejects overwriting another revision', async () => {
   const { service } = setup();
   const result = await service.save(input(), actor);

@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Check, CheckCheck, Search, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { DURATION_BANDS, knownGroups } from "./policy.mjs";
 import { floorRequest, locationOptions } from "./editor.mjs";
+import { AmountField } from './AmountField.jsx';
+import { amountValid } from './change-review.mjs';
 
 function MultiSelect({ title, options, selected, onChange }) {
   const [search, setSearch] = useState("");
@@ -50,21 +52,21 @@ export function BusinessEditor({ model, supported, remote, onClose, onSave }) {
     finally { setSaving(false); }
   }
   return <dialog ref={dialog} className="editor-dialog matrix-dialog" aria-labelledby="matrix-title" onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}>
-    <form onSubmit={submit}>
+    <form onSubmit={submit} noValidate>
       <header className="dialog-header"><div><h2 id="matrix-title">Nowa reguła</h2><p>{remote ? "Szkic współdzielony" : "Szkic lokalny"} · PLN brutto / dobę</p></div><button type="button" className="icon-button" disabled={saving} onClick={onClose} aria-label="Zamknij edycję"><X size={20} /></button></header>
       <div className="dialog-body">
         {error && <div className="alert error" role="alert"><TriangleAlert size={18} />{error}</div>}
         <label>Rodzaj reguły<select aria-label="Rodzaj nowej reguły" value={kind} onChange={event => setKind(event.target.value)}><option value="mandatory">Minimum dla lokalizacji i klas</option><option value="protected">Chroniony okres</option></select></label>
         {kind === "mandatory" && <>
           <div className="matrix-scopes"><MultiSelect title="Lokalizacje" options={locationOptions(model)} selected={zones} onChange={setZones} /><MultiSelect title="Klasy" options={knownGroups(model).map(value => ({ value, label: value }))} selected={groups} onChange={setGroups} /></div>
-          <fieldset className="duration-matrix"><legend>Minimum według długości najmu</legend><div className="duration-inputs">{DURATION_BANDS.map(([min, max], index) => { const label = min === max ? `${min} ${min === 1 ? "dzień" : "dni"}` : `${min}–${max} dni`; return <label key={min}>{label}<input aria-label={`${label} · PLN / dobę`} placeholder="Bez zmian" type="number" min="0.01" max="100000" step="0.01" value={amounts[index]} onChange={event => setAmounts(values => values.map((value, position) => position === index ? event.target.value : value))} /></label>; })}</div></fieldset>
+          <fieldset className="duration-matrix"><legend>Minimum według długości najmu</legend><div className="duration-inputs">{DURATION_BANDS.map(([min, max], index) => { const label = min === max ? `${min} ${min === 1 ? "dzień" : "dni"}` : `${min}–${max} dni`; return <AmountField key={min} label={`${label} · PLN / dobę`} before={null} value={amounts[index]} optional onChange={amount=>setAmounts(values=>values.map((value,position)=>position===index?amount:value))} confirmations={[]} onConfirm={()=>{}} scope={`${zones.length} lokalizacji · ${groups.length} klas`}/>; })}</div></fieldset>
         </>}
         <div className="form-grid"><label>Data startu od<input type="date" required value={startDate} onChange={event => setStartDate(event.target.value)} /></label><label>Data startu do<input type="date" required min={startDate || undefined} value={endDate} onChange={event => setEndDate(event.target.value)} /></label></div>
         <div className="info-line"><ShieldCheck size={17} /><span>{kind === "protected" ? "Ochrona obejmuje wszystkie lokalizacje i klasy." : "Chronione daty pozostają bez zmian."}</span></div>
         {kind === "mandatory" && !supported && <div className="alert" role="status">Zapis zakresów oczekuje na integrację silnika reguł. Szkic nie zostanie zmieniony.</div>}
         {remote && <ReasonField value={reason} onChange={setReason} />}
       </div>
-      <footer className="dialog-footer"><span className="matrix-selection">{kind === "mandatory" ? `${zones.length} lokalizacji · ${groups.length} klas` : "Chroniony okres"}</span><button type="button" className="button" disabled={saving} onClick={onClose}>Anuluj</button><button type="submit" className="button primary" disabled={saving || (kind === "mandatory" && !supported)}><Check size={17} />{saving ? "Zapisywanie…" : "Zapisz w szkicu"}</button></footer>
+      <footer className="dialog-footer"><span className="matrix-selection">{kind === "mandatory" ? `${zones.length} lokalizacji · ${groups.length} klas` : "Chroniony okres"}</span><button type="button" className="button" disabled={saving} onClick={onClose}>Anuluj</button><button type="submit" className="button primary" disabled={saving || (kind === "mandatory" && (!supported || amounts.some(amount=>amount!==""&&!amountValid(amount))))}><Check size={17} />{saving ? "Zapisywanie…" : "Zapisz w szkicu"}</button></footer>
     </form>
   </dialog>;
 }

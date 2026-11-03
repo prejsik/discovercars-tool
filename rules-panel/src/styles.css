@@ -1563,6 +1563,7 @@
 .baseline-confirm input { margin-top: 3px; }
 .reports-view { max-width: 1080px; }
 [hidden] { display: none !important; }
+.amount-field{min-width:0;display:grid;gap:6px}.amount-field label{min-width:0}.amount-field p{margin:0}.amount-comparison,.amount-delta{font-size:12px;color:#46586a}.field-error{color:#a12428;font-size:13px}.large-amount-warning{background:#fff4db;border:1px solid #d9a64b;border-radius:6px;padding:14px;color:#704600;font-size:13px;display:grid;gap:10px}.large-amount-warning .checkbox-label{color:inherit}.amount-field input[aria-invalid=true]{border-color:#b42328}.editor-dialog .dialog-body .amount-field{align-content:start}
 .section-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
 .section-tabs .button[aria-pressed="true"] { background: #fff4d5; border-color: #ddc36d; }
 .schedule-summary { display: flex; flex-wrap: wrap; gap: 12px 28px; padding: 12px 0 20px; font-size: 13px; border-bottom: 1px solid var(--line); }
