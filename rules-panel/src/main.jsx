@@ -37,7 +37,8 @@ import { BusinessEditor, ReasonField } from "./BusinessEditor.jsx";
 import { OperationalStatus, SharedHistory } from "./WorkspaceViews.jsx";
 import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
-import { PricesView } from './PricesView.jsx';
+import { MarketWorkspace } from './MarketWorkspace.jsx';
+import { useCalendarEvents } from './CalendarEvents.jsx';
 import { RuleCalendar } from './RuleCalendar.jsx';
 import {
   createModel,
@@ -143,6 +144,7 @@ async function fetchSnapshot() {
 }
 
 function App() {
+  const calendarEvents=useCalendarEvents(service);
   const [snapshot, setSnapshot] = useState(null);
   const [workspaceData, setWorkspaceData] = useState(null);
   const remote = Boolean(workspaceData?.capabilities.sharedDraft);
@@ -646,7 +648,7 @@ function App() {
           {view === "rules" && (
             <>
               <div className="rules-view-switch" role="group" aria-label="Widok zasad"><button className="button" aria-pressed={ruleView==='list'} onClick={()=>setRuleView('list')}><ListFilter size={17}/>Lista</button><button className="button" aria-pressed={ruleView==='calendar'} onClick={()=>setRuleView('calendar')}><CalendarDays size={17}/>Kalendarz</button></div>
-              {ruleView==='calendar'?<RuleCalendar model={model} rules={rules} onEdit={rule=>setEditor({rule})} blocked={blockedDraft||busy} draft={changes.length>0}/>:<>
+              {ruleView==='calendar'?<RuleCalendar model={model} rules={rules} calendar={calendarEvents} onEdit={rule=>setEditor({rule})} blocked={blockedDraft||busy} draft={changes.length>0}/>:<>
               <div className="section-toolbar">
                 <div className="search-control">
                   <Search size={18} />
@@ -724,7 +726,7 @@ function App() {
               </>}
             </>
           )}
-          {view === 'prices' && <PricesView model={original} workspace={workspaceData} service={service}/>}
+          {view === 'prices' && <MarketWorkspace model={original} workspace={workspaceData} service={service} calendar={calendarEvents}/>}
           {view === "groups" && (
             <>
             {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}

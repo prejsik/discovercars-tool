@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import { SaxesParser } from 'saxes';
+import { validDate } from './market-model.mjs';
 const fail = text => { throw Object.assign(new Error(text), {status:502}); };
 const attr = (node,name) => Object.values(node.attributes).find(a=>a.name===name)?.value;
 const number = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -88,6 +89,39 @@ export function readMarket(bytes,query) {
     offers.sort((a,b)=>a.rate-b.rate);
     return {date:item.date,mm:displayedRate(values?.[11]),competitor:offers[0]?.rate??null,provider:offers[0]?.provider??null,rank:values?.[13]??null};
   });
+}
+
+export function readMarketRows(bytes) {
+  const match=strFromU8(bytes).match(/<script type="application\/json" id="report-data">([\s\S]*?)<\/script>/);
+  if(!match) fail('Brak obsługiwanych danych rynku w raporcie.');
+  const data=JSON.parse(match[1]);
+  if(!Array.isArray(data.scenarios)||data.scenarios.length>20000) fail('Nieprawidłowe dane rynku.');
+  const result=[];const keys=new Set();
+  for(const scenario of data.scenarios) {
+    if(!validDate(scenario.date)||!Number.isInteger(Number(scenario.duration))||Number(scenario.duration)<1||Number(scenario.duration)>35||!Array.isArray(scenario.rows)) fail('Nieprawidłowy scenariusz rynku.');
+    for(const [location,type,automatic,all] of scenario.rows) {
+      if(typeof location!=='string'||!['airport','branch'].includes(type)) fail('Nieprawidłowa lokalizacja rynku.');
+      for(const [transmission,values] of [['automatic',automatic],['all',all]]) {
+        const key=`${scenario.date}|${scenario.duration}|${location}|${transmission}`;
+        if(keys.has(key)) fail('Powtórzone pozycje rynku.');keys.add(key);
+        const offers=Array.isArray(values)?[[0,2],[5,7],[8,10]].map(([name,price])=>({provider:values[name],rate:displayedRate(values[price])}))
+          .filter(o=>typeof o.provider==='string'&&o.provider&&o.rate!==null&&o.rate>0&&!/mm\s+cars\s+rental/i.test(o.provider)).sort((a,b)=>a.rate-b.rate):[];
+        const error=Array.isArray(scenario.errors)&&scenario.errors.some(e=>e?.location===location);
+        const rawMm=displayedRate(values?.[11]);const mm=!error&&rawMm>0?rawMm:null;
+        const competitor=error?null:offers[0]?.rate??null;
+        const rankMatch=String(values?.[13]??'').match(/^Top\s+(\d+)$/i);
+        const rank=mm!==null&&rankMatch?Number(rankMatch[1]):null;
+        const rankLabel=rank?`Top ${rank}`:mm!==null&&values?.[13]==='Poza Top3'?'Poza Top3':null;
+        const gap=mm!==null&&competitor!==null?Math.round((competitor-mm)*100)/100:null;
+        result.push({key,date:scenario.date,duration:Number(scenario.duration),location,type,transmission,
+          mm,competitor,provider:competitor===null?null:offers[0].provider,rank,rankLabel,
+          cheaperOffers:mm!==null&&/^\d+$/.test(String(values?.[14]??''))?Number(values[14]):null,
+          gap,totalGap:gap===null?null:Math.round(gap*Number(scenario.duration)*100)/100,
+          marketConfirmed:!error&&(mm!==null||competitor!==null),error});
+      }
+    }
+  }
+  return result;
 }
 export function selectReviews(rows,query) {
   const [low,high]=rateBand(query.duration);const band=low===high?String(low):`${low}-${high}`;

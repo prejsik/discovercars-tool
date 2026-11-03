@@ -1,4 +1,16 @@
-import { workbookRows, selectRates, selectReviews, readMarket, combineEvidence } from './price-evidence.mjs';
+import { workbookRows, selectRates, selectReviews, readMarket, readMarketRows, combineEvidence } from './price-evidence.mjs';
+
+export async function loadMarketEvidence(query,fetcher=(...args)=>fetch(...args)) {
+  const params=new URLSearchParams({mode:'market',reportRunId:query.reportRunId});
+  async function request(kind) {
+    const response=await fetcher(kind?`/api/report/price-source?${params}&kind=market`:`/api/report/prices?${params}`,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(60000)});
+    if(!response.ok){const body=await response.json().catch(()=>({}));throw Object.assign(new Error(body.error||'Nie można odczytać raportu rynku.'),{status:response.status});}
+    return kind?new Uint8Array(await response.arrayBuffer()):response.json();
+  }
+  const context=await request();const rows=readMarketRows(await request('market'));
+  if((await request()).signature!==context.signature) throw Object.assign(new Error('Raport zmienił się podczas odczytu. Odśwież panel.'),{status:409});
+  return {...context,rows};
+}
 
 export async function loadPriceEvidence(query, fetcher=(...args)=>fetch(...args)) {
   const params=new URLSearchParams(query);

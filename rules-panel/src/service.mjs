@@ -39,17 +39,21 @@ export function createService(fetcher = (...args) => fetch(...args)) {
       throw new Error("Nieobsługiwana wersja danych panelu.");
     return { snapshot, draft: null, preview: null, history: [], status: { available: false }, capabilities: { sharedDraft: false, publish: false, preview: false } };
   }
+  const readPrices=query=>new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./price-reader.worker.mjs',import.meta.url),{type:'module'});
+    const timer=setTimeout(()=>{worker.terminate();reject(new Error('Odczyt trwał zbyt długo. Ponów próbę.'));},180000);
+    const finish=()=>{clearTimeout(timer);worker.terminate();};
+    worker.onmessage=({data})=>{finish();data.error?reject(Object.assign(new Error(data.error),{status:data.status})):resolve(data.result);};
+    worker.onerror=()=>{finish();reject(new Error('Nie udało się odczytać plików w przeglądarce. Odśwież panel.'));};
+    worker.postMessage(query);
+  });
   return {
     workspace,
+    calendarEvents:()=>request('/api/calendar-events'),
+    saveCalendarEvent:input=>request('/api/calendar-events/save',input),
+    market:query=>readPrices({...query,mode:'market'}),
     diagnostics: runId => request(`/api/report/diagnostics?runId=${encodeURIComponent(runId)}`),
-    prices: query => new Promise((resolve,reject)=>{
-      const worker=new Worker(new URL('./price-reader.worker.mjs',import.meta.url),{type:'module'});
-      const timer=setTimeout(()=>{worker.terminate();reject(new Error('Odczyt trwał zbyt długo. Ponów próbę.'));},180000);
-      const finish=()=>{clearTimeout(timer);worker.terminate();};
-      worker.onmessage=({data})=>{finish();data.error?reject(Object.assign(new Error(data.error),{status:data.status})):resolve(data.result);};
-      worker.onerror=()=>{finish();reject(new Error('Nie udało się odczytać plików w przeglądarce. Odśwież panel.'));};
-      worker.postMessage(query);
-    }),
+    prices:readPrices,
     async save(input) {
       const reason = input.reason?.trim() ?? "";
       if (reason.length < 3 || reason.length > 500) throw new Error("Powód zmiany musi mieć od 3 do 500 znaków.");

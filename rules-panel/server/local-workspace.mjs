@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { readSnapshot } from './snapshot.mjs';
 import { PrivateWorkspaceStore } from './private-store.mjs';
 import { WorkspaceService, PanelError } from './workspace-service.mjs';
+import { readCalendarEvents, saveCalendarEvent } from './calendar-events.mjs';
+import { loadPriceContext, loadPriceSource, loadPublishedReport } from './reports.mjs';
+import { protectedReportHtml } from './report-viewer.mjs';
 
 const storageQueues = new Map();
 const pendingStatuses = ['running', 'requesting', 'queued'];
@@ -62,6 +65,11 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
   const capabilities = { sharedDraft: true, preview: true, publish: false, mode: 'local-shared',
     reason: 'Wspolny szkic na tym komputerze. Zapis GitHub nie jest aktywny.' };
   const repository = {
+    json:async (path,revision)=>{
+      if(path!=='locations.config.json'||!/^[a-f0-9]{40}$/.test(revision))throw new PanelError(422,'Nieprawidłowe źródło lokalizacji.');
+      const response=await fetch(`https://raw.githubusercontent.com/prejsik/discovercars-tool/${revision}/${path}`,{signal:AbortSignal.timeout(20000)});
+      if(!response.ok)throw new PanelError(502,'Nie można odczytać lokalizacji raportu.');return response.json();
+    },
     snapshot: () => readSnapshot(), publication: async () => null, verifyPreview: async () => false,
     publish: async () => { throw new PanelError(503, 'Lokalny serwer nigdy nie publikuje zasad.'); },
     pollPreview: pending => storage.get('preview').then(value => value ?? pending),
@@ -95,9 +103,18 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
       try {
-        const action = { '/api/workspace': 'workspace', '/api/draft': 'save', '/api/preview': 'requestPreview', '/api/publish': 'publish', '/api/rollback': 'rollback' }[path];
+        if(['/api/report/prices','/api/report/price-source','/api/report/open'].includes(path)) {
+          if(req.method!=='GET')throw new PanelError(405,'Tylko odczyt.');
+          const query=Object.fromEntries(new URL(req.url,'http://localhost').searchParams);
+          if(path.endsWith('/open')) {res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Content-Security-Policy',"sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'");res.end(Buffer.from(protectedReportHtml(await loadPublishedReport(query.runId,repository))));return;}
+          if(query.mode!=='market')throw new PanelError(503,'Historyczne pliki Excel są dostępne w opublikowanym panelu.');
+          if(path.endsWith('/prices'))res.end(JSON.stringify(await loadPriceContext(query,repository)));
+          else {res.setHeader('Content-Type','application/octet-stream');res.end(Buffer.from(await loadPriceSource(query,repository)));}return;
+        }
+        const action = { '/api/calendar-events':'events','/api/calendar-events/save':'eventSave','/api/workspace': 'workspace', '/api/draft': 'save', '/api/preview': 'requestPreview', '/api/publish': 'publish', '/api/rollback': 'rollback' }[path];
         if (!action) throw new PanelError(404, 'Nieznana operacja.');
-        if ((action === 'workspace' && req.method !== 'GET') || (action !== 'workspace' && req.method !== 'POST')) throw new PanelError(405, 'Nieprawidlowa metoda.');
+        const readOnly=['workspace','events'].includes(action);
+        if ((readOnly && req.method !== 'GET') || (!readOnly && req.method !== 'POST')) throw new PanelError(405, 'Nieprawidlowa metoda.');
         let body = {};
         if (req.method === 'POST') {
           if (req.headers.origin !== `http://${req.headers.host}` || req.headers['x-panel-request'] !== '1'
@@ -109,6 +126,8 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
           if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PanelError(400, 'Nieprawidlowe dane.');
         }
         await initialize();
+        if(action==='events'){res.end(JSON.stringify(await readCalendarEvents(storage)));return;}
+        if(action==='eventSave'){const zones=(await readSnapshot()).documents.locations.locations.flatMap(row=>row.zones??[]);res.end(JSON.stringify(await saveCalendarEvent(storage,body,'local@localhost.test',zones)));return;}
         const result = await service[action](body, 'local@localhost.test');
         res.end(JSON.stringify(result));
       } catch (error) {

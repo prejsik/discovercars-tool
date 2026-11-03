@@ -7,7 +7,18 @@ wygenerowanych Exceli do pliku bazowego.
 
 ## Ceny, decyzje i kalendarz
 
-`Ceny i rynek` odczytuje istniejacy raport i Excel po wybraniu filtrow.
+`Ceny i rynek` ma wykres, kalendarz rynku, liste `Do sprawdzenia`, stawki
+Excel i wydarzenia. Wykres i kalendarz odczytuja sam istniejacy raport,
+takze gdy nie powstal nowy Excel. Filtry obejmuja lokalizacje, lotniska/miasto,
+skrzynie, daty startu i kilka dlugosci 2-14 dni. Kazda dlugosc ma osobny
+wykres/kalendarz; brak ceny pozostaje przerwa, a nie zerem. Porownanie
+dotyczy MM i najtanszego innego dostawcy. Roznica za najem to roznica
+PLN/dobe pomnozona przez duration. Czas odczytu konkretnej oferty nie
+jest dostepny w aktualnym HTML; panel pokazuje poczatek zbierania raportu.
+Lista uwagi rozroznia brak MM, brak danych, pozycje poza Top1 i zapas do
+konkurenta. Link HTML i link do scenariusza pozostaja przypisane do runa.
+
+`Stawki w Excelu` odczytuje raport i Excel po wybraniu filtrow.
 Cena MM i konkurencji oznacza najtansza oferte w wybranym widoku skrzyn,
 nie oferte konkretnej klasy. Klasa filtruje stawki Excel. Baza pochodzi
 z wersji repozytorium uzytej w danym przebiegu, z kontrola SHA256; brak
@@ -27,6 +38,14 @@ Niejednoznaczne przedzialy bazy nie otrzymuja arbitralnie wybranej ceny.
 dowolny miesiac i rozroznia szkic od zasad opublikowanych. Edycja otwiera
 ten sam formularz co lista. Nie zmienia priorytetow, ochrony dat, wykluczen,
 narzutow, generatora Excel, harmonogramu ani scrapera.
+
+`Wydarzenia i swieta` to reczne notatki dla wybranej strefy lub wszystkich
+lokalizacji. Sa widoczne w obu kalendarzach, ale nie sa regulami i nigdy
+nie zmieniaja cen ani ochrony dat. Zapis jest prywatny w istniejacym Durable
+Object (lokalnie w `.local`), nie w publicznym GitHubie. Wersjonowanie
+blokuje nadpisanie rownoleglego zapisu. Wpis mozna edytowac, archiwizowac
+i przywrocic; limit to 200 wpisow, lacznie do 96 KiB. Nie dodano integracji
+z innymi brokerami ani zewnetrznego kalendarza wydarzen.
 
 ## Diagnostyka uruchomien
 
@@ -176,6 +195,7 @@ npm.cmd run test:engine
 npm.cmd run test:worker
 npm.cmd run test:storage
 npm.cmd run test:ui
+npm.cmd run test:market
 npm.cmd run check:deploy
 ```
 

@@ -6,6 +6,7 @@ import { processBaseline } from '../server/baseline-onboarding-service.mjs';
 import { searchDiscovercarsLocations } from '../server/location-search.mjs';
 import { loadPublishedWorkbook, workbookInput } from '../server/reports.mjs';
 import { tickSchedule } from './scheduler.mjs';
+import { readCalendarEvents, saveCalendarEvent } from '../server/calendar-events.mjs';
 
 // One coordination atom is one repository, shared by its authorized directors.
 export class RulesWorkspace extends DurableObject {
@@ -27,6 +28,11 @@ export class RulesWorkspace extends DurableObject {
         if (!allowed.includes(actor)) throw new PanelError(403, 'Brak dostepu.');
         if (!githubConfigured(this.env)) throw new PanelError(503, 'Integracja GitHub nie jest skonfigurowana.');
         const repository = new GitHubRepository(this.env);
+        if(action==='events') return {status:200,body:await readCalendarEvents(this.ctx.storage)};
+        if(action==='eventSave') {
+          const locations=(await repository.snapshot()).documents.locations.locations;
+          return {status:200,body:await saveCalendarEvent(this.ctx.storage,input,actor,locations.flatMap(row=>row.zones??[]))};
+        }
         if (action === 'locationsSearch') return { status: 200, body: { candidates: await searchDiscovercarsLocations(input.query) } };
         if (action === 'reportBaselineCheck' || action === 'reportBaselinePublish') {
           const publish = action === 'reportBaselinePublish';

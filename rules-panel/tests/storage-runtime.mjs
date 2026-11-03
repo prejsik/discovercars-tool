@@ -15,12 +15,20 @@ try {
   const writes = await Promise.all([post({ expectedRevision: null, amount: 60 }), post({ expectedRevision: null, amount: 70 })]);
   assert.deepEqual(writes.map(item => item.status).sort(), [200, 409]);
   const first = writes.find(item => item.status === 200).draft;
+  const event={title:'Targi lokalne',notes:'Notatka testowa',kind:'event',start:'2026-11-04',end:'2026-11-05',zones:['KRLO']};
+  const postEvent=()=>worker.fetch('/events',{method:'POST',body:JSON.stringify({expectedRevision:null,event})}).then(r=>r.json());
+  const eventWrites=await Promise.all([postEvent(),postEvent()]);
+  assert.deepEqual(eventWrites.map(item=>item.status).sort(),[200,409]);
+  const eventState=eventWrites.find(item=>item.status===200).events;
+  assert.equal((await(await worker.fetch('/')).json()).revision,first.revision,'Events never modify pricing drafts');
   assert.equal(await (await worker.fetch('/?name=other')).json(), null);
   await worker.stop();
   worker = await start();
   const restored = await (await worker.fetch('/')).json();
   assert.equal(restored.revision, first.revision);
   assert.deepEqual(restored.model, first.model);
+  assert.deepEqual((await(await worker.fetch('/events')).json()).events,eventState);
+  assert.deepEqual((await(await worker.fetch('/events?name=other')).json()).events.items,[]);
   console.log('SQLite runtime: concurrent edits protected, storage survives restart, workspaces isolated.');
 } finally {
   if (worker) await worker.stop();

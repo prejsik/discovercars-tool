@@ -83,3 +83,26 @@ Wymagane kolejne kroki zawiera `ACTIVATION.md`.
   zadnych zmian cen do GitHub ani DiscoverCars.
 - Zmiana dotyczy UI; bez modyfikacji bazowego Excela, konfiguracji zasad,
   backendu publikacji ani harmonogramow. Ten etap nie obejmuje wdrozenia.
+
+## Porownanie rynku i wydarzenia, 03.11.2026
+
+- Wykres, kalendarz cen i lista uwagi korzystaja z tego samego potwierdzonego
+  raportu HTML, niezaleznie od powodzenia eksportu Excel. Prywatne wydarzenia
+  sa adnotacjami, nie regulami. Porownanie innych brokerow pozostaje poza zakresem.
+- `npm test`: 346/346 PASS. Testy obejmuja rozdzielenie skrzyn, wykluczenie MM
+  z konkurencji, luki danych, bledy lokalizacji, kontrolowane linki scenariuszy,
+  brak zaleznosci od Excela, konflikt wersji raportu oraz prywatny zapis notatek.
+- `test:ui`: wszystkie 13 skryptow PASS, bez bledow przegladarki. Nowe widoki
+  sprawdzone w 320/390/1024/1440 px, z kontrola przepelnienia i zrzutami.
+  Widok rynku przeszedl tez test na produkcyjnym buildzie, z fixture API.
+- `test:engine`: 1350/1350 porownan minimow z Pythonem PASS. To nie jest pelna
+  symulacja rekomendacji; silnik, konfiguracje, baza i scraper pozostaly nietkniete.
+- `test:worker` i `test:storage`: PASS. Nowe endpointy wymagaja Access/CSRF;
+  rzeczywisty lokalny SQLite DO zachowuje wydarzenia po restarcie i odrzuca
+  rownolegly zapis starej wersji, bez zmiany szkicu zasad.
+- `check:deploy`: build i dry-run PASS. Nie wykonano publikacji.
+- Odczyt realnego raportu `41548793536`: 45 dat, 25 lokalizacji, duration 2-14,
+  29250 rekordow lacznie dla dwoch widokow skrzyn. Wykres dziala mimo statusu
+  failure raportu (Excel). Odczyt i zrzuty desktop/mobile bez nowego scrapera.
+- Nowe zmiany sa lokalne, nie zostaly wypchniete ani wdrozone do Cloudflare.
+  Nie wyslano Telegrama, nie zmieniono uprawnien ani zasad cenowych.

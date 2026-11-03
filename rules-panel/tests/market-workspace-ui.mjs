@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { chromium } from '../../node_modules/playwright/index.mjs';
+import { strToU8 } from 'fflate';
+import { loadPriceContext,loadPriceSource } from '../server/reports.mjs';
+import { readCalendarEvents,saveCalendarEvent } from '../server/calendar-events.mjs';
+const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
+const browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}});const page=await context.newPage();
+const errors=[];page.on('pageerror',e=>errors.push(e.message));const requests=[];context.on('request',r=>{if(r.url().includes('/api/'))requests.push(r.url());});const writes=[];context.on('request',r=>{if(r.method()==='POST')writes.push(new URL(r.url()).pathname);});
+const directory=new URL('../../output/playwright/market-workspace/',import.meta.url);await mkdir(directory,{recursive:true});
+const values=(mm,competitor)=>['Flex To Go (8)','',''+competitor+',00 PLN/d','','','MM Cars Rental (8)','',''+mm+',00 PLN/d','Kaizen','','140,00 PLN/d',mm===null?'Brak oferty':mm+',00 PLN/d','',mm===null?'Brak oferty':mm<competitor?'Top 1':'Top 2','5','',false];
+const scenarios=Array.from({length:14},(_,i)=>[3,8].map(duration=>({date:`2026-11-${String(i+4).padStart(2,'0')}`,duration:String(duration),rows:[['Krakow Airport (KRK)','airport',values(i===3?null:60+i*2,100-i),values(i===3?null:60+i*2,90-i)],['Warsaw Downtown','branch',values(80,90),values(80,90)]],errors:[]}))).flat();
+const bytes=strToU8(`<script type="application/json" id="report-data">${JSON.stringify({scenarios})}</script>`);
+const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+const manifest={run_id:'123',git_sha:'a'.repeat(40),generated_at:'2026-11-03T12:00:00Z',source_started_at:'2026-11-03T09:00:00Z',start_dates:[...new Set(scenarios.map(r=>r.date))],durations:[3,8],status:'failure',report_html_sha256:hash};
+const repository={json:async()=>({locations:[{zones:['KRLO'],scraper_label:'Krakow Airport (KRK)'},{zones:['WA1'],scraper_label:'Warsaw Downtown'}]})};
+const fetcher=async url=>url.endsWith('run-manifest.json')?Response.json(manifest):new Response(bytes);
+const saved=new Map();const db={get:async key=>structuredClone(saved.get(key)),put:async(key,value)=>saved.set(key,structuredClone(value))};const storage={...db,transaction:fn=>fn(db)};
+try {
+  await page.clock.setFixedTime(new Date('2026-11-03T13:00:00Z'));
+  const snapshot=await(await context.request.get(`${origin}/policy-snapshot.json`)).json();
+  const meta=await loadPriceContext({mode:'market',reportRunId:'123'},repository,fetcher);
+  await context.route('**/api/workspace',r=>r.fulfill({json:{snapshot,capabilities:{sharedDraft:true,publish:true},draft:null,history:[],status:{report:meta.report,excel:null,links:{report:'/api/report/open?runId=123'}}}}));
+  await context.route(/\/api\/report\/(prices|price-source)\?/,async route=>{
+    const query=Object.fromEntries(new URL(route.request().url()).searchParams);
+    assert.equal(query.mode,'market');
+    const body=query.kind?await loadPriceSource(query,repository,fetcher):JSON.stringify(await loadPriceContext(query,repository,fetcher));
+    return route.fulfill({body:typeof body==='string'?body:Buffer.from(body),contentType:query.kind?'application/octet-stream':'application/json'});
+  });
+  await context.route('**/api/calendar-events',async r=>r.fulfill({json:await readCalendarEvents(storage)}));
+  await context.route('**/api/calendar-events/save',async r=>{
+    try {await r.fulfill({json:await saveCalendarEvent(storage,r.request().postDataJSON(),'director@example.com',['KRLO'])});}
+    catch(e){await r.fulfill({status:e.status??500,json:{error:e.message}});}
+  });
+  await page.goto(`${origin}/?view=prices`);
+  await page.getByRole('button',{name:'Wykres',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
+  await page.locator('.market-chart').waitFor({timeout:20000});
+  assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
+  assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
+  await page.getByRole('button',{name:'2026-11-04, MM 60,00 PLN, konkurencja 90,00 PLN',exact:true}).click();
+  await page.getByRole('heading',{name:/04.11.2026.*3 dni/}).waitFor();
+  assert.match(await page.locator('.market-detail').innerText(),/90,00/);
+  await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
+  await page.getByLabel('8 dni',{exact:true}).check();
+  assert.equal(await page.locator('.market-chart').count(),2);
+  await page.getByText('Długość najmu: 3, 8 dni',{exact:true}).click();
+  for(const width of [1440,1024,390,320]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`chart overflow ${width}`);
+    assert.ok(await page.locator('.market-chart polyline').count()>3);
+    await page.screenshot({path:fileURLToPath(new URL(`chart-${width}.png`,directory)),fullPage:true});
+  }
+  await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByLabel('Powód sprawdzenia').selectOption('missing');
+  assert.equal(await page.locator('.attention-table tbody tr').count(),2);
+  assert.match(await page.locator('.attention-table').innerText(),/07.11.2026/);
+  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  assert.equal(await page.locator('.market-calendar-grid button').count(),60);
+  assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
+  assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
+  await page.getByRole('button',{name:'Wydarzenia i święta',exact:true}).click();
+  await page.getByRole('button',{name:'Dodaj wydarzenie',exact:true}).click();
+  await page.getByLabel('Nazwa wydarzenia').fill('Targi listopadowe');
+  await page.getByLabel('Początek wydarzenia').fill('2026-11-06');await page.getByLabel('Koniec wydarzenia').fill('2026-11-08');
+  await page.getByLabel('Lokalizacja wydarzenia').selectOption('KRLO');
+  await page.getByRole('button',{name:'Zapisz wydarzenie',exact:true}).click();
+  await page.getByText('Targi listopadowe',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Kalendarz cen',exact:true}).click();
+  assert.ok(await page.locator('.event-day-marker').count()>=6);
+  for(const width of [1440,390,320]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
+    await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
+  }
+  await page.getByRole('button',{name:'Wydarzenia i święta',exact:true}).click();
+  await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
+  await page.getByLabel('Pokaż zarchiwizowane').check();
+  await page.getByRole('button',{name:'Przywróć Targi listopadowe'}).click();
+  await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).waitFor();
+  assert.equal((await readCalendarEvents(storage)).items[0].active,true);
+  await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
+  await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
+  await page.getByLabel('Miesiąc',{exact:true}).fill('2026-11');
+  assert.equal(await page.locator('.rule-calendar .event-day-marker').count(),3);
+  await page.getByRole('button',{name:/^2026-11-06,/}).click();
+  assert.match(await page.locator('.calendar-selection').innerText(),/Targi listopadowe.*notatka, nie reguła cenowa/);
+  assert.deepEqual([...new Set(writes)],['/api/calendar-events/save']);
+  assert.deepEqual(errors,[]);
+  console.log('Market UI PASS: no Excel, charts with gaps, multi-duration, attention filters, calendar, private events, mobile widths, no pricing writes.');
+} catch(error){console.error(await page.locator('main').innerText());console.error({errors,requests});throw error;}
+finally{await browser.close();}

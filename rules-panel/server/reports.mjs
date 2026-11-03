@@ -102,6 +102,13 @@ export function workbookInput(file) {
 }
 
 export async function loadPriceContext(input, repository, fetcher = (...args) => fetch(...args)) {
+  if(input.mode==='market') {
+    if(!/^\d{1,20}$/.test(input.reportRunId??'')) throw new PanelError(422,'Nieprawidłowy raport cen.');
+    const current=await manifest('latest-full',fetcher);
+    if(String(current.run_id)!==input.reportRunId) throw new PanelError(409,'Opublikowano nowszy raport. Odśwież panel.');
+    const locations=await repository.json('locations.config.json',current.git_sha);
+    return {report:normalize(current),locations:locations.locations??[],signature:signature(current)};
+  }
   if (!/^[A-Z0-9]{2,8}$/.test(input.zone??'') || !/^[A-Z0-9]{4}$/.test(input.group??'') ||
     !Number.isInteger(input.duration) || input.duration<1 || input.duration>35 || !['all','automatic'].includes(input.transmission) ||
     !/^\d{1,20}$/.test(input.reportRunId??'') || !/^\d{1,20}$/.test(input.excelRunId??'')) throw new PanelError(422,'Nieprawidłowe filtry cen.');
@@ -121,6 +128,7 @@ export async function loadPriceContext(input, repository, fetcher = (...args) =>
 // not in the Cloudflare Free request CPU budget.
 export async function loadPriceSource(input,repository,fetcher=(...args)=>fetch(...args)) {
   if(!['baseline','summary','market','workbook'].includes(input.kind)) throw new PanelError(422,'Nieprawidłowe źródło cen.');
+  if(input.mode==='market'&&input.kind!=='market') throw new PanelError(422,'Widok rynku nie odczytuje Excela.');
   const context=await loadPriceContext(input,repository,fetcher);
   const {excel,report}=context;
   let bytes;

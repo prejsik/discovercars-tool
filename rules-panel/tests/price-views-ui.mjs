@@ -27,6 +27,7 @@ try {
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('heading',{name:'Ceny i rynek',exact:true}).waitFor();
   assert.equal(calls,0,'No implicit scrape or expensive reads');
+  await page.getByRole('button',{name:'Stawki w Excelu',exact:true}).click();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.getByRole('button',{name:'Dlaczego?',exact:true}).click({timeout:60000});
   await page.getByText('Zapisana decyzja',{exact:true}).waitFor();

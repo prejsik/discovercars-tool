@@ -9,15 +9,15 @@ const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocal
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
 const list=value=>Array.isArray(value)?value.length?value.join(', '):'Brak':'Brak danych';
 
-export function PricesView({model,workspace,service}) {
+export function PricesView({model,workspace,service,initialSelection}) {
   const zones=useMemo(()=>locationOptions(model),[model]);
   const groups=useMemo(()=>knownGroups(model),[model]);
-  const [zone,setZone]=useState(zones.find(item=>item.value==='KRLO')?.value??zones[0]?.value??'');
+  const [zone,setZone]=useState(initialSelection?.zone??zones.find(item=>item.value==='KRLO')?.value??zones[0]?.value??'');
   const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
-  const [duration,setDuration]=useState(3);
-  const [transmission,setTransmission]=useState('automatic');
+  const [duration,setDuration]=useState(initialSelection?.duration??3);
+  const [transmission,setTransmission]=useState(initialSelection?.transmission??'automatic');
   const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
-  const [selected,setSelected]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const [limit,setLimit]=useState(20);
+  const [selected,setSelected]=useState('');const [from,setFrom]=useState(initialSelection?.date??'');const [to,setTo]=useState(initialSelection?.date??'');const [limit,setLimit]=useState(20);
   const report=workspace?.status?.report;const excel=workspace?.status?.excel;
   const query={zone,group,duration,transmission,reportRunId:report?.runId,excelRunId:excel?.runId};
   const key=JSON.stringify(query);
