@@ -35,8 +35,11 @@ try {
   });
   await page.goto(`${origin}/?view=prices`);
   await page.getByRole('tab',{name:'Wykres',exact:true}).waitFor();
-  assert.equal(await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).getAttribute('aria-selected'),'true');
+  assert.equal(await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
+  assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+  await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
@@ -78,6 +81,7 @@ try {
   }
   await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
   assert.equal(await page.locator('.market-chart').count(),2);
@@ -88,8 +92,9 @@ try {
     assert.ok(await page.locator('.market-chart polyline').count()>3);
     await page.screenshot({path:fileURLToPath(new URL(`chart-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
   const overview=page.locator('.attention-view');
+  await page.getByRole('button',{name:'Wszystkie oddziały ›',exact:true}).click();
   await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
   assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
   assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
@@ -112,19 +117,24 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
-  assert.equal(await page.locator('.market-calendar-grid button').count(),60);
-  assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
+  assert.equal(await page.locator('.market-calendar-grid button').count(),30);
+  assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),16);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
   assert.doesNotMatch(await page.locator('.market-calendar-grid').first().innerText(),/%/);
   await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
-  assert.equal(await page.locator('.market-calendar').count(),3,'Calendar chips keep previous lengths');
+  assert.equal(await page.locator('.market-calendar').count(),1,'Only one calendar visible despite multiple selected lengths');
+  await page.getByRole('group',{name:'Długość widocznego kalendarza'}).getByRole('button',{name:'8 dni',exact:true}).click();
+  assert.match(await page.locator('.calendar-section-heading h2').innerText(),/8 dni/);
+  await page.getByRole('group',{name:'Długość widocznego kalendarza'}).getByRole('button',{name:'3 dni',exact:true}).click();
   await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
   await page.getByRole('button',{name:'Następny miesiąc cen',exact:true}).click();
   assert.match(await page.locator('.calendar-month').innerText(),/grudzień 2026/);
   await page.getByRole('button',{name:'Poprzedni miesiąc cen',exact:true}).click();
   // Restore the original 14-day window after month navigation.
+  await page.locator('.chart-filters .range-picker > summary').click();
   await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
   await page.locator('.chart-filters').getByLabel('Start do',{exact:true}).fill('2026-11-17');
+  await page.locator('.chart-filters .range-picker > summary').click();
   await page.locator('.market-calendar').first().getByRole('button',{name:/śr 04.11.2026,/}).click();
   await page.locator('.market-detail').waitFor();await page.keyboard.press('Escape');
   await page.locator('.market-workspace summary').filter({hasText:'Wydarzenia i święta'}).click();
@@ -135,7 +145,7 @@ try {
   await page.getByRole('button',{name:'Zapisz wydarzenie',exact:true}).click();
   await page.getByText('Targi listopadowe',{exact:true}).waitFor();
   await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
-  assert.ok(await page.locator('.event-day-marker').count()>=6);
+  assert.ok(await page.locator('.event-day-marker').count()>=3);
   for(const width of [1440,390,320]) {
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);

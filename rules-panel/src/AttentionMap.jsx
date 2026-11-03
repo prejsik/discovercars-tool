@@ -14,8 +14,8 @@ export function AttentionMap({branches,dates,locations,events=[],onOpen}) {
     const zones=locations.find(item=>item.scraper_label===branch.location)?.zones??[];
     return <tr key={branch.location}><th scope="row"><button onClick={()=>onOpen(branch.location)}>{locationLabel(branch.location)} <span className="code">{zones[0]}</span></button></th>{branch.cells.map(cell=>{
      const entries=eventsForDay(events,cell.date,zones);
-     const description=cell.tone==='missing'?'Brak oferty MM':cell.tone==='nodata'?'Brak potwierdzonych danych':`MM ${cell.value>0?'droższe':'tańsze'} o ${Math.abs(cell.value).toLocaleString('pl-PL')} PLN/dobę`;
-     return <td key={cell.date}><button className={`map-cell tone-${cell.tone}`} aria-label={`${locationLabel(branch.location)}, ${weekdayDate(cell.date)}: ${description}${entries.length?' · '+entries.map(e=>e.title).join(', '):''}`} onClick={()=>onOpen(branch.location,cell.date)}>{cell.tone==='missing'?'brak':cell.tone==='nodata'?'?':cell.tone==='neutral'?'·':signedPrice(cell.value,0)}{entries.length>0&&<CalendarDays size={12}/>}</button></td>;
+     const description=(cell.missing?`Brak MM: ${cell.missing}/${cell.total} sprawdzeń, najem ${cell.missingDurations.join(', ')} dni. `:'')+(cell.tone==='missing'?'Brak oferty MM':cell.tone==='nodata'?'Brak potwierdzonych danych':`MM ${cell.value>0?'droższe':'tańsze'} o ${Math.abs(cell.value).toLocaleString('pl-PL')} PLN/dobę`);
+     return <td key={cell.date}><button className={`map-cell tone-${cell.tone}`} aria-label={`${locationLabel(branch.location)}, ${weekdayDate(cell.date)}: ${description}${entries.length?' · '+entries.map(e=>e.title).join(', '):''}`} onClick={()=>onOpen(branch.location,cell.date)}>{cell.tone==='missing'?'brak':cell.tone==='nodata'?'?':cell.tone==='neutral'?'·':signedPrice(cell.value,0)}{cell.missing>0&&<small title={`Najem: ${cell.missingDurations.join(', ')} dni`}>Brak MM: {cell.missing}/{cell.total}</small>}{entries.length>0&&<CalendarDays size={12}/>}</button></td>;
     })}<td className="map-total">{branch.problems}</td></tr>;
    })}</tbody></table>
   </div>

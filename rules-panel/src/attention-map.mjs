@@ -3,12 +3,12 @@ import {priceTone} from './market-model.mjs';
 
 export function mapCell(rows) {
  const confirmed=rows.filter(row=>row.marketConfirmed);
- if(!confirmed.length)return {tone:'nodata',value:null,problem:false};
- if(confirmed.some(row=>row.mm===null))return {tone:'missing',value:null,problem:true};
+ const missing=confirmed.filter(row=>row.mm===null).length;
+ const counts={missing,total:rows.length,missingDurations:confirmed.filter(row=>row.mm===null).map(row=>row.duration)};
  const comparable=confirmed.filter(row=>Number.isFinite(row.gap));
- if(!comparable.length)return {tone:'nodata',value:null,problem:false};
+ if(!comparable.length)return {...counts,tone:missing?'missing':'nodata',value:null,problem:missing>0};
  const value=Math.max(...comparable.map(row=>-row.gap));
- return {tone:priceTone(value),value,problem:value>10};
+ return {...counts,tone:priceTone(value),value,problem:missing>0||value>10};
 }
 export function buildAttentionMap(rows,dates) {
  const branches=new Map();

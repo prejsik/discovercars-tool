@@ -31,6 +31,7 @@ try {
  await page.getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
  await page.locator('.attention-map').waitFor();
  await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+ await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
  await page.getByRole('button',{name:'04.11.2026, MM 80,00 PLN, konkurencja 74,00 PLN',exact:true}).click();
  const detail=page.locator('.inline-decision');
  await detail.getByText('Zapisana decyzja',{exact:true}).waitFor();

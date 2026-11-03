@@ -63,7 +63,7 @@ try {
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
  await page.locator('.band-detail').getByRole('button',{name:'Pełna tabela',exact:true}).click();
  assert.equal(await page.locator('.prices-view').getByLabel('Klasa w Excelu').inputValue(),'EDMV','Full table retains chosen matrix class');
- await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
+ await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
  await page.locator('.band-detail').waitFor();
  await page.getByRole('button',{name:'Pulpit',exact:true}).click();

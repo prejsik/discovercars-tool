@@ -13,7 +13,9 @@ test('small differences retain direction and dates use Polish weekday',()=>{
 import {mapCell,buildAttentionMap} from '../src/attention-map.mjs';
 test('map cells distinguish no data, missing MM and worst confirmed gap',()=>{
  assert.equal(mapCell([{marketConfirmed:false,mm:null}]).tone,'nodata');
- assert.equal(mapCell([{marketConfirmed:true,mm:null},{marketConfirmed:true,mm:60,gap:-40}]).tone,'missing');
+ assert.equal(mapCell([{marketConfirmed:true,mm:null},{marketConfirmed:true,mm:60,gap:-40}]).tone,'over-4');
+ const partial=mapCell([{duration:3,marketConfirmed:true,mm:null},{duration:4,marketConfirmed:true,mm:60,gap:20},{duration:5,marketConfirmed:false}]);
+ assert.equal(partial.value,-20);assert.equal(partial.missing,1);assert.equal(partial.total,3);assert.deepEqual(partial.missingDurations,[3]);assert.equal(partial.problem,true);
  assert.equal(mapCell([{marketConfirmed:true,mm:60,gap:-7},{marketConfirmed:true,mm:60,gap:20}]).value,7);
  assert.equal(mapCell([{marketConfirmed:false,mm:60,gap:-90},{marketConfirmed:true,mm:60,gap:10}]).value,-10);
  assert.equal(mapCell([{marketConfirmed:true,mm:60,gap:-10}]).problem,false);

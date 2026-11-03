@@ -7,10 +7,12 @@ import {buildAttentionMap} from './attention-map.mjs';
 import {warsawToday,plusDays,validDate,dateRange} from './market-model.mjs';
 import {branchOverview,locationLabel} from './operations.mjs';
 import {BandMatrix} from './BandMatrix.jsx';
-export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model}) {
- const [from,setFrom]=useState(warsawToday);const [to,setTo]=useState(()=>plusDays(warsawToday(),13));
- const [transmission,setTransmission]=useState(request?.transmission??'all');const [kind,setKind]=useState('all');
- const [location,setLocation]=useState(request?.row?.location??'');
+export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model,filters,onFilters}) {
+ const {from,to,transmission,kind}=filters;
+ const location=filters.location==='*'?'':filters.location;
+ const setFrom=value=>onFilters({from:value}),setTo=value=>onFilters({to:value});
+ const setTransmission=value=>onFilters({transmission:value}),setKind=value=>onFilters({kind:value});
+ const setLocation=value=>onFilters({location:value||'*'});
  const [reason,setReason]=useState(request?.reason??'all');
  const [mode,setMode]=useState('map'),[highlight,setHighlight]=useState(request?.row?.date??'');
  const rangeValid=validDate(from)&&validDate(to)&&from<=to&&Date.parse(to)-Date.parse(from)<366*86400000;

@@ -30,7 +30,7 @@ try {
   await page.getByRole('alert').filter({hasText:'Test: brak połączenia'}).waitFor();
   assert.equal(reads,1,'A failed automatic read does not loop');
   failed=false;const started=performance.now();
-  await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
+  await page.getByRole('button',{name:'Wczytaj raport',exact:true}).click();
   await page.locator('.attention-map tbody tr').nth(24).waitFor({timeout:60000});
   for(const width of [1440,1024,390,320]){
    await page.setViewportSize({width,height:1000});
@@ -40,9 +40,11 @@ try {
   await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).click();
   await page.locator('.attention-table tbody tr').nth(24).waitFor({timeout:60000});
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await page.getByLabel('Lokalizacja rynku').selectOption('Krakow Airport (KRK)');
   await page.locator('.market-chart').waitFor({timeout:60000});
   const elapsed=Math.round(performance.now()-started);const loadedReads=reads;
-  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
+  await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
+  await page.getByRole('button',{name:'Wszystkie oddziały ›',exact:true}).click();
   await page.locator('.attention-table tbody tr').nth(24).waitFor();
   assert.equal(await page.locator('.attention-table tbody tr').count(),25);
   await page.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
@@ -59,8 +61,8 @@ try {
   assert.equal(await page.locator('.band-date').count(),40,'Expanded group and pagination survive navigation');
   await page.locator('.attention-view').getByRole('button',{name:'Automaty',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
-  assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all','Overview does not change chart filters');
-  await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
+  assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic','Overview shares chart filters');
+  await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
   assert.equal(await page.locator('.attention-view').getByRole('button',{name:'Automaty',exact:true}).getAttribute('aria-pressed'),'true','Overview preserves its own selections');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   assert.equal(await page.locator('.counter-strip').count(),0,'No duplicated dashboard counters');
