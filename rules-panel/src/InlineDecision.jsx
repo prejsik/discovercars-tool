@@ -3,7 +3,7 @@ import {knownGroups} from './policy.mjs';
 import {DecisionEvidence} from './PricesView.jsx';
 import {money} from './market-model.mjs';
 
-export function InlineDecision({row,data,model,workspace,service,onRules}) {
+export function InlineDecision({row,data,model,workspace,service,onRules,lockedSelection=false}) {
   const groups=knownGroups(model);const [group,setGroup]=useState(row.excelSelection?.group??(groups.includes('CDMV')?'CDMV':groups[0]));
   const zones=data.locations.find(item=>item.scraper_label===row.location)?.zones??[];
   const [chosen,setChosen]=useState(row.excelSelection?.zone??'');const zone=zones.includes(chosen)?chosen:zones[0];
@@ -19,8 +19,8 @@ export function InlineDecision({row,data,model,workspace,service,onRules}) {
   },[key,attempt,service]);
   const current=state.key===key?state:{};const record=current.data?.rows.find(item=>item.date===row.date);
   return <section className="inline-decision"><h3>Dlaczego taka stawka w Excelu?</h3>
-    <label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(g=><option key={g}>{g}</option>)}</select></label>
-    {zones.length>1&&<label>Kod w Excelu<select value={zone} onChange={e=>setChosen(e.target.value)}>{zones.map(z=><option key={z}>{z}</option>)}</select></label>}
+    {!lockedSelection&&<label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(g=><option key={g}>{g}</option>)}</select></label>}
+    {!lockedSelection&&zones.length>1&&<label>Kod w Excelu<select value={zone} onChange={e=>setChosen(e.target.value)}>{zones.map(z=><option key={z}>{z}</option>)}</select></label>}
     <p className="evidence-note">Cena MM powyżej dotyczy najtańszej oferty MM, niekoniecznie wybranej klasy.</p>
     {current.busy&&<p role="status">Odczytywanie zapisu z Excela…</p>}
     {current.error&&<div role="alert">{current.error}<button className="button" onClick={()=>setAttempt(n=>n+1)}>Ponów</button></div>}

@@ -21,3 +21,9 @@ test('map cells distinguish no data, missing MM and worst confirmed gap',()=>{
  const map=buildAttentionMap([{location:'B',date:'2026-11-03',marketConfirmed:true,mm:20,gap:-15},{location:'A',date:'2026-11-03',marketConfirmed:true,mm:20,gap:0}],['2026-11-03','2026-11-04']);
  assert.equal(map[0].location,'B');assert.equal(map[0].problems,1);assert.equal(map[0].cells[1].tone,'nodata');
 });
+import {mixedBand} from '../src/attention-map.mjs';
+test('mixed band only compares confirmed differences strictly outside the neutral band',()=>{
+ assert.equal(mixedBand([{marketConfirmed:true,gap:-6},{marketConfirmed:true,gap:7}]),true);
+ assert.equal(mixedBand([{marketConfirmed:true,gap:-5},{marketConfirmed:true,gap:7}]),false);
+ assert.equal(mixedBand([{marketConfirmed:false,gap:-6},{marketConfirmed:true,gap:7}]),false);
+});

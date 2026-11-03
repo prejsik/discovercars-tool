@@ -82,9 +82,13 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
   await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
+  await overview.getByRole('button',{name:'Następny oddział',exact:true}).click();
+  await overview.getByRole('heading',{name:/Warszawa/}).waitFor();
+  await overview.getByRole('button',{name:'Poprzedni oddział',exact:true}).click();
+  await overview.getByRole('heading',{name:/Kraków/}).waitFor();
   assert.equal(await overview.locator('.band-date').count(),14,'One row per date, not one per scenario');
-  await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).click();
-  assert.match(await overview.getByRole('button',{name:'07.11.2026 · 3–4 dni',exact:true}).innerText(),/Brak MM: 1/);
+  await overview.getByRole('button',{name:/sb 07.11.2026 · 3–4 dni/}).click();
+  assert.match(await overview.getByRole('button',{name:/sb 07.11.2026 · 3–4 dni/}).getAttribute('aria-label'),/brak MM w 1 z 1/);
   await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
   assert.equal(await page.locator('.market-detail').evaluate(element=>element.matches(':modal')),true,'Phone details are a modal bottom sheet');
   assert.match(await page.locator('.market-detail').innerText(),/07.11.2026.*3 dni/s);

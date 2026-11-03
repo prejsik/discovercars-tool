@@ -20,10 +20,20 @@ try {
  await page.locator('.attention-map').getByRole('button',{name:/04.11.2026: MM droższe/}).click();
  assert.equal(await page.locator('#band-day-2026-11-04.highlight-day').count(),1);
  await page.locator('.band-matrix').waitFor();
- assert.equal(await page.getByLabel('Oddziały przeglądu').isVisible(),true);
- assert.equal(await page.getByLabel('Skrzynia w przeglądzie').isVisible(),true);
- await page.getByRole('button',{name:'04.11.2026 · 3–4 dni'}).getByText('63,00',{exact:true}).waitFor();
- await page.getByRole('button',{name:'04.11.2026 · 3–4 dni'}).click();
+ assert.equal(await page.getByLabel('Oddziały przeglądu').count(),0);
+ assert.equal(await page.getByRole('group',{name:'Skrzynia w przeglądzie'}).isVisible(),true);
+ await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).getByText('63,00',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
+ await page.locator('.band-detail').waitFor();
+ assert.match(await page.locator('.band-key-rates').innerText(),/65,00.*63,00.*Minimum reguł teraz/s);
+ await page.keyboard.press('ArrowDown');await page.getByRole('heading',{name:'cz 05.11 · pasmo 3–4 dni'}).waitFor();
+ await page.keyboard.press('ArrowUp');await page.getByRole('heading',{name:'śr 04.11 · pasmo 3–4 dni'}).waitFor();
+ for(const width of [1440,1024,390,320]){
+  await page.setViewportSize({width,height:1000});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'band detail overflow '+width);
+  assert.equal(await page.locator('.band-detail').evaluate(e=>e.scrollWidth<=e.clientWidth+1),true,'band dialog overflow '+width);
+  if(width===1440||width===390)await page.screenshot({path:'docs/ui-redesign-3/verification/stage-3-'+width+'.png',fullPage:true});
+ }
  await page.locator('.band-scenarios').getByRole('button',{name:'Szczegóły',exact:true}).click();
  await page.locator('.inline-decision').getByText('Zapisana decyzja',{exact:true}).waitFor();
  assert.equal(reads.filter(url=>url.includes('kind=workbook')).length,1,'Details reuse the matrix workbook');
@@ -43,7 +53,7 @@ try {
   await page.screenshot({path:'../output/matrix-'+width+'.png',fullPage:true});
  }
  await page.getByLabel('Klasa w tabeli').selectOption('EDMV');
- await page.getByRole('button',{name:'04.11.2026 · 3–4 dni'}).getByText('Brak stawki',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).getByText('Brak stawki',{exact:true}).waitFor();
  assert.doesNotMatch(await page.locator('.band-matrix').innerText(),/63,00/);
  assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
  console.log('Matrix/rules UI PASS: exact band rates, visible filters, context preserved, full edit scope, responsive, class switch, no writes.');

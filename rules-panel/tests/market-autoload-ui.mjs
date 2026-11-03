@@ -46,8 +46,10 @@ try {
   await page.locator('.attention-table tbody tr').nth(24).waitFor();
   assert.equal(await page.locator('.attention-table tbody tr').count(),25);
   await page.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
+  await page.locator('.attention-view .range-picker > summary').click();
   await page.locator('.attention-view').getByLabel('Start od',{exact:true}).fill('2026-11-04');
   await page.locator('.attention-view').getByLabel('Start do',{exact:true}).fill('2026-12-18');
+  await page.locator('.attention-view .range-picker > summary').click();
   assert.equal(await page.locator('.band-date').count(),20);
   await page.getByRole('button',{name:'Pokaż kolejne 20 dat',exact:true}).click();
   assert.equal(await page.locator('.band-date').count(),40);
@@ -55,11 +57,11 @@ try {
   await page.getByRole('button',{name:'Ceny i rynek',exact:true}).click();
   assert.equal(reads,loadedReads,'Returning to the panel reuses the loaded report');
   assert.equal(await page.locator('.band-date').count(),40,'Expanded group and pagination survive navigation');
-  await page.locator('.attention-view').getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).selectOption('automatic');
+  await page.locator('.attention-view').getByRole('button',{name:'Automaty',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
   assert.equal(await page.locator('.chart-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all','Overview does not change chart filters');
   await page.getByRole('tab',{name:'Do sprawdzenia',exact:true}).click();
-  assert.equal(await page.locator('.attention-view').getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'automatic','Overview preserves its own selections');
+  assert.equal(await page.locator('.attention-view').getByRole('button',{name:'Automaty',exact:true}).getAttribute('aria-pressed'),'true','Overview preserves its own selections');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   assert.equal(await page.locator('.counter-strip').count(),0,'No duplicated dashboard counters');
   const beforeDashboardClick=reads;

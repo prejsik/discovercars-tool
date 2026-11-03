@@ -33,7 +33,6 @@ import "@fontsource/ibm-plex-sans/500.css";
 import "@fontsource/ibm-plex-sans/600.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import {ViewTabs} from "./ViewTabs.jsx";
-import "./redesign.css";
 import "./styles.css";
 import * as policy from "./policy.mjs";
 import { Dashboard } from "./Dashboard.jsx";
@@ -53,6 +52,7 @@ import { BaselineView } from './BaselineView.jsx';
 import { ReportsView } from './ReportsView.jsx';
 import { RuleContext } from './RuleContext.jsx';
 import { MarketWorkspace } from './MarketWorkspace.jsx';
+import './redesign.css';
 import { useCalendarEvents } from './CalendarEvents.jsx';
 import { RuleCalendar } from './RuleCalendar.jsx';
 import {

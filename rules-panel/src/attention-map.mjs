@@ -23,3 +23,4 @@ export function buildAttentionMap(rows,dates) {
   return {location,cells,problems:cells.filter(cell=>cell.problem).length};
  }).sort((a,b)=>b.problems-a.problems||locationLabel(a.location).localeCompare(locationLabel(b.location),'pl'));
 }
+export const mixedBand=rows=>rows.some(r=>r.marketConfirmed&&Number.isFinite(r.gap)&&r.gap>5)&&rows.some(r=>r.marketConfirmed&&Number.isFinite(r.gap)&&r.gap<-5);
