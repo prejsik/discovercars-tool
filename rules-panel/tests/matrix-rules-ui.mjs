@@ -6,8 +6,8 @@ const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});
 try {
  const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);
- await page.clock.setFixedTime(new Date('2026-11-03T13:00:00Z'));
- const errors=[],writes=[],reads=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.clock.setFixedTime(new Date('2026-11-05T13:00:00Z'));
+ const errors=[],writes=[],reads=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});
  page.on('request',r=>{if(r.method()==='POST')writes.push(r.url());});
  const snapshot=await(await page.request.get(origin+'/policy-snapshot.json')).json();
  const draft=structuredClone(snapshot.documents);draft.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport=55;
@@ -20,12 +20,50 @@ try {
   await r.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
  });
  await page.goto(origin+'/?view=prices');
+ await page.getByRole('combobox',{name:'Skrzynia',exact:true}).waitFor().catch(async error=>{console.error(await page.locator('body').innerText());console.error(reads);throw error;});
+ assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+ await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+ assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+ await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
+ assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
+ await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+ await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
+ await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
+ await page.locator('.shared-market-filters .range-picker > summary').click();
+ await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2026-11-05');
+ await page.locator('.shared-market-filters').getByLabel('Start do',{exact:true}).fill('2026-11-07');
+ await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
+ assert.equal(await page.getByRole('combobox',{name:'Oddział',exact:true}).inputValue(),'Krakow Airport (KRK)');
+ assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
+ await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
+ assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Lokalizacja',exact:true}).inputValue(),'KRLO');
+ assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
+ await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
+ assert.equal(await page.locator('.band-date').count(),3);
+ assert.equal(await page.locator('.band-date').first().getAttribute('id'),'band-day-2026-11-05');
+ await page.getByRole('button',{name:'Wszystkie oddziały ›',exact:true}).click();
+ await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
+ await page.locator('.shared-market-filters .range-picker > summary').click();
+ await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
+ await page.locator('.shared-market-filters').getByLabel('Start do',{exact:true}).fill('2026-11-17');
+ await page.locator('.shared-market-filters .range-picker > summary').click();
+ assert.equal(await page.getByRole('group',{name:'Pasmo mapy'}).getByRole('button',{name:'3–4',exact:true}).getAttribute('aria-pressed'),'true');
+ await page.getByRole('group',{name:'Pasmo mapy'}).getByRole('button',{name:'2',exact:true}).click();
+ await page.locator('.attention-map tbody tr').first().getByRole('button',{name:/Brak potwierdzonych danych/}).first().waitFor();
+ await page.getByRole('group',{name:'Pasmo mapy'}).getByRole('button',{name:'3–4',exact:true}).click();
+ assert.equal(await page.locator('.attention-map thead th').count(),16,'First report date plus 13, with branch and summary columns');
+ assert.match(await page.locator('.attention-map thead th').nth(1).innerText(),/04.11/,'Use first report date, even if earlier than today');
  await page.locator('.attention-map').getByRole('button',{name:/04.11.2026: MM droższe/}).click();
  assert.equal(await page.locator('#band-day-2026-11-04.highlight-day').count(),1);
  await page.locator('.band-matrix').waitFor();
+ assert.equal(await page.locator('.band-date').first().getAttribute('id'),'band-day-2026-11-04');
  assert.equal(await page.getByLabel('Oddziały przeglądu').count(),0);
- assert.equal(await page.getByRole('group',{name:'Skrzynia w przeglądzie'}).isVisible(),true);
+ const breadcrumb=await page.locator('.branch-breadcrumb').boundingBox();
+ assert.ok(breadcrumb.height<=44,'Branch heading stays on one line on desktop');
+ assert.match(await page.locator('.branch-position').innerText(),/1 z 1/);
+ assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).isVisible(),true);
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).getByText('63,00',{exact:true}).waitFor();
+ const matrixWorkbookReads=reads.filter(url=>url.includes('kind=workbook')).length;
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).click();
  await page.locator('.band-detail').waitFor();
  assert.match(await page.locator('.band-key-rates').innerText(),/65,00.*63,00.*Minimum reguł teraz/s);
@@ -34,13 +72,18 @@ try {
  await page.keyboard.press('ArrowUp');await page.getByRole('heading',{name:'śr 04.11 · pasmo 3–4 dni'}).waitFor();
  for(const width of [1440,1024,390,320]){
   await page.setViewportSize({width,height:1000});
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'band detail overflow '+width);
+  if(width>=1024){
+   const pane=await page.locator('.band-matrix-pane').boundingBox(),detail=await page.locator('.band-detail').boundingBox();
+   assert.ok(pane.x+pane.width<=detail.x,'Detail beside, not over the matrix');
+   assert.equal(await page.locator('.band-detail').evaluate(e=>e.matches(':modal')),false);
+  }else assert.equal(await page.locator('.band-detail').evaluate(e=>e.matches(':modal')),true,'Mobile bottom sheet');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'band detail overflow '+width+' '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('.branch-header,.branch-breadcrumb,.branch-back,.branch-header h2,.branch-header .icon-button,.branch-position')].map(e=>({cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right})))));
   assert.equal(await page.locator('.band-detail').evaluate(e=>e.scrollWidth<=e.clientWidth+1),true,'band dialog overflow '+width);
-  if(width===1440||width===390)await page.screenshot({path:'docs/ui-redesign-3/verification/stage-3-'+width+'.png',fullPage:true});
+  if(width===1440||width===390)await page.screenshot({path:'docs/market-filters/verification/band-detail-'+width+'.png',fullPage:true});
  }
  await page.locator('.band-scenarios').getByRole('button',{name:'Szczegóły',exact:true}).click();
  await page.locator('.inline-decision').getByText('Zapisana decyzja',{exact:true}).waitFor();
- assert.equal(reads.filter(url=>url.includes('kind=workbook')).length,1,'Details reuse the matrix workbook');
+ assert.equal(reads.filter(url=>url.includes('kind=workbook')).length,matrixWorkbookReads,'Details reuse the matrix workbook');
  await page.getByRole('button',{name:'Zobacz aktualne reguły',exact:true}).click();
  await page.locator('.rule-context').waitFor();
  assert.equal(await page.locator('.rules-register').count(),0,'Only relevant rules, not a second full register');
@@ -53,6 +96,11 @@ try {
  await page.locator('.band-matrix').waitFor();
  for(const width of [1440,1024,390,320]){
   await page.setViewportSize({width,height:1000});
+  const rowHeight=await page.locator('.band-date').first().evaluate(e=>e.getBoundingClientRect().height);
+  assert.equal(rowHeight,44,'Matrix rows stay 44px at '+width);
+  const cell=page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'});
+  const rateBox=await cell.locator('strong').boundingBox(),badgeBox=await cell.locator('.price-badge').boundingBox();
+  assert.ok(Math.abs(rateBox.y+rateBox.height/2-badgeBox.y-badgeBox.height/2)<2,'Rate and badge share one line');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'matrix overflow '+width);
   await page.screenshot({path:'../output/matrix-'+width+'.png',fullPage:true});
  }

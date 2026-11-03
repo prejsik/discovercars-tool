@@ -10,7 +10,7 @@ const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocal
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
 const list=value=>Array.isArray(value)?value.length?value.join(', '):'Brak':'Brak danych';
 
-export function PricesView({model,workspace,service,selection,onSelectionChange}) {
+export function PricesView({model,workspace,service,selection,onSelectionChange,sharedFilters=false}) {
   const zones=useMemo(()=>locationOptions(model),[model]);
   const groups=useMemo(()=>knownGroups(model),[model]);
   const {zone,duration,transmission,from,to}=selection;
@@ -38,7 +38,7 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
       <label>Lokalizacja<select value={zone} onChange={e=>setZone(e.target.value)}><option value="">Wybierz lokalizację</option>{zones.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Długość najmu<select value={duration} onChange={e=>setDuration(Number(e.target.value))}>{Array.from({length:14},(_,i)=>i+1).map(day=><option key={day} value={day}>{day} dni · Excel {bandLabel(day)}</option>)}</select></label>
-      <label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
+      {!sharedFilters&&<label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>}
       <button className="button primary" disabled={busy||!report||!excel||!zone||!group}><Search size={17}/>{busy?'Odczytywanie plików…':'Pokaż ceny'}</button>
     </form>
     {!report||!excel?<p className="freshness-warning">Do porównania potrzebny jest potwierdzony raport i poprawny Excel. Sprawdź Pulpit.</p>:null}
@@ -50,7 +50,7 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
       {data.report.runId!==data.excel.runId&&<div className="alert">Raport cen i Excel pochodzą z różnych uruchomień. Ceny rynku nie są dowodem decyzji tego Excela.</div>}
       {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<p className="freshness-warning">Raport zawiera dane sprzed ponad 24 godzin.</p>}
       {data.warnings.map((text,i)=><p className="freshness-warning" key={i}>{text}</p>)}
-      <div className="price-date-filters"><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);setLimit(20);}}/></label><label>Start do<input type="date" value={to} onChange={e=>{setTo(e.target.value);setLimit(20);}}/></label><span>{rows.length} dat startu</span></div>
+      {!sharedFilters&&<div className="price-date-filters"><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);setLimit(20);}}/></label><label>Start do<input type="date" value={to} onChange={e=>{setTo(e.target.value);setLimit(20);}}/></label><span>{rows.length} dat startu</span></div>}
       <table className="prices-table"><thead><tr><th>Start najmu</th><th>Baza użyta w Excelu</th><th>MM na stronie</th><th>Najtańsza konkurencja</th><th>Do importu</th><th>Prognoza / decyzja</th></tr></thead><tbody>
         {rows.slice(0,limit).map(row=><React.Fragment key={row.date}><tr className={selected===row.date?'selected-price':''}>
           <td data-label="Start najmu">{dayLabel(row.date)}</td><td data-label="Baza użyta w Excelu">{money(row.baseline)}</td><td data-label="MM na stronie">{money(row.mm)}<small>{row.rank}</small></td><td data-label="Najtańsza konkurencja">{money(row.competitor)}<small>{row.provider}</small></td><td data-label="Do importu"><strong>{money(row.importRate)}</strong>{row.changed!==null&&<small>{row.changed?`${row.importRate>row.baseline?'+':''}${money(row.importRate-row.baseline)} względem bazy`:'Bez zmiany względem bazy'}</small>}</td>

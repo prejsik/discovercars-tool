@@ -1,7 +1,7 @@
 import React from 'react';
 import {CalendarDays} from 'lucide-react';
 import {monthDates,eventsForDay,money,priceTone,warsawToday} from './market-model.mjs';
-import {weekdayDate,isWeekend,signedPrice,monthLabel} from './visual-format.mjs';
+import {weekdayDate,isWeekend,signedPrice} from './visual-format.mjs';
 import {calendarSummary} from './attention-map.mjs';
 
 export function DurationChips({values,onChange}) {
@@ -13,7 +13,7 @@ export function PriceCalendar({month,rows,duration,events,zones,onSelect,reportD
  const days=monthDates(month),indexed=new Map(rows.map(row=>[row.date,row]));
  const offset=days.length?(new Date(days[0]+'T12:00:00Z').getUTCDay()+6)%7:0;
  const summary=calendarSummary(rows.filter(row=>row.date.startsWith(month)));
- return <section className="market-calendar"><header className="calendar-section-heading"><h2>{monthLabel(month)} · {duration} dni</h2><span>MM Top1: {summary.top1} z {summary.comparable} porównanych dni · średnio {summary.average===null?'brak porównania':signedPrice(summary.average)+' PLN/d'}</span></header>
+ return <section className="market-calendar"><header className="calendar-section-heading"><h2>{duration} dni</h2><span>MM Top1: {summary.top1} z {summary.comparable} porównanych dni · średnio {summary.average===null?'brak porównania':signedPrice(summary.average)+' PLN/d'}</span></header>
   <div className="calendar-week">{['Pon','Wt','Śr','Czw','Pt','Sob','Nd'].map(day=><span key={day}>{day}</span>)}</div>
   <div className="market-calendar-grid">{Array.from({length:offset},(_,i)=><span key={i}/>)}{days.map(day=>{
    const row=indexed.get(day),outside=!reportDates.includes(day),enabled=Boolean(row&&!row.missingScenario);

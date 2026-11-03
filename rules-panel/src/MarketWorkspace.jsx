@@ -9,9 +9,10 @@ import { gapLabel,priceScale } from './market-review.mjs';
 import { PricesView } from './PricesView.jsx';
 import { CalendarEvents } from './CalendarEvents.jsx';
 import { timestamp } from './display.mjs';
-import { dateRange, eventsForDay, lineSegments, money, monthDates, plusDays, scenarioLink, validDate, warsawToday } from './market-model.mjs';
+import { dateRange, eventsForDay, lineSegments, money, monthDates, initialMarketWindow, scenarioLink, validDate, warsawToday } from './market-model.mjs';
 import './market.css';
 import {locationLabel} from './operations.mjs';
+import {reviewReasons} from './dashboard-model.mjs';
 
 const dayLabel=day=>`${day.slice(8)}.${day.slice(5,7)}.${day.slice(0,4)}`;
 const shortMoney=value=>value===null?'—':new Intl.NumberFormat('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}).format(value);
@@ -19,11 +20,12 @@ const tabs=[['attention','Przegląd rynku',ListFilter],['chart','Wykres',ChartLi
 
 export function MarketWorkspace({model,workspace,service,calendar,market,request,onRules,active=true,rulesModel=model}) {
   const [view,setView]=useState('attention');const {data,busy,error,load}=market;const handledRequest=useRef(null);
-  const [kind,setKind]=useState('all');const [location,setLocation]=useState('*');const [transmission,setTransmission]=useState('automatic');
+  const [location,setLocation]=useState('*');const [transmission,setTransmission]=useState('automatic');
   const [durations,setDurations]=useState([3]);const [from,setFrom]=useState('');const [to,setTo]=useState('');const [month,setMonth]=useState(warsawToday().slice(0,7));
   const [calendarDuration,setCalendarDuration]=useState(3);
+  const [band,setBand]=useState('3-4'),[reason,setReason]=useState('all');
   const shownDuration=durations.includes(calendarDuration)?calendarDuration:durations[0];
-  function changeFilters(patch){if('from' in patch)setFrom(patch.from);if('to' in patch)setTo(patch.to);if('transmission' in patch)setTransmission(patch.transmission);if('kind' in patch)setKind(patch.kind);if('location' in patch)setLocation(patch.location);}
+  function changeFilters(patch){if('from' in patch)setFrom(patch.from);if('to' in patch)setTo(patch.to);if('transmission' in patch)setTransmission(patch.transmission);if('location' in patch)setLocation(patch.location);}
   const [selected,setSelected]=useState(null);const neighbors=useRef([]);const selectRow=useCallback((row,items=[])=>{neighbors.current=items;setSelected(row);},[]);
   const [excelGroup,setExcelGroup]=useState(undefined);
   const [excelVisited,setExcelVisited]=useState(false);const [excelZone,setExcelZone]=useState('KRLO');const [excelDuration,setExcelDuration]=useState(3);
@@ -33,31 +35,38 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
   const excelSelection={group:excelGroup,zone:excelZone,duration:durations.includes(excelDuration)?excelDuration:durations[0]??3,transmission,from,to};
   function changeExcel(patch) {
     if ('group' in patch) setExcelGroup(patch.group);
-    if ('zone' in patch) {setExcelZone(patch.zone);const item=marketLocations.find(l=>l.zones.includes(patch.zone));if(item){setLocation(item.scraper_label);setKind(item.kind==='airport'?'airport':'branch');}}
+    if ('zone' in patch) {setExcelZone(patch.zone);const item=marketLocations.find(l=>l.zones.includes(patch.zone));if(item){setLocation(item.scraper_label);}}
     if ('duration' in patch) {setExcelDuration(patch.duration);setDurations([patch.duration]);}
     if ('transmission' in patch) setTransmission(patch.transmission);
     if ('from' in patch) {setFrom(patch.from);if(validDate(patch.from))setMonth(patch.from.slice(0,7));}
     if ('to' in patch) setTo(patch.to);
   }
   const report=workspace?.status?.report;
-  useEffect(()=>{if(!data)return;const dates=[...new Set(data.rows.map(row=>row.date))].sort();const first=dates.find(day=>day>=warsawToday())??dates[0];if(first&&!from&&!to){setFrom(first);setTo(plusDays(first,13));setMonth(first.slice(0,7));}setLocation(old=>old==='*'||data.rows.some(row=>row.location===old)?old:'*');setSelected(null);},[data]);
-  const locations=useMemo(()=>[...new Set((data?.rows??[]).filter(r=>kind==='all'||r.type===kind).map(r=>r.location))].sort(),[data,kind]);
+  useEffect(()=>{if(!data)return;const initial=initialMarketWindow(data);if(initial.from&&!from&&!to){setFrom(initial.from);setTo(initial.to);setMonth(initial.from.slice(0,7));}setLocation(old=>old==='*'||data.rows.some(row=>row.location===old)?old:'*');setSelected(null);},[data]);
+  const locations=useMemo(()=>[...new Set((data?.rows??[]).map(r=>r.location))].sort(),[data]);
   const rangeValid=validDate(from)&&validDate(to)&&from<=to&&Date.parse(to)-Date.parse(from)<366*86400000;
-  const rows=useMemo(()=>rangeValid?(data?.rows??[]).filter(r=>r.transmission===transmission&&(kind==='all'||r.type===kind)&&(location==='*'||r.location===location)&&durations.includes(r.duration)&&r.date>=from&&r.date<=to):[],[data,kind,location,transmission,durations,from,to,rangeValid]);
+  const rows=useMemo(()=>rangeValid?(data?.rows??[]).filter(r=>r.transmission===transmission&&(location==='*'||r.location===location)&&durations.includes(r.duration)&&r.date>=from&&r.date<=to):[],[data,location,transmission,durations,from,to,rangeValid]);
   const scale=useMemo(()=>priceScale(rows),[rows]);
   const days=useMemo(()=>rangeValid?dateRange(from,to):[],[from,to,rangeValid]);
   const applicableZones=data?.locations?.find(l=>l.scraper_label===location)?.zones??[];
-  const series=duration=>{const found=new Map(rows.filter(r=>r.duration===duration).map(r=>[r.date,r]));return days.map(date=>found.get(date)??{date,duration,location,transmission,mm:null,competitor:null,marketConfirmed:false,gap:null,missingScenario:true});};
-  useEffect(()=>{setSelected(null);},[kind,location,transmission,durations,from,to,view,active]);
-  useEffect(()=>{if(!request||handledRequest.current===request.id||!data||!from||!to)return;handledRequest.current=request.id;setView('attention');if(request.transmission)setTransmission(request.transmission);setLocation(request.row?.location??'*');setKind('all');selectRow(null);},[request,data,from,to,selectRow]);
-  function preset(count){const dates=[...new Set(data.rows.map(r=>r.date))].sort();const start=dates.find(d=>d>=warsawToday())??dates[0];setFrom(start);setTo(count?([plusDays(start,count-1),dates.at(-1)].sort()[0]):dates.at(-1));setMonth(start.slice(0,7));}
-  function changeMonth(value){const dates=monthDates(value);if(dates.length){setMonth(value);setFrom(dates[0]);setTo(dates.at(-1));}}
+  const series=(duration,calendarMonth=false)=>{const source=calendarMonth?(data?.rows??[]).filter(r=>r.transmission===transmission&&r.location===location):rows;const calendarDays=calendarMonth?monthDates(month).filter(day=>data.report.startDates.includes(day)):days;const found=new Map(source.filter(r=>r.duration===duration).map(r=>[r.date,r]));return calendarDays.map(date=>found.get(date)??{date,duration,location,transmission,mm:null,competitor:null,marketConfirmed:false,gap:null,missingScenario:true});};
+  const countRows=data&&view==='calendar'?series(shownDuration,true).filter(row=>!row.missingScenario):rows;
+  useEffect(()=>{setSelected(null);},[location,transmission,durations,from,to,view,active]);
+  useEffect(()=>{if(!request||handledRequest.current===request.id||!data||!from||!to)return;handledRequest.current=request.id;setView('attention');setReason(request.reason??'all');if(request.transmission)setTransmission(request.transmission);setLocation(request.row?.location??'*');selectRow(null);},[request,data,from,to,selectRow]);
+  function changeMonth(value){if(monthDates(value).length)setMonth(value);}
   function shiftMonth(step){const [y,m]=month.split('-').map(Number);changeMonth(new Date(Date.UTC(y,m-1+step,1)).toISOString().slice(0,7));}
   function openExcel(row){const zones=data.locations.find(l=>l.scraper_label===row.location)?.zones??[];if(zones.length){changeExcel({zone:row.excelSelection?.zone??zones[0],group:row.excelSelection?.group??excelGroup,duration:row.duration,transmission:row.transmission,from:row.date,to:row.date});setView('excel');}}
   const reportLink=report?`/api/report/open?runId=${report.runId}`:null;
   return <section className={`market-workspace ${selected?'has-detail':''}`}>
+    {data&&<div className="market-filters shared-market-filters" aria-label="Filtry rynku">
+      <label>Oddział<select value={location} onChange={e=>{setLocation(e.target.value);}}><option value="*">Wszystkie oddziały</option>{locations.map(l=><option key={l} value={l}>{locationLabel(l)}</option>)}</select></label>
+      <label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="automatic">Automaty</option><option value="all">Wszystkie auta</option></select></label>
+      {view!=='calendar'&&<details key={view} className="range-picker"><summary>{dayLabel(from)} – {dayLabel(to)}</summary><div><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);if(validDate(e.target.value))setMonth(e.target.value.slice(0,7));}}/></label><label>Start do<input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label></div></details>}
+      {view==='attention'&&location==='*'&&<><div><span className="filter-label">Pasmo Excela</span><div className="segmented" role="group" aria-label="Pasmo mapy">{[['2','2'],['3-4','3–4'],['5-7','5–7'],['8-20','8–20']].map(([value,label])=><button key={value} aria-pressed={band===value} onClick={()=>setBand(value)}>{label}</button>)}</div></div><label>Pozycje przeglądu<select value={reason} onChange={e=>setReason(e.target.value)}>{Object.entries(reviewReasons).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label></>}
+      {view==='calendar'?<DurationChips values={durations} onChange={setDurations}/>:view==='chart'?<details className="duration-select"><summary>Długość najmu: {durations.length?durations.join(', '):'brak'} dni</summary><fieldset><legend>Długości najmu</legend>{Array.from({length:13},(_,i)=>i+2).map(d=><label key={d}><input type="checkbox" checked={durations.includes(d)} onChange={e=>setDurations(old=>e.target.checked?[...old,d].sort((a,b)=>a-b):old.filter(n=>n!==d))}/>{d} dni</label>)}</fieldset></details>:null}
+    </div>}
     <div className="market-toolbar"><ViewTabs items={tabs} value={view} onChange={setView} label="Widok cen"/>{reportLink&&<a className="text-button" href={reportLink} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Pełny raport HTML</a>}</div>
-    {excelVisited&&<div hidden={view!=='excel'}><PricesView selection={excelSelection} onSelectionChange={changeExcel} model={model} workspace={workspace} service={service}/></div>}
+    {excelVisited&&<div hidden={view!=='excel'}><PricesView sharedFilters selection={excelSelection} onSelectionChange={changeExcel} model={model} workspace={workspace} service={service}/></div>}
     <div hidden={view==='excel'}>
       <div className="market-source"><span>{data?`Zbieranie cen od ${timestamp(data.report.sourceStartedAt)}`:report?`Dostępny raport: ${timestamp(report.generatedAt)}`:'Brak potwierdzonego raportu cenowego.'}</span><button className="button" disabled={busy||!report} onClick={load}><Search size={16}/>{busy?'Odczytywanie…':data?'Wczytaj najnowszy raport':'Wczytaj raport'}</button></div>
       {error&&<div className="alert error" role="alert">{error}</div>}
@@ -68,19 +77,15 @@ export function MarketWorkspace({model,workspace,service,calendar,market,request
         {data.report.quality==='failure'&&<div className="alert">Dane rynku są dostępne. Ten przebieg nie opublikował nowych plików Excel.</div>}
         {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<div className="alert">Zbieranie danych rozpoczęło się ponad 24 godziny temu. Dokładny czas odczytu poszczególnych cen nie jest zapisany w tym raporcie.</div>}
       </>}
-      <div hidden={view!=='attention'||!data}><AttentionView active={active&&view==='attention'} rulesModel={rulesModel} onRules={onRules} onExcel={openExcel} filters={{from,to,transmission,kind,location}} onFilters={changeFilters} calendar={calendar} model={model} workspace={workspace} service={service} key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
+      <div hidden={view!=='attention'||!data}><AttentionView active={active&&view==='attention'} rulesModel={rulesModel} onRules={onRules} onExcel={openExcel} band={band} reason={reason} filters={{from,to,transmission,location}} onFilters={changeFilters} calendar={calendar} model={model} workspace={workspace} service={service} key={request?.id??"default"} request={request} data={data} onSelect={selectRow} selected={selected}/></div>
       {data&&<>
-        <div hidden={view==='attention'} className="market-filters chart-filters"><label>Oddziały<select value={kind} onChange={e=>{setKind(e.target.value);setLocation('*');}}><option value="airport">Lotniska</option><option value="all">Wszystkie oddziały</option><option value="branch">Poza lotniskami</option></select></label><label>Lokalizacja rynku<select value={location} onChange={e=>setLocation(e.target.value)}><option value="*">Wszystkie lokalizacje</option>{locations.map(l=><option key={l} value={l}>{locationLabel(l)}</option>)}</select></label><label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>
-        {view==='calendar'?<DurationChips values={durations} onChange={setDurations}/>:<details className="duration-select"><summary>Długość najmu: {durations.length?durations.join(', '):'brak'} dni</summary><fieldset><legend>Długości najmu</legend>{Array.from({length:13},(_,i)=>i+2).map(d=><label key={d}><input type="checkbox" checked={durations.includes(d)} onChange={e=>setDurations(old=>e.target.checked?[...old,d].sort((a,b)=>a-b):old.filter(n=>n!==d))}/>{d} dni</label>)}</fieldset></details>}
-        <details className="range-picker"><summary>{dayLabel(from)} – {dayLabel(to)}</summary><div><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);if(validDate(e.target.value))setMonth(e.target.value.slice(0,7));}}/></label><label>Start do<input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label></div></details></div>
-        <div hidden={view==='attention'} className="market-range" role="group" aria-label="Zakres dat">{[7,14,30,0].map(n=><button key={n} className="text-button" onClick={()=>preset(n)}>{n?`${n} dni`:'Cały raport'}</button>)}</div>
-        {!rangeValid&&<p className="alert error">Wybierz prawidłowy zakres dat, nie dłuższy niż rok.</p>}
+        {view!=='calendar'&&!rangeValid&&<p className="alert error">Wybierz prawidłowy zakres dat, nie dłuższy niż rok.</p>}
         {!durations.length&&<p className="alert">Wybierz co najmniej jedną długość najmu.</p>}
-        <div hidden={view==='attention'} className="market-counts"><span><strong>{rows.length}</strong> sprawdzeń w filtrze</span><span>Top1: <strong>{rows.filter(r=>r.rank===1&&r.marketConfirmed).length}/{rows.filter(r=>r.rankLabel&&r.marketConfirmed).length}</strong> ocenionych</span><span>Brak MM: <strong>{rows.filter(r=>r.marketConfirmed&&r.mm===null).length}</strong></span><span>Bez potwierdzonych danych: <strong>{rows.filter(r=>!r.marketConfirmed).length}</strong></span></div>
+        <div hidden={view==='attention'} className="market-counts"><span><strong>{countRows.length}</strong> sprawdzeń w filtrze</span><span>Top1: <strong>{countRows.filter(r=>r.rank===1&&r.marketConfirmed).length}/{countRows.filter(r=>r.rankLabel&&r.marketConfirmed).length}</strong> ocenionych</span><span>Brak MM: <strong>{countRows.filter(r=>r.marketConfirmed&&r.mm===null).length}</strong></span><span>Bez potwierdzonych danych: <strong>{countRows.filter(r=>!r.marketConfirmed).length}</strong></span></div>
         {(view==='chart'||view==='calendar')&&location==='*'?<p>Wybierz jedną lokalizację. Zestawienie wszystkich lokalizacji jest w „Przegląd rynku”.</p>:view==='chart'?durations.map(duration=><PriceChart key={duration} rows={series(duration)} scale={scale} duration={duration} onSelect={row=>selectRow(row,series(duration))}/>):view==='calendar'?<>
           <div className="calendar-month"><button className="icon-button" aria-label="Poprzedni miesiąc cen" title="Poprzedni miesiąc" onClick={()=>shiftMonth(-1)}><ChevronLeft size={18}/></button><strong>{monthLabel(month)}</strong><button className="icon-button" aria-label="Następny miesiąc cen" title="Następny miesiąc" onClick={()=>shiftMonth(1)}><ChevronRight size={18}/></button></div>
           <div className="segmented" role="group" aria-label="Długość widocznego kalendarza">{durations.map(d=><button key={d} aria-pressed={shownDuration===d} onClick={()=>setCalendarDuration(d)}>{d} dni</button>)}</div>
-          {[shownDuration].filter(Boolean).map(duration=><PriceCalendar key={duration} month={month} rows={series(duration)} duration={duration} events={calendar.items} zones={applicableZones} reportDates={data.report.startDates} onSelect={row=>selectRow(row,series(duration))}/>)}
+          {[shownDuration].filter(Boolean).map(duration=><PriceCalendar key={duration} month={month} rows={series(duration,true)} duration={duration} events={calendar.items} zones={applicableZones} reportDates={data.report.startDates} onSelect={row=>selectRow(row,series(duration,true))}/>)}
           <p className="evidence-note">PLN/dobę, ceny na siatce zaokrąglone. + MM droższe · − MM tańsze · szary: różnica do ±5 PLN · brak MM: potwierdzony brak oferty · ?: brak danych. Dokładne kwoty w szczegółach.</p>
           {calendar.error&&<p className="freshness-warning">Nie potwierdzono oznaczeń wydarzeń. {calendar.error}</p>}
           <details className="technical-details"><summary>Wydarzenia i święta</summary><CalendarEvents calendar={calendar} model={model}/></details>

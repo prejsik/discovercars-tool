@@ -3,6 +3,10 @@ export const money=value=>typeof value==='number'&&Number.isFinite(value)?value.
 export const warsawToday=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw'}).format(new Date());
 export const validDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number(value.slice(0,4))>=1900&&Number(value.slice(0,4))<=2200&&Number.isFinite(Date.parse(value))&&new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;
 export const plusDays=(date,count)=>new Date(Date.parse(date+'T12:00:00Z')+count*86400000).toISOString().slice(0,10);
+export function initialMarketWindow(data) {
+ const dates=(data?.report?.startDates?.length?data.report.startDates:(data?.rows??[]).map(row=>row.date)).filter(validDate).sort();
+ return dates.length?{from:dates[0],to:plusDays(dates[0],13)}:{from:'',to:''};
+}
 export function dateRange(from,to) {if(!validDate(from)||!validDate(to)||from>to)return [];const days=Math.min(366,Math.round((Date.parse(to)-Date.parse(from))/86400000)+1);return Array.from({length:days},(_,i)=>plusDays(from,i));}
 export function monthDates(month) {if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!validDate(month+'-01'))return [];const [year,m]=month.split('-').map(Number);return dateRange(month+'-01',`${month}-${new Date(Date.UTC(year,m,0)).getUTCDate()}`);}
 export function marketSignals(row,report,now=Date.now()) {
