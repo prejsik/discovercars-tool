@@ -69,3 +69,4 @@ jobs:
       - run: python -m pip install 'openpyxl>=3.1,<4'
       - run: npm --prefix rules-panel test
       - run: npm --prefix rules-panel run check:deploy
+      - run: npm --prefix rules-panel run test:worker

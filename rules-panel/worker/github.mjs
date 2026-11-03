@@ -52,7 +52,7 @@ export class GitHubRepository {
     if (binary && response.status === 302) {
       const url = new URL(response.headers.get('location'));
       if (url.protocol !== 'https:' || !/(?:\.blob\.core\.windows\.net|\.actions\.githubusercontent\.com|^objects\.githubusercontent\.com)$/.test(url.hostname)) throw new PanelError(502, 'Nieprawidlowy adres artefaktu.');
-      const artifact = await this.fetcher(url, { signal: AbortSignal.timeout(20000), redirect: 'error' });
+      const artifact = await this.fetcher(url, { signal: AbortSignal.timeout(20000), redirect: 'manual' });
       if (!artifact.ok) throw new PanelError(502, 'Nie mozna odczytac wyniku testu.');
       return readLimited(artifact, maximum);
     }

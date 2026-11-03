@@ -10,7 +10,8 @@ const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const signature = value => JSON.stringify([value.run_id, value.generated_at, value.git_sha, value.excel_files, value.report_html_sha256]);
 
 async function published(name, fetcher, maximum = 4 * 1024 * 1024) {
-  const response = await fetcher(`${PAGE}/${name}`, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(20000), redirect: 'error' });
+  // Workers supports manual/follow only; reject redirects via the status check below.
+  const response = await fetcher(`${PAGE}/${name}`, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(20000), redirect: 'manual' });
   if (!response.ok) throw new PanelError(502, `Nie mozna odczytac opublikowanego pliku (HTTP ${response.status}).`);
   return readLimited(response, maximum);
 }

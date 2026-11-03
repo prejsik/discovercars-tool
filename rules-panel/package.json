@@ -9,7 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test tests/*.test.mjs",
     "test:engine": "node tests/engine-compat.mjs",
-    "test:worker": "node --test tests/worker.test.mjs && node tests/worker-runtime.mjs",
+    "test:worker": "node --test tests/worker.test.mjs && node tests/worker-runtime.mjs && node tests/report-runtime.mjs",
     "check:deploy": "npm run build && wrangler deploy --dry-run",
     "test:ui": "node tests/ui.mjs && node tests/concurrency-ui.mjs && node tests/preview-labels-ui.mjs && node tests/director-ui.mjs && node tests/partial-floor-ui.mjs && node tests/simple-ui.mjs && node tests/baseline-ui.mjs && node tests/location-onboarding-ui.mjs && node tests/reports-ui.mjs && node tests/diagnostics-ui.mjs && node tests/report-viewer-ui.mjs",
     "test:storage": "node tests/storage-runtime.mjs"
