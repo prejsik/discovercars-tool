@@ -27,3 +27,8 @@ test('mixed band only compares confirmed differences strictly outside the neutra
  assert.equal(mixedBand([{marketConfirmed:true,gap:-5},{marketConfirmed:true,gap:7}]),false);
  assert.equal(mixedBand([{marketConfirmed:false,gap:-6},{marketConfirmed:true,gap:7}]),false);
 });
+import {calendarSummary} from '../src/attention-map.mjs';
+test('calendar summary excludes unconfirmed/missing prices from comparison denominator',()=>{
+ assert.deepEqual(calendarSummary([{marketConfirmed:true,mm:10,competitor:20,gap:10,rank:1},{marketConfirmed:true,mm:30,competitor:20,gap:-10,rank:2},{marketConfirmed:false,mm:10,competitor:20,gap:10,rank:1},{marketConfirmed:true,mm:null,competitor:20,gap:null}]),{comparable:2,top1:1,average:-0});
+ assert.equal(calendarSummary([]).average,null);
+});

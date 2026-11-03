@@ -24,3 +24,7 @@ export function buildAttentionMap(rows,dates) {
  }).sort((a,b)=>b.problems-a.problems||locationLabel(a.location).localeCompare(locationLabel(b.location),'pl'));
 }
 export const mixedBand=rows=>rows.some(r=>r.marketConfirmed&&Number.isFinite(r.gap)&&r.gap>5)&&rows.some(r=>r.marketConfirmed&&Number.isFinite(r.gap)&&r.gap<-5);
+export function calendarSummary(rows) {
+ const comparable=rows.filter(r=>r.marketConfirmed&&Number.isFinite(r.mm)&&Number.isFinite(r.competitor)&&Number.isFinite(r.gap));
+ return {comparable:comparable.length,top1:comparable.filter(r=>r.rank===1).length,average:comparable.length?-comparable.reduce((sum,r)=>sum+r.gap,0)/comparable.length:null};
+}

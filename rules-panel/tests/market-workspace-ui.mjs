@@ -98,6 +98,18 @@ try {
   assert.equal(await page.locator('.market-calendar-grid button').count(),60);
   assert.equal(await page.locator('.market-calendar-grid button:disabled').count(),32);
   assert.match(await page.locator('.market-calendar-grid').first().innerText(),/60/);
+  assert.doesNotMatch(await page.locator('.market-calendar-grid').first().innerText(),/%/);
+  await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
+  assert.equal(await page.locator('.market-calendar').count(),3,'Calendar chips keep previous lengths');
+  await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'2 d',exact:true}).click();
+  await page.getByRole('button',{name:'Następny miesiąc cen',exact:true}).click();
+  assert.match(await page.locator('.calendar-month').innerText(),/grudzień 2026/);
+  await page.getByRole('button',{name:'Poprzedni miesiąc cen',exact:true}).click();
+  // Restore the original 14-day window after month navigation.
+  await page.locator('.chart-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
+  await page.locator('.chart-filters').getByLabel('Start do',{exact:true}).fill('2026-11-17');
+  await page.locator('.market-calendar').first().getByRole('button',{name:/śr 04.11.2026,/}).click();
+  await page.locator('.market-detail').waitFor();await page.keyboard.press('Escape');
   await page.locator('.market-workspace summary').filter({hasText:'Wydarzenia i święta'}).click();
   await page.getByRole('button',{name:'Dodaj wydarzenie',exact:true}).click();
   await page.getByLabel('Nazwa wydarzenia').fill('Targi listopadowe');
@@ -111,6 +123,7 @@ try {
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`docs/ui-redesign-3/verification/stage-4-${width}.png`,fullPage:true});
   }
   // Event management remains inside the price calendar, not a separate main tab.
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
