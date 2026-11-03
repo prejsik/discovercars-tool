@@ -45,14 +45,16 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
   };
   return <section className="reports-view" aria-labelledby="results-heading">
     <div className="section-title"><h2 id="results-heading">Wyniki scrapera</h2><button className="icon-button" title="Odśwież wyniki" aria-label="Odśwież wyniki" disabled={busy} onClick={onRefresh}><RotateCcw size={18}/></button></div>
-    <div className="schedule-summary" aria-label="Plan harmonogramu"><span>Planowany start · czas polski</span>{__SCRAPER_PLAN__.map(slot=><span key={slot.slot}><strong>{slot.time}</strong> · rolling {slot.rollingDays} dni</span>)}</div>
+    <details className="technical-details"><summary>Harmonogram</summary><div className="schedule-summary" aria-label="Plan harmonogramu"><span>Planowany start · czas polski</span>{__SCRAPER_PLAN__.map(slot=><span key={slot.slot}><strong>{slot.time}</strong> · rolling {slot.rollingDays} dni</span>)}</div></details>
     {status.error && <div className="alert error" role="alert">{status.error}</div>}
     {status.warnings?.map((warning,index)=><p className="freshness-warning" key={index}>{warning}</p>)}
+    {diagnosticRecord?.quality==='success'&&!diagnosticRecord?.incident&&!needsFetch&&!requestedId&&(!lastRun||lastRun.status==='completed'&&lastRun.conclusion==='success')?<details className="technical-details"><summary>Ostatni przebieg · bez zgłoszonego błędu</summary><RunDiagnostics record={diagnosticRecord} run={lastRun} locations={workspace.snapshot?.documents?.locations}/></details>:<>
     <h3>{requestedId ? 'Wybrane uruchomienie' : 'Ostatni faktyczny przebieg'}</h3>
     {requestedId && <p><a href="?view=results">Pokaż ostatni przebieg</a></p>}
     {needsFetch && !diagnostics ? <p role="status">Odczytywanie diagnostyki przebiegu {targetId}…</p> : diagnostics?.error ? <div className="alert error" role="alert">{diagnostics.error} Nie zastępujemy tych danych raportem z innego uruchomienia.</div> : targetId ? <RunDiagnostics key={targetId} record={diagnosticRecord} run={diagnostics?.run ?? lastRun} locations={workspace.snapshot?.documents?.locations} unavailable={diagnostics?.unavailable}/> : <p>Nie potwierdzono jeszcze faktycznego przebiegu.</p>}
+    </>}
     {executions?.active?.length > 0 && <section aria-label="Bieżące uruchomienia"><h3>Bieżące uruchomienia</h3>{executions.active.map(run=><p key={run.runId}><strong>{runLabel(run)}</strong> · {timestamp(run.createdAt)} · <a href={run.url} target="_blank" rel="noreferrer">Zobacz przebieg</a></p>)}</section>}
-    <h3>Ostatni raport cenowy</h3>
+    <details className="technical-details"><summary>Szczegóły raportu i plików</summary><h3>Ostatni raport cenowy</h3>
     {report ? <>
       <ResultFacts record={report}/>
       {report.coverage && <p>Dane cenowe: <strong>{report.coverage.found.toLocaleString('pl-PL')} / {report.coverage.expected.toLocaleString('pl-PL')}</strong> sprawdzeń{report.coverage.expected > 0 ? ` (${(100 * report.coverage.found / report.coverage.expected).toLocaleString('pl-PL',{maximumFractionDigits:2})}%)` : ''}.</p>}
@@ -77,6 +79,7 @@ export function ReportsView({ workspace, service, onRefresh, onPublished }) {
         <button className="button" disabled={!confirmed || busy || !workspace.capabilities.publish} onClick={setBaseline}><Upload size={18}/>{busy ? 'Sprawdzanie i zapis bazy…' : 'Ustaw ten plik jako nową bazę'}</button>
       </div>}
     </> : <p>Brak potwierdzonych plików Excel.</p>}
+    </details>
     {error && <div className="alert error" role="alert">{error}</div>}
     {saved && <div className="alert" role="status">Plik importowy ustawiony jako nowa baza.{saved.url && <> <a href={saved.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}
     <details className="technical-details"><summary>Wersje raportu i Excela</summary><dl className="source-list">{[['Raport',report],['Excel',excel]].map(([label,record])=><div key={label}><dt>{label}</dt><dd>{record?.runId ?? 'Brak przebiegu'}<small>{record?.revision ?? 'Brak wersji'}</small></dd></div>)}</dl></details>

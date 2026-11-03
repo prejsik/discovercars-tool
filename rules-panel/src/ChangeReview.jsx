@@ -1,3 +1,4 @@
+import {dayLabel} from './operations.mjs';
 import React,{useEffect,useRef} from 'react';
 import { Check,X } from 'lucide-react';
 import { knownGroups } from './policy.mjs';
@@ -8,7 +9,7 @@ export const publishLabel=count=>`Opublikuj ${count} ${count===1?'zmianę':count
 export function ChangeTable({model,original,confirmations=[]}) {
   const rows=ruleDifferences(model,original);
   const groups=knownGroups(original).filter(group=>original.excel.apply_groups.includes(group)!==model.excel.apply_groups.includes(group));
-  const summary=row=>!row?'Brak reguły':row.amount==null?`${row.startDate||'Bez początku'} – ${row.endDate||'bez końca'}`:`${money(row.amount)} PLN`;
+  const summary=row=>!row?'Brak reguły':row.amount==null?`${row.startDate?dayLabel(row.startDate):'Bez początku'} – ${row.endDate?dayLabel(row.endDate):'bez końca'}`:`${money(row.amount)} PLN`;
   return <table className="change-review-table"><caption>Co się zmieni</caption><thead><tr><th>Reguła i zakres</th><th>Obecnie</th><th>Szkic</th><th>Zmiana</th><th>Status</th></tr></thead><tbody>{rows.map(({before,after})=>{
     const row=after??before;const delta=amountChange(before?.amount,after?.amount);const ack=delta?.large&&confirmations.some(item=>sameConfirmation(item,{ruleId:row.id,before:delta.before,after:delta.after}));
     return <tr key={`${after?'after':'before'}:${row.id}`} className={delta?.large?'large-change':''}><th scope="row" data-label="Reguła i zakres">{row.title}<small>{ruleScope(model,row)}</small><small>{row.groups.includes('*')?'Wszystkie klasy':row.groups.join(', ')}{row.zones.includes('*')?'':` · ${row.zones.join(', ')}`}</small><small>{row.startDate||row.endDate?`${row.startDate||'Bez początku'} – ${row.endDate||'bez końca'}`:'Bezterminowo'}</small></th><td data-label="Obecnie">{summary(before)}</td><td data-label="Szkic"><strong>{summary(after)}</strong></td><td data-label="Zmiana">{delta?`${delta.delta>0?'+':''}${money(delta.delta)} PLN · ${delta.percent>0?'+':''}${delta.percent.toLocaleString('pl-PL',{maximumFractionDigits:2})}%${delta.large?` · ×${delta.factor.toLocaleString('pl-PL',{maximumFractionDigits:2})}`:''}`:!before?'Nowa reguła':!after?'Usunięcie reguły':'Zmiana zakresu'}</td><td data-label="Status">{delta?.large?<span className="badge amber">Duża zmiana · {ack?'potwierdzona':'brak potwierdzenia'}</span>:<span className="badge">{!before?'Nowa reguła':!after?'Usunięcie':'W normie'}</span>}</td></tr>;

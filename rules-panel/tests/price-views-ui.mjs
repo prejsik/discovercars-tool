@@ -48,7 +48,7 @@ try {
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
   await page.getByLabel('Miesiąc',{exact:true}).fill('2026-12');
   const protectedCheck=previewPolicy(snapshot.documents,{zone:'KRLO',group:'CDMV',duration:3,pickupDate:'2026-12-15'});
-  await page.getByRole('button',{name:/^2026-12-15,/}).click();
+  await page.getByRole('button',{name:/^15.12.2026,/}).click();
   const expected=protectedCheck.protected?'Data chroniona':protectedCheck.marketAllowed?'Zmiany rynkowe dozwolone':'Zmiany rynkowe wyłączone';
   await page.locator('.calendar-selection').getByText(expected,{exact:true}).waitFor();
   await page.getByLabel('Przedział najmu').selectOption('8');
@@ -59,7 +59,7 @@ try {
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
   }
   await page.getByLabel('Miesiąc',{exact:true}).fill('2027-12');
-  await page.getByRole('button',{name:/^2027-12-07,/}).click();
+  await page.getByRole('button',{name:/^07.12.2027,/}).click();
   const edit=page.locator('.calendar-selection button').first();
   await edit.click();await page.getByRole('dialog').waitFor();
   await page.keyboard.press('Escape');

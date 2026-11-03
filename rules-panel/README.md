@@ -15,8 +15,18 @@ wykres/kalendarz; brak ceny pozostaje przerwa, a nie zerem. Porownanie
 dotyczy MM i najtanszego innego dostawcy. Roznica za najem to roznica
 PLN/dobe pomnozona przez duration. Czas odczytu konkretnej oferty nie
 jest dostepny w aktualnym HTML; panel pokazuje poczatek zbierania raportu.
-Lista uwagi rozroznia brak MM, brak danych, pozycje poza Top1 i zapas do
-konkurenta. Link HTML i link do scenariusza pozostaja przypisane do runa.
+Przeglad zaczyna sie od jednego wiersza na punkt odbioru, dla 14 dni i
+najmu 2-14. Pokazuje unikalne daty bez MM, udzial porownywalnych sprawdzen
+z MM drozszym o ponad 10 PLN/dobe oraz osobno braki danych. Mianownik udzialu
+obejmuje tylko potwierdzone ceny obu dostawcow. Klikniecie oddzialu otwiera
+szczegoly po 20 scenariuszy. Etykiety sa polskie, identyfikatory pozostaja
+niezmienione. Link HTML i link do scenariusza pozostaja przypisane do runa.
+
+Pulpit pokazuje czas i zakres raportu oraz ostatnie poprawne pliki. Nie pobiera
+calego raportu cen, dopoki uzytkownik nie otworzy cen. Szczegoly techniczne
+sa zwiniete, ale aktualny blad i brak diagnostyki pozostaja widoczne.
+Szczegoly scenariusza odczytuja zapis decyzji dla wybranej klasy i kodu Excel;
+zmiana klasy usuwa poprzedni wynik i nie przyjmuje spoznionej odpowiedzi.
 
 `Stawki w Excelu` odczytuje raport i Excel po wybraniu filtrow.
 Cena MM i konkurencji oznacza najtansza oferte w wybranym widoku skrzyn,

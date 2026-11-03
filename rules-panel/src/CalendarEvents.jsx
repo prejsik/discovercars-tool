@@ -1,3 +1,4 @@
+import {dayLabel} from './operations.mjs';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Archive, ArchiveRestore, CalendarDays, Pencil, Plus, RotateCcw, Save, X } from 'lucide-react';
 import { locationOptions } from './editor.mjs';
@@ -34,7 +35,7 @@ export function CalendarEvents({calendar,model}) {
     <label className="check-label"><input type="checkbox" checked={archived} onChange={e=>setArchived(e.target.checked)}/>Pokaż zarchiwizowane</label>
     {calendar.ready&&!calendar.items.some(e=>archived||e.active)&&<p>Brak zapisanych wydarzeń.</p>}
     {[...calendar.items].filter(e=>archived||e.active).sort((a,b)=>a.start.localeCompare(b.start)).map(event=><div className="event-record" key={event.id}>
-      <CalendarDays size={18}/><div><strong>{event.title}</strong><small>{event.start} – {event.end} · {event.zones.includes('*')?'Wszystkie lokalizacje':event.zones.join(', ')} · {event.kind==='holiday'?'Święto / okres szczególny':'Wydarzenie'}{!event.active?' · Zarchiwizowane':''}</small>{event.notes&&<p>{event.notes}</p>}<small>{timestamp(event.updatedAt)} · {event.updatedBy}</small></div>
+      <CalendarDays size={18}/><div><strong>{event.title}</strong><small>{dayLabel(event.start)} – {dayLabel(event.end)} · {event.zones.includes('*')?'Wszystkie lokalizacje':event.zones.join(', ')} · {event.kind==='holiday'?'Święto / okres szczególny':'Wydarzenie'}{!event.active?' · Zarchiwizowane':''}</small>{event.notes&&<p>{event.notes}</p>}<small>{timestamp(event.updatedAt)} · {event.updatedBy}</small></div>
       <div className="event-actions"><button className="icon-button" aria-label={`Edytuj ${event.title}`} title="Edytuj wydarzenie" disabled={calendar.busy} onClick={()=>setEditor({...event})}><Pencil size={16}/></button><button className="icon-button" aria-label={`${event.active?'Archiwizuj':'Przywróć'} ${event.title}`} title={event.active?'Archiwizuj':'Przywróć'} disabled={calendar.busy} onClick={()=>calendar.save({...event,active:!event.active})}>{event.active?<Archive size={16}/>:<ArchiveRestore size={16}/>}</button></div>
     </div>)}
   </section>;

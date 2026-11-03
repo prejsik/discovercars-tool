@@ -4,6 +4,7 @@ import { locationOptions } from './editor.mjs';
 import { knownGroups, DURATION_BANDS } from './policy.mjs';
 import { timestamp } from './display.mjs';
 import './price-views.css';
+import {dayLabel} from './operations.mjs';
 
 const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'Brak danych';
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
@@ -50,7 +51,7 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
       <div className="price-date-filters"><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);setLimit(20);}}/></label><label>Start do<input type="date" value={to} onChange={e=>{setTo(e.target.value);setLimit(20);}}/></label><span>{rows.length} dat startu</span></div>
       <table className="prices-table"><thead><tr><th>Start najmu</th><th>Baza użyta w Excelu</th><th>MM na stronie</th><th>Najtańsza konkurencja</th><th>Do importu</th><th>Prognoza / decyzja</th></tr></thead><tbody>
         {rows.slice(0,limit).map(row=><React.Fragment key={row.date}><tr className={selected===row.date?'selected-price':''}>
-          <td data-label="Start najmu">{row.date}</td><td data-label="Baza użyta w Excelu">{money(row.baseline)}</td><td data-label="MM na stronie">{money(row.mm)}<small>{row.rank}</small></td><td data-label="Najtańsza konkurencja">{money(row.competitor)}<small>{row.provider}</small></td><td data-label="Do importu"><strong>{money(row.importRate)}</strong>{row.changed!==null&&<small>{row.changed?`${row.importRate>row.baseline?'+':''}${money(row.importRate-row.baseline)} względem bazy`:'Bez zmiany względem bazy'}</small>}</td>
+          <td data-label="Start najmu">{dayLabel(row.date)}</td><td data-label="Baza użyta w Excelu">{money(row.baseline)}</td><td data-label="MM na stronie">{money(row.mm)}<small>{row.rank}</small></td><td data-label="Najtańsza konkurencja">{money(row.competitor)}<small>{row.provider}</small></td><td data-label="Do importu"><strong>{money(row.importRate)}</strong>{row.changed!==null&&<small>{row.changed?`${row.importRate>row.baseline?'+':''}${money(row.importRate-row.baseline)} względem bazy`:'Bez zmiany względem bazy'}</small>}</td>
           <td data-label="Prognoza / decyzja">{row.predicted!==null?<span>{money(row.predicted)} po narzucie</span>:<span>Brak zapisanej prognozy dla klasy</span>}<button className="text-button price-explain" aria-expanded={selected===row.date} aria-controls={`decision-${row.date}`} onClick={()=>setSelected(selected===row.date?'':row.date)}>{selected===row.date?<ChevronUp size={15}/>:<ChevronDown size={15}/>}Dlaczego?</button></td>
         </tr>{selected===row.date&&<tr className="decision-row"><td colSpan="6"><DecisionEvidence row={row} data={data} duration={duration}/></td></tr>}</React.Fragment>)}
       </tbody></table>
@@ -61,7 +62,7 @@ export function PricesView({model,workspace,service,selection,onSelectionChange}
   </section>;
 }
 
-function DecisionEvidence({row,data,duration}) {
+export function DecisionEvidence({row,data,duration,compact=false}) {
   const detail=row.detail;const decision=row.decision;
   const has=value=>value!==null&&value!==undefined&&value!=='';
   const benchmark=decision?.benchmark??detail?.benchmark_rate;
@@ -75,11 +76,12 @@ function DecisionEvidence({row,data,duration}) {
     ['Czas danych zapisany w decyzji',detail?.source_generated_at?timestamp(detail.source_generated_at):null],
     ['Uwagi kontroli',decision?.notes],
   ].filter(([,value])=>has(value));
-  return <section id={`decision-${row.date}`} className="decision-evidence" aria-label={`Decyzja ${row.date}`}>
-    <h3>Dlaczego taka cena? · {row.date}</h3>
+  if(compact&&!entries.some(([label])=>label==='Minimum zapisane w decyzji'))entries.unshift(['Minimum zapisane w decyzji','Nie zapisano w tym pliku']);
+  return <section id={compact?undefined:`decision-${row.date}`} className="decision-evidence" aria-label={`Decyzja ${dayLabel(row.date)}`}>
+    {!compact&&<h3>Dlaczego taka cena? · {dayLabel(row.date)}</h3>}
     <p>{decision?.reason || (row.changed===false?'Stawka pozostała taka jak w bazie. Brak zapisanego uzasadnienia pozostawienia tej pozycji.':'Brak zapisanego uzasadnienia dla tej pozycji.')}</p>
     {decision?.groups&&<p className="evidence-note">Uzasadnienie zbiorcze z Excela: {decision.groups}. Nie jest osobnym odczytem rynku dla każdej klasy.</p>}
-    {entries.length>0&&<dl className="source-list">{entries.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+    {entries.length>0&&(compact?<><dl className="source-list">{entries.filter(([label])=>label==='Minimum zapisane w decyzji').map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><details><summary>Szczegóły zapisanej decyzji</summary><dl className="source-list">{entries.filter(([label])=>label!=='Minimum zapisane w decyzji').map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details></>:<dl className="source-list">{entries.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>)}
     <p className="evidence-note">Zapis z Excela uruchomienia {data.excel.runId}. Brakujące szczegóły nie są odtwarzane na podstawie aktualnych reguł. Brak danych nie oznacza braku kontroli.</p>
   </section>;
 }

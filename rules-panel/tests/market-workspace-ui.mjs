@@ -40,7 +40,7 @@ try {
   await page.locator('.market-chart').waitFor({timeout:20000});
   assert.match(await page.locator('main').innerText(),/Excel.*nie|nie.*Excel/i);
   assert.equal(await page.getByRole('link',{name:'Pełny raport HTML'}).getAttribute('href'),'/api/report/open?runId=123');
-  await page.getByRole('button',{name:'2026-11-04, MM 60,00 PLN, konkurencja 90,00 PLN',exact:true}).click();
+  await page.getByRole('button',{name:'04.11.2026, MM 60,00 PLN, konkurencja 90,00 PLN',exact:true}).click();
   await page.getByRole('heading',{name:/04.11.2026.*3 dni/}).waitFor();
   await page.getByRole('button',{name:'Zamknij szczegóły',exact:true}).waitFor({timeout:2000});
   assert.equal(await page.getByRole('dialog').isVisible(),true);
@@ -52,16 +52,14 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
-  await page.locator('.dashboard-prices tbody tr').first().waitFor();
-  assert.equal(await page.locator('.dashboard-prices tbody tr').count(),4,'Only four higher-price observations exist in this 14-day fixture');
+  await page.locator('.operations-dashboard').waitFor();
+  assert.equal(await page.locator('.dashboard-prices').count(),0,'Dashboard no longer duplicates market tables');
   for(const width of [1440,1024,390]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`dashboard overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`dashboard-${width}.png`,directory)),fullPage:true});
   }
-  await page.locator('.dashboard-prices').getByRole('button',{name:'Otwórz',exact:true}).first().click();
-  await page.getByRole('button',{name:'Zamknij szczegóły',exact:true}).waitFor();
-  await page.keyboard.press('Escape');
+  await page.locator('.operations-dashboard').getByRole('button',{name:'Przejrzyj ceny',exact:true}).click();
   await page.getByRole('button',{name:'Wykres',exact:true}).click();
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
@@ -75,24 +73,16 @@ try {
   }
   await page.getByRole('button',{name:'Do sprawdzenia',exact:true}).click();
   const overview=page.locator('.attention-view');
-  assert.equal(await overview.getByRole('combobox',{name:'Oddziały przeglądu',exact:true}).inputValue(),'all');
-  assert.equal(await overview.getByRole('combobox',{name:'Skrzynia w przeglądzie',exact:true}).inputValue(),'all');
-  assert.equal(await overview.locator('input[type="checkbox"]:checked').count(),13);
-  for(const summary of await overview.locator('.attention-group[open] > summary').all())await summary.click();
-  assert.equal(await overview.locator('.attention-table').count(),0,'Collapsed groups do not render thousands of rows');
-  await overview.getByRole('button',{name:/^Poza Top1 ·/}).click();
-  await overview.getByLabel('Sortowanie').selectOption('above');
-  await overview.locator('.attention-group > summary').first().click();
-  assert.match(await overview.locator('.attention-table').innerText(),/MM droższe o/);
+  assert.equal(await overview.locator('tbody tr').count(),2,'One row per pickup point');
+  assert.match(await overview.locator('tbody').innerText(),/Kraków · Lotnisko/);
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overview overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`overview-${width}.png`,directory)),fullPage:true});
   }
-  await overview.getByRole('button',{name:/^Brak MM ·/}).click();
-  await overview.locator('.attention-group > summary').first().click();
-  assert.equal(await page.locator('.attention-table tbody tr').count(),2);
-  assert.match(await page.locator('.attention-table').innerText(),/2026-11-07/);
+  await overview.getByRole('button',{name:'Sprawdź oddział',exact:true}).first().click();
+  assert.equal(await overview.locator('tbody tr').count(),20,'Only first 20 scenarios render');
+  assert.match(await overview.locator('tbody tr').first().innerText(),/07.11.2026.*Brak oferty MM/s);
   await overview.getByRole('button',{name:'Szczegóły',exact:true}).first().click();
   assert.equal(await page.locator('.market-detail').evaluate(element=>element.matches(':modal')),true,'Phone details are a modal bottom sheet');
   assert.equal(await page.locator('.attention-table tr[aria-current=true]').count(),1);
@@ -149,7 +139,7 @@ try {
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
   await page.getByLabel('Miesiąc',{exact:true}).fill('2026-11');
   assert.equal(await page.locator('.rule-calendar .event-day-marker').count(),3);
-  await page.getByRole('button',{name:/^2026-11-06,/}).click();
+  await page.getByRole('button',{name:/^06.11.2026,/}).click();
   assert.match(await page.locator('.calendar-selection').innerText(),/Targi listopadowe.*notatka, nie reguła cenowa/);
   assert.deepEqual([...new Set(writes)],['/api/calendar-events/save']);
   assert.deepEqual(errors,[]);

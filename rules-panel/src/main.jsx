@@ -1,3 +1,4 @@
+import {locationLabel,countLabel} from './operations.mjs';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -175,8 +176,8 @@ function App() {
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [marketRequest,setMarketRequest]=useState(null);
-  const market=useMarketReport(service,workspaceData?.status?.report,view==='results'||pricesVisited);
-  const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).length).length:null,[market.data]);
+  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited);
+  const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
   const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -559,7 +560,7 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id==="prices"&&attentionCount>0&&<span className="nav-count">{attentionCount}</span>}
+              {id==="prices"&&attentionCount>0&&<span className="nav-count">Brak MM: {attentionCount}</span>}
               {id==="rules"&&changes.length>0&&<span className="nav-count">{changes.length}</span>}
             </button>
           ))}
@@ -586,7 +587,7 @@ function App() {
           </div>
           {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="context-line">
             <span>{changes.length ? 'Edycja szkicu' : snapshot.capabilities?.mode === 'github' ? 'Opublikowane zasady' : 'Zasady źródłowe'} · {modeLabel(snapshot.capabilities?.mode)}</span>
-            {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{changes.length} zmian · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
+            {changes.length > 0 && <span className="draft-status" title={saved ? `Zapisano: ${snapshotTime(saved)}` : undefined}>{countLabel(changes.length,'zmiana','zmiany','zmian')} · {remote ? "szkic współdzielony" : "szkic tylko w tej przeglądarce"} · nieopublikowane</span>}
           </div>}
           {(ruleSections.some(([section]) => section === view) || view === 'review') && <div className="section-tabs" role="group" aria-label="Sekcje zasad">{ruleSections.map(([id,label,Icon]) => <button key={id} className="button" aria-pressed={view === id} onClick={() => go(id)}><Icon size={16}/>{label}</button>)}</div>}
           {actionError && <div className="alert error" role="alert"><TriangleAlert size={18} /><div><p>{actionError}</p>{pendingModelRef.current && !draftConflict && <button className="text-button" onClick={() => downloadJson({ sourceHash: snapshot.source.policyHash, model: pendingModelRef.current }, "discovercars-niezapisany-szkic.json")}>Pobierz niezapisane zmiany</button>}{loadError && <button className="text-button" disabled={busy} onClick={refreshWorkspace}>Ponów odczyt</button>}</div></div>}
@@ -842,8 +843,8 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changes={changes} confirmations={amountConfirmations} onReview={()=>go('review')} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
-          {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{item.scraper_label}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
+          {view === 'results' && <><Dashboard workspace={workspaceData} onMarket={openMarket}/><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
+          {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{locationLabel(item.scraper_label)}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
         </main>
       </div>
       {publicationDialog&&<PublicationDialog model={model} original={original} confirmations={amountConfirmations} count={changes.length} busy={busy} error={actionError} onClose={()=>setPublicationDialog(null)} onConfirm={()=>publishDraft(true)}/>}

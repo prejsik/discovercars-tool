@@ -1669,3 +1669,5 @@
   .baseline-view .location-field select,
   .baseline-view .location-search .button { min-height: 44px; }
 }
+.inline-decision{border-top:1px solid var(--border,#dce1e8);margin-top:20px;padding-top:16px}.inline-decision label{display:grid;gap:6px;margin:12px 0}.inline-decision .decision-evidence{padding:0}.inline-decision .source-list>div{display:block}.inline-decision .source-list dd{margin:4px 0;overflow-wrap:anywhere}.operations-dashboard{margin-bottom:24px}.operations-dashboard p{margin:8px 0}.attention-table th{overflow-wrap:anywhere}
+.inline-decision .source-list>div{padding:10px 0}.inline-decision .inline-rates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inline-decision .decision-evidence>p{margin:12px 0}.attention-view>.button{justify-self:start}@media(max-width:760px){.attention-table tbody th{grid-column:1/-1;border:0;font-weight:600;font-size:14px}}

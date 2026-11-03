@@ -26,6 +26,7 @@ try {
   await page.goto(`${origin}/?view=results`);
   await page.getByRole('heading',{name:'Pulpit',exact:true}).waitFor();
   await page.getByText('Oczekuje na uruchomienie',{exact:true}).waitFor();
+  await page.getByText('Szczegóły raportu i plików',{exact:true}).click();
   await page.getByText('Excel i raport pochodzą z różnych uruchomień. Zakres i czas Excela podano poniżej.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('link',{name:'Pobierz import',exact:true}).getAttribute('href'),workspace.status.links.import);
   const publish=page.getByRole('button',{name:'Ustaw ten plik jako nową bazę',exact:true});

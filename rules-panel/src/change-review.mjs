@@ -1,3 +1,4 @@
+import {countLabel} from './operations.mjs';
 import { buildRules,knownGroups } from './policy.mjs';
 
 export const LARGE_AMOUNT_FACTOR=3;
@@ -37,7 +38,8 @@ export function ruleScope(model,rule) {
   const points=(model.locations.locations??model.locations).flatMap(point=>point.zones.filter(zone=>(rule.zones.includes('*')||rule.zones.includes(zone))&&(rule.kind==='all'||rule.kind===(point.kind==='airport'?'airport':'city'))));
   const groups=rule.groups.includes('*')?knownGroups(model):rule.groups;
   const active=points.filter(zone=>groups.some(group=>!(model.excel.omitted_group_zones?.[zone]??[]).includes(group)));
-  return `${active.length} lokalizacji · ${groups.length} klas · ${rule.minDays}–${rule.maxDays} dni`;
+  const count=(model.locations.locations??model.locations).filter(point=>point.zones.some(zone=>active.includes(zone))).length;
+  return `${countLabel(count,'punkt odbioru','punkty odbioru','punktów odbioru')} (${countLabel(active.length,'kod','kody','kodów')} w Excelu) · ${countLabel(groups.length,'klasa','klasy','klas')} · ${rule.minDays}–${rule.maxDays} dni`;
 }
 export function nextSchedule(plan,now=new Date()) {
   const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now).split(' ');

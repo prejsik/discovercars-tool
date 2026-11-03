@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-react';
+import {locationLabel} from './operations.mjs';
 import { timestamp } from './display.mjs';
 
 const money = value => value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -33,7 +34,7 @@ export function RunDiagnostics({ record, run, locations, unavailable }) {
         <table className="diagnostic-table" aria-label="Pozycje blokujące Excel">
           <thead><tr>{['Lokalizacja','Start najmu','Klasa','Najem','Stawka / doba','Limit / doba','Źródło stawki'].map(name=><th key={name} scope="col">{name}</th>)}</tr></thead>
           <tbody>{filtered.slice(currentPage*20,currentPage*20+20).map((row,index)=><tr key={`${row.zone}-${row.pickupDate}-${row.group}-${row.column}-${index}`}>
-            <td data-label="Lokalizacja"><strong>{row.zone}</strong><small>{label(row)}</small></td>
+            <td data-label="Lokalizacja"><strong>{row.zone}</strong><small>{locationLabel(label(row))}</small></td>
             <td data-label="Start najmu">{date(row.pickupDate)}</td>
             <td data-label="Klasa">{row.group}</td>
             <td data-label="Najem">{row.duration.replace('-','–')} dni</td>

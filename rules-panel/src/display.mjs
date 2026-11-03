@@ -5,7 +5,7 @@ export const modeLabel = mode => mode === "github" ? "GitHub" : mode === "hosted
 
 export function timestamp(value) {
   if (realDate(value)) return dateLabel(value);
-  return value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("pl-PL", { timeZone: "Europe/Warsaw" }) : "Brak danych";
+  return value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("pl-PL", { timeZone: "Europe/Warsaw", day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" }) : "Brak danych";
 }
 
 export function dateRanges(values = []) {

@@ -1,3 +1,4 @@
+import {locationLabel} from './operations.mjs';
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Search, ShieldCheck } from 'lucide-react';
 
@@ -55,7 +56,7 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
           update({ target, query: '', selectedQuery: '', candidates: [], placeId: '', markupSourceZone: '', daily: existing?.daily ?? true, searched: false, searchError: '' });
         }}>
           <option value="">Wybierz punkt</option>
-          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{item.scraper_label} · {item.city} · {kindLabel(item.kind)}</option>)}</optgroup>
+          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{locationLabel(item.scraper_label)} · {item.city} · {kindLabel(item.kind)}</option>)}</optgroup>
           <option value="new">Nowy punkt</option>
         </select>
       </label>
