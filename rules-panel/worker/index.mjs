@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { GitHubRepository, githubConfigured, readLimited, readOperationalStatus, REPOSITORY } from './github.mjs';
-import { loadPublishedWorkbook, loadPublishedReport, loadPriceContext, loadPriceSource } from '../server/reports.mjs';
+import { loadPublishedWorkbook, loadPublishedReport } from '../server/reports.mjs';
 import { protectedReportHtml } from '../server/report-viewer.mjs';
 import schedule from '../../src/discovercarsScheduleConfig.js';
 
@@ -81,9 +81,7 @@ export function createWorker({ resolveKeys } = {}) {
         if(!connected) return json({error:'Odczyt cen wymaga aktywnej integracji GitHub.'},503);
         try {
           const input={...Object.fromEntries(url.searchParams),duration:Number(url.searchParams.get('duration'))};
-          const repository=new GitHubRepository(env);
-          return url.pathname.endsWith('/prices')?json(await loadPriceContext(input,repository)):
-            secured(new Response(await loadPriceSource(input,repository),{headers:{'Content-Type':'application/octet-stream'}}));
+          return secured(await env.RULES_WORKSPACE.getByName(REPOSITORY).priceEvidence(input,email,url.pathname.endsWith('/price-source')));
         }
         catch(error) {return json({error:error.status?error.message:'Nie można odczytać cen. Odśwież panel lub otwórz Excel.'},error.status??502);}
       }
