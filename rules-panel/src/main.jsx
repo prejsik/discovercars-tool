@@ -1,5 +1,6 @@
 import {locationLabel,countLabel} from './operations.mjs';
 import {ImpactReview} from './ImpactReview.jsx';
+import {DurationWarnings} from './DurationWarnings.jsx';
 import {FamilyDates} from './FamilyDates.jsx';
 import {canEditFamilyDates,updateFamilyDates} from './family-dates.mjs';
 import {familyTitles} from './editor.mjs';
@@ -1253,7 +1254,7 @@ function Review({
                   : "Szkic przeszedł walidację pól"}
               </strong>
               <span>
-                {countLabel(changes.length,'zmienione pole','zmienione pola','zmienionych pól')} · {differences.length} reguł ·{" "}
+                {countLabel(changes.length,'zmienione pole','zmienione pola','zmienionych pól')} · {countLabel(differences.length,'reguła','reguły','reguł')} ·{" "}
                 {groupDiff.length} klas
               </span>
             </div>
@@ -1263,6 +1264,7 @@ function Review({
           <section className="warning-list" aria-label="Uwagi do szkicu"><h3>Uwagi do szkicu</h3>
             {warnings.added.length?warnings.added.map(item=><p className="new-warning" key={item.key}><TriangleAlert size={16}/>{item.message}</p>):<p className="positive">Ten szkic nie wprowadza nowych ostrzeżeń.</p>}
             <details><summary>Znane nakładania w obecnych zasadach ({warnings.known.length})</summary>{warnings.known.map(item=><p key={item.key}>{item.message}</p>)}</details>
+            <DurationWarnings model={model} original={original}/>
           </section>
           <details className="technical-details">
           <summary>Eksport i przywracanie szkicu</summary>

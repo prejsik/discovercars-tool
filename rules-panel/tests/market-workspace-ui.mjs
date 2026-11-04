@@ -195,7 +195,7 @@ try {
   assert.ok(selectedFrom,'The previous report had a selected date range');
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
-  await page.getByLabel('Miesiąc',{exact:true}).fill('2026-11');
+  await ruleMonth(page,'2026-11');
   assert.equal(await page.locator('.rule-calendar .event-day-marker').count(),3);
   await page.getByRole('button',{name:/^06.11.2026,/}).click();
   assert.match(await page.locator('.calendar-selection').innerText(),/Targi listopadowe.*notatka, nie reguła cenowa/);
@@ -204,3 +204,4 @@ try {
   console.log('Market UI PASS: no Excel, charts with gaps, multi-duration, attention filters, calendar, private events, mobile widths, no pricing writes.');
 } catch(error){console.error({errors,requests});console.error(await page.locator('body').innerText({timeout:2000}));throw error;}
 finally{await browser.close();}
+import {ruleMonth} from './calendar-navigation.mjs';

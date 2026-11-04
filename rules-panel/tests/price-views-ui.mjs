@@ -54,7 +54,7 @@ try {
   assert.equal(await page.locator('.prices-table').count(),0,'Filter change cannot display a previous class result');
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
-  await page.getByLabel('Miesiąc',{exact:true}).fill('2026-12');
+  await ruleMonth(page,'2026-12');
   const protectedCheck=previewPolicy(snapshot.documents,{zone:'KRLO',group:'CDMV',duration:3,pickupDate:'2026-12-15'});
   await page.getByRole('button',{name:/^15.12.2026,/}).click();
   const expected=protectedCheck.protected?'Data chroniona':protectedCheck.marketAllowed?'Zmiany rynkowe dozwolone':'Zmiany rynkowe wyłączone';
@@ -66,7 +66,7 @@ try {
     assert.equal(await page.locator('.calendar-day').count(),31);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
   }
-  await page.getByLabel('Miesiąc',{exact:true}).fill('2027-12');
+  await ruleMonth(page,'2027-12');
   await page.getByRole('button',{name:/^07.12.2027,/}).click();
   const edit=page.locator('.calendar-selection button').first();
   await edit.click();await page.getByRole('dialog').waitFor();
@@ -81,3 +81,4 @@ try {
   console.error(errors);
   throw error;
 } finally {await browser.close();}
+import {ruleMonth} from './calendar-navigation.mjs';

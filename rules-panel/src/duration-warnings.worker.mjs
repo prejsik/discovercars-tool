@@ -1,0 +1,2 @@
+import {durationWarnings,compareDurationWarnings} from './duration-warnings.mjs';
+self.onmessage=({data})=>{try{const before=durationWarnings(data.original,data.today);const current=JSON.stringify(data.model)===JSON.stringify(data.original)?before:durationWarnings(data.model,data.today);self.postMessage(compareDurationWarnings(current,before));}catch{self.postMessage({error:'Nie udało się porównać minimów długości najmu. Pozostałe kontrole i publikacja działają niezależnie.'});}};

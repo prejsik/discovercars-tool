@@ -1,10 +1,11 @@
 import { buildRules,knownGroups,validateModel } from './policy.mjs';
+import {bandLabel} from './duration-warnings.mjs';
 
 const has=(values,value)=>values.includes('*')||values.includes(value);
 const identity=row=>JSON.stringify([row.category,row.title,row.groups,row.zones,row.kind,row.startDate,row.endDate]);
 const datesOverlap=(a,b)=>(a.startDate||'0000')<=(b.endDate||'9999')&&(b.startDate||'0000')<=(a.endDate||'9999');
 const bandOverlap=(a,b)=>a.minDays<=b.maxDays&&b.minDays<=a.maxDays;
-const name=row=>`${row.title}${row.zones.includes('*')?'':` (${row.zones.join(', ')})`}`;
+const name=row=>`${row.title}${row.zones.includes('*')?'':` (${row.zones.length>3?`${row.zones.length} lokalizacji`:row.zones.join(', ')})`}`;
 
 // Presentation only: policy validation and the pricing engine retain their original results.
 export function presentWarnings(model,raw=validateModel(model,model).warnings) {
@@ -25,7 +26,7 @@ export function presentWarnings(model,raw=validateModel(model,model).warnings) {
       if(category==='mandatory'&&!a.id.startsWith('scoped:')&&a.id.split(':').slice(0,2).join(':')===b.id.split(':').slice(0,2).join(':'))continue;
       if(category!=='protected'&&!zones.some(zone=>groups.some(group=>applies(a,zone,group)&&applies(b,zone,group))))continue;
       const key=JSON.stringify([identity(a),identity(b)].sort());
-      const band=`${Math.max(a.minDays,b.minDays)}–${Math.min(a.maxDays,b.maxDays)} dni`;
+      const band=bandLabel([Math.max(a.minDays,b.minDays),Math.min(a.maxDays,b.maxDays)]);
       if(!result.has(key))result.set(key,{key,message:`${name(a)} i ${name(b)}: ${category==='protected'?'ochronie podlega łączny zakres':category==='priority'?'obowiązuje pierwsza pasująca reguła':'obowiązuje najwyższa pasująca stawka, nie suma'}`,bands:[]});
       if(!result.get(key).bands.includes(band))result.get(key).bands.push(band);
     }
