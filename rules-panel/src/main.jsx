@@ -396,7 +396,7 @@ function App() {
       window.scrollTo(0, 0);
     }, 0);
   }
-  function openMarket(reason='all',row=null,neighbors=[],transmission=null) {setMarketRequest({id:crypto.randomUUID(),reason,row,neighbors,transmission});go('prices');}
+  function openMarket(reason='all',row=null,neighbors=[],transmission=null,range=null) {setMarketRequest({id:crypto.randomUUID(),reason,row,neighbors,transmission,range});go('prices');}
   async function commit(next, label, changeReason = reason, confirmations = []) {
     if (blockedDraft)
       throw new Error("Rozpocznij nowy szkic na aktualnej wersji zasad.");

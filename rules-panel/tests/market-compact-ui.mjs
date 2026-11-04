@@ -47,7 +47,7 @@ try {
   if(!before){
    const mapReads=reads.length;
    const options=await page.getByRole('combobox',{name:'Pokaż',exact:true}).locator('option').allTextContents();
-   verify('two map filter options',()=>assert.deepEqual(options,['Wszystkie oddziały','Tylko z problemami']));
+   verify('map filters and exact reserve drill-down',()=>assert.deepEqual(options,['Wszystkie oddziały','Tylko z problemami','Top1 z zapasem ≥30 PLN/d']));
    await page.getByRole('combobox',{name:'Pokaż',exact:true}).selectOption('problems');
    const totals=await page.locator('.map-total').allTextContents();verify('filter uses map problems',()=>assert.ok(totals.length<25&&totals.every(t=>Number(t)>0)));
    await page.getByRole('combobox',{name:'Pokaż',exact:true}).selectOption('all');

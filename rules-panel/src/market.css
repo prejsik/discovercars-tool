@@ -47,6 +47,7 @@
 .attention-table{table-layout:fixed;border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
 .attention-table th,.attention-table td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;overflow-wrap:anywhere}
 .attention-table th{font-size:12px;color:var(--muted);font-weight:500}.attention-table th:last-child{width:90px}.attention-table small{display:block;margin-top:5px;color:var(--muted)}
+.reserve-scenarios header p{color:var(--muted);font-size:13px;margin-top:6px}.reserve-table th:last-child{width:48px}.reserve-table th:first-child{width:22%}.reserve-table td:last-child{vertical-align:middle}
 .market-detail{border-top:1px solid var(--line);padding-top:20px;display:grid;gap:14px}.market-detail p{margin:0}.market-detail .event-actions{justify-content:start}
 .calendar-events{display:grid;gap:16px;min-width:0}.calendar-events .event-actions{justify-content:start}
 .event-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:18px 0;border-block:1px solid var(--line)}.event-wide{grid-column:1/-1}
