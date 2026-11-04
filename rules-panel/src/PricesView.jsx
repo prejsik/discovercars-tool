@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Search, RotateCcw } from 'lucide-react';
-import { locationOptions } from './editor.mjs';
 import { knownGroups, DURATION_BANDS } from './policy.mjs';
 import { timestamp } from './display.mjs';
 import './price-views.css';
@@ -10,8 +9,7 @@ const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocal
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
 const list=value=>Array.isArray(value)?value.length?value.join(', '):'Brak':'Brak danych';
 
-export function PricesView({model,workspace,service,selection,onSelectionChange,sharedFilters=false}) {
-  const zones=useMemo(()=>locationOptions(model),[model]);
+export function PricesView({model,workspace,service,selection,onSelectionChange,sharedFilters=false,zones=[]}) {
   const groups=useMemo(()=>knownGroups(model),[model]);
   const {zone,duration,transmission,from,to}=selection;
   const setZone=zone=>onSelectionChange({zone});const setDuration=duration=>onSelectionChange({duration});
@@ -33,9 +31,11 @@ export function PricesView({model,workspace,service,selection,onSelectionChange,
     finally{setBusy(false);}
   }
   const rows=(data?.rows??[]).filter(row=>(!from||row.date>=from)&&(!to||row.date<=to));
+  const noPredictions=rows.length>0&&rows.every(row=>row.predicted==null);
+  if(!zone)return <section className="prices-view" aria-label="Ceny i rynek"><p>Wybierz oddział u góry</p></section>;
   return <section className="prices-view" aria-label="Ceny i rynek">
     <form className="price-filters" onSubmit={event=>{event.preventDefault();load();}}>
-      <label>Lokalizacja<select value={zone} onChange={e=>setZone(e.target.value)}><option value="">Wybierz lokalizację</option>{zones.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      {zones.length>1&&<div><span className="filter-label">Kod w tabeli</span><div className="segmented zone-segments" role="group" aria-label="Kod w tabeli">{zones.map(code=><button type="button" key={code} className="code" aria-pressed={zone===code} onClick={()=>setZone(code)}>{code}</button>)}</div></div>}
       <label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Długość najmu<select value={duration} onChange={e=>setDuration(Number(e.target.value))}>{Array.from({length:14},(_,i)=>i+1).map(day=><option key={day} value={day}>{day} dni · Excel {bandLabel(day)}</option>)}</select></label>
       {!sharedFilters&&<label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>}
@@ -51,10 +51,11 @@ export function PricesView({model,workspace,service,selection,onSelectionChange,
       {Date.now()-Date.parse(data.report.sourceStartedAt)>86400000&&<p className="freshness-warning">Raport zawiera dane sprzed ponad 24 godzin.</p>}
       {data.warnings.map((text,i)=><p className="freshness-warning" key={i}>{text}</p>)}
       {!sharedFilters&&<div className="price-date-filters"><label>Start od<input type="date" value={from} onChange={e=>{setFrom(e.target.value);setLimit(20);}}/></label><label>Start do<input type="date" value={to} onChange={e=>{setTo(e.target.value);setLimit(20);}}/></label><span>{rows.length} dat startu</span></div>}
+      {noPredictions&&<p className="evidence-note">Brak zapisanej prognozy dla klasy</p>}
       <table className="prices-table"><thead><tr><th>Start najmu</th><th>Baza użyta w Excelu</th><th>MM na stronie</th><th>Najtańsza konkurencja</th><th>Do importu</th><th>Prognoza / decyzja</th></tr></thead><tbody>
         {rows.slice(0,limit).map(row=><React.Fragment key={row.date}><tr className={selected===row.date?'selected-price':''}>
           <td data-label="Start najmu">{dayLabel(row.date)}</td><td data-label="Baza użyta w Excelu">{money(row.baseline)}</td><td data-label="MM na stronie">{money(row.mm)}<small>{row.rank}</small></td><td data-label="Najtańsza konkurencja">{money(row.competitor)}<small>{row.provider}</small></td><td data-label="Do importu"><strong>{money(row.importRate)}</strong>{row.changed!==null&&<small>{row.changed?`${row.importRate>row.baseline?'+':''}${money(row.importRate-row.baseline)} względem bazy`:'Bez zmiany względem bazy'}</small>}</td>
-          <td data-label="Prognoza / decyzja">{row.predicted!==null?<span>{money(row.predicted)} po narzucie</span>:<span>Brak zapisanej prognozy dla klasy</span>}<button className="text-button price-explain" aria-expanded={selected===row.date} aria-controls={`decision-${row.date}`} onClick={()=>setSelected(selected===row.date?'':row.date)}>{selected===row.date?<ChevronUp size={15}/>:<ChevronDown size={15}/>}Dlaczego?</button></td>
+          <td data-label="Prognoza / decyzja"><div className="price-decision-line">{row.predicted!=null?<span title="Prognoza po narzucie brokera">{money(row.predicted)}</span>:!noPredictions&&<span title="Brak zapisanej prognozy dla klasy">Brak prognozy</span>}<button className="text-button price-explain" aria-expanded={selected===row.date} aria-controls={`decision-${row.date}`} onClick={()=>setSelected(selected===row.date?'':row.date)}>{selected===row.date?<ChevronUp size={15}/>:<ChevronDown size={15}/>}Dlaczego?</button></div></td>
         </tr>{selected===row.date&&<tr className="decision-row"><td colSpan="6"><DecisionEvidence row={row} data={data} duration={duration}/></td></tr>}</React.Fragment>)}
       </tbody></table>
       {!rows.length&&<p>Brak pozycji w wybranym zakresie.</p>}

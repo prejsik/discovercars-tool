@@ -1,12 +1,11 @@
 import React,{useMemo,useState,useEffect} from 'react';
 import {ChevronLeft,ChevronRight} from 'lucide-react';
-import {matchesReview,reviewReasons} from './dashboard-model.mjs';
 import {AttentionMap} from './AttentionMap.jsx';
 import {buildAttentionMap} from './attention-map.mjs';
 import {validDate,dateRange} from './market-model.mjs';
 import {branchOverview,locationLabel} from './operations.mjs';
 import {BandMatrix} from './BandMatrix.jsx';
-export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model,filters,onFilters,band,reason}) {
+export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model,filters,onFilters,band,reason,excelSelection}) {
  const {from,to,transmission}=filters;
  const location=filters.location==='*'?'':filters.location;
  const setLocation=value=>onFilters({location:value||'*'});
@@ -18,8 +17,7 @@ export function AttentionView({data,onSelect,request,model,workspace,service,cal
 
  const dates=useMemo(()=>rangeValid?dateRange(from,to):[],[from,to,rangeValid]);
  const map=useMemo(()=>buildAttentionMap(rows,dates,band),[rows,dates,band]);
- const visibleLocations=new Set(rows.filter(row=>matchesReview(row,reason)).map(row=>row.location));
- const visibleMap=reason==='all'?map:map.filter(branch=>visibleLocations.has(branch.location));
+ const visibleMap=reason==='all'?map:map.filter(branch=>branch.cells.some(cell=>cell.problem));
  function openBranch(name,date=''){setLocation(name);setHighlight(date);}
  const position=map.findIndex(item=>item.location===location),summary=branches.find(item=>item.location===location);
  return <section className="attention-view" aria-label="Przegląd oddziałów">
@@ -30,9 +28,9 @@ export function AttentionView({data,onSelect,request,model,workspace,service,cal
   <button className="icon-button" title="Następny oddział" aria-label="Następny oddział" disabled={position<0||position>=map.length-1} onClick={()=>openBranch(map[position+1].location)}><ChevronRight size={18}/></button>
   <span className="branch-position">{position+1} z {map.length}</span>
  </div>{summary&&<p>{summary.missingDates} dni bez MM · {summary.over} z {summary.comparable} MM droższe &gt;10 · {summary.unavailable} brak danych</p>}</header>:<h2>Przegląd oddziałów</h2>}
- {!location&&reason!=='all'&&<p className="evidence-note">Oddziały z pozycjami: {reviewReasons[reason]}. Pozostałe dni i ceny tych oddziałów pozostają widoczne.</p>}
  {!rangeValid&&<p role="alert">Początek zakresu musi poprzedzać koniec.</p>}
- {!location?<AttentionMap branches={visibleMap} dates={dates} locations={data?.locations??[]} events={calendar?.items??[]} onOpen={openBranch}/>:<>{data&&<BandMatrix activeView={active} rulesModel={rulesModel} data={data} rows={rows.filter(r=>r.location===location)} dates={dates} location={location} transmission={transmission} model={model} workspace={workspace} service={service} onSelect={onSelect} highlight={highlight} onRules={onRules} onExcel={onExcel}/>}</>}
+ {!location?<AttentionMap branches={visibleMap} dates={dates} locations={data?.locations??[]} events={calendar?.items??[]} onOpen={openBranch}/>:<>{data&&<BandMatrix group={excelSelection.group} zone={excelSelection.zone} activeView={active} rulesModel={rulesModel} data={data} rows={rows.filter(r=>r.location===location)} dates={dates} location={location} transmission={transmission} model={model} workspace={workspace} service={service} onSelect={onSelect} highlight={highlight} onRules={onRules} onExcel={onExcel}/>}</>}
  {!rows.length&&<p>Brak danych w wybranym zakresie.</p>}
+ {!location&&rows.length>0&&reason==='problems'&&!visibleMap.length&&<p>Brak oddziałów z problemami w wybranym paśmie.</p>}
  </section>;
 }

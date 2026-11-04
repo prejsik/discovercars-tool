@@ -11,7 +11,9 @@
 .prices-table th{font-weight:500;font-size:12px;color:var(--muted)}
 .prices-table small{display:block;font-size:12px;color:var(--muted);margin-top:5px}
 .selected-price{background:#eef4ff}
-.price-explain{display:flex;gap:5px;align-items:center;margin-top:8px}
+.price-explain{display:inline-flex;gap:5px;align-items:center;margin:0;white-space:nowrap;flex:none;padding:4px}
+.price-decision-line{display:flex;align-items:center;justify-content:flex-end;gap:6px}.price-decision-line>span{font-size:12px}
+@media(min-width:761px){.prices-table td{padding:4px 6px;height:56px;box-sizing:border-box;vertical-align:middle;font-size:13px}.prices-table small{margin-top:2px;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prices-table td:last-child{width:190px}.prices-table th:last-child{width:190px}.price-decision-line>span{white-space:nowrap}.prices-table .decision-row td{height:auto}}
 .decision-evidence{padding:12px 8px 20px;display:grid;gap:14px}
 .decision-evidence h3,.calendar-selection h3{font-size:17px;margin:0}
 .decision-evidence .source-list dd{overflow-wrap:anywhere}

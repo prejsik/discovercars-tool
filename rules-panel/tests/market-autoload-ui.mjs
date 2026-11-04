@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium } from '../../node_modules/playwright/index.mjs';
 import { strToU8 } from 'fflate';
 import { loadPriceContext,loadPriceSource } from '../server/reports.mjs';
+import {openMarketFilters} from './market-ui-controls.mjs';
 const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});const context=await browser.newContext();const page=await context.newPage();
 const errors=[];page.on('pageerror',error=>errors.push(error.message));const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push(r.url());});
@@ -39,11 +40,12 @@ try {
    await page.setViewportSize({width,height:1000});
    if(width===1440)assert.equal(await page.locator('.map-legend').evaluate(e=>new Set([...e.children].map(child=>Math.round(child.getBoundingClientRect().y))).size),1,'Desktop legend is a single line');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'map overflow '+width);
-   if(width===390||width===1440)await page.screenshot({path:'docs/market-filters/verification/map-'+width+'.png',fullPage:true});
+   if(width===390||width===1440)await page.screenshot({path:'../output/market-map-'+width+'.png',fullPage:true});
   }
   assert.equal(await page.getByRole('button',{name:'Tabela oddziałów',exact:true}).count(),0,'Only the map remains');
   await page.locator('.attention-map tbody tr').nth(24).waitFor({timeout:60000});
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await openMarketFilters(page);
   await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
   await page.locator('.market-chart').waitFor({timeout:60000});
   await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
@@ -61,6 +63,7 @@ try {
   await page.locator('.attention-map tbody tr').nth(24).waitFor();
   assert.equal(await page.locator('.attention-map tbody tr').count(),25);
   await page.locator('.attention-map tbody th button').first().click();
+  await openMarketFilters(page);
   await page.locator('.shared-market-filters .range-picker > summary').click();
   await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
   await page.locator('.shared-market-filters').getByLabel('Start do',{exact:true}).fill('2026-12-18');
@@ -74,8 +77,10 @@ try {
   assert.equal(await page.locator('.band-date').count(),40,'Expanded group and pagination survive navigation');
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await openMarketFilters(page);
   assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic','Overview shares chart filters');
   await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
+  await openMarketFilters(page);
   assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic','Overview preserves its own selections');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   assert.equal(await page.locator('.counter-strip').count(),0,'No duplicated dashboard counters');

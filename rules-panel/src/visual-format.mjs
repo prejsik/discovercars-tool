@@ -1,6 +1,7 @@
 export function signedPrice(value,digits=2){
  if(!Number.isFinite(value))return '?';
- return (value>0?'+':value<0?'−':'')+Math.abs(value).toLocaleString('pl-PL',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+ const magnitude=Number(Math.abs(value).toLocaleString('en-US',{useGrouping:false,minimumFractionDigits:digits,maximumFractionDigits:digits}));
+ return (magnitude===0?'':value>0?'+':'−')+magnitude.toLocaleString('pl-PL',{minimumFractionDigits:digits,maximumFractionDigits:digits});
 }
 export function weekdayDate(value,short=false){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(value??''))return 'Brak daty';

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {chromium} from '../../node_modules/playwright/index.mjs';
 import {createModel,previewPolicy} from '../src/policy.mjs';
 import {priceFixture} from './price-fixture.mjs';
+import {openMarketFilters} from './market-ui-controls.mjs';
 const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});
 try {
@@ -36,7 +37,8 @@ try {
  assert.equal(await page.getByRole('combobox',{name:'Oddział',exact:true}).inputValue(),'Krakow Airport (KRK)');
  assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
  await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
- assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Lokalizacja',exact:true}).inputValue(),'KRLO');
+ assert.equal(await page.locator('.prices-view').getByRole('combobox',{name:'Lokalizacja',exact:true}).count(),0);
+ assert.equal(await page.getByRole('group',{name:'Kod w tabeli',exact:true}).getByRole('button',{name:'KRLO',exact:true}).getAttribute('aria-pressed'),'true');
  assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
  await page.getByRole('tab',{name:'Przegląd rynku',exact:true}).click();
  assert.equal(await page.locator('.band-date').count(),3);
@@ -79,7 +81,7 @@ try {
   }else assert.equal(await page.locator('.band-detail').evaluate(e=>e.matches(':modal')),true,'Mobile bottom sheet');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'band detail overflow '+width+' '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('.branch-header,.branch-breadcrumb,.branch-back,.branch-header h2,.branch-header .icon-button,.branch-position')].map(e=>({cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right})))));
   assert.equal(await page.locator('.band-detail').evaluate(e=>e.scrollWidth<=e.clientWidth+1),true,'band dialog overflow '+width);
-  if(width===1440||width===390)await page.screenshot({path:'docs/market-filters/verification/band-detail-'+width+'.png',fullPage:true});
+  if(width===1440||width===390)await page.screenshot({path:'../output/matrix-band-detail-'+width+'.png',fullPage:true});
  }
  await page.locator('.band-scenarios').getByRole('button',{name:'Szczegóły',exact:true}).click();
  await page.locator('.inline-decision').getByText('Zapisana decyzja',{exact:true}).waitFor();
@@ -104,6 +106,7 @@ try {
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'matrix overflow '+width);
   await page.screenshot({path:'../output/matrix-'+width+'.png',fullPage:true});
  }
+ await openMarketFilters(page);
  await page.getByLabel('Klasa w tabeli').selectOption('EDMV');
  await page.getByRole('button',{name:'śr 04.11.2026 · 3–4 dni'}).getByText('Brak stawki',{exact:true}).waitFor();
  assert.doesNotMatch(await page.locator('.band-matrix').innerText(),/63,00/);

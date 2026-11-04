@@ -10,6 +10,15 @@ test('small differences retain direction and dates use Polish weekday',()=>{
  assert.equal(weekdayDate('2026-11-04'),'śr 04.11.2026');
  assert.equal(monthLabel('2026-11'),'listopad 2026');
 });
+test('signed prices choose direction after rounding, without signed zero',()=>{
+ for(const value of [-0.3,0.4,-0,0])assert.equal(signedPrice(value,0),'0');
+ assert.equal(signedPrice(-0.004,2),'0,00');
+ assert.equal(signedPrice(0.004,2),'0,00');
+ assert.equal(signedPrice(-1.6,0),'−2');
+ assert.equal(signedPrice(1.6,0),'+2');
+ assert.equal(signedPrice(-0.5,0),'−1');
+ assert.equal(signedPrice(null),'?');
+});
 import {mapCell,buildAttentionMap} from '../src/attention-map.mjs';
 test('map uses band median, majority missing and identical summary criteria',()=>{
  const row=(duration,gap,extra={})=>({duration,marketConfirmed:true,mm:60,gap,...extra});

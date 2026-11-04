@@ -1,5 +1,4 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {knownGroups} from './policy.mjs';
 import {buildBandMatrix,bandLabel,bandEvidence,MATRIX_BANDS} from './band-matrix.mjs';
 import {money} from './market-model.mjs';
 import {weekdayDate,isWeekend} from './visual-format.mjs';
@@ -8,19 +7,16 @@ import {BandDetail} from './BandDetail.jsx';
 const dayLabel=value=>weekdayDate(value,true);
 
 
-export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect,highlight,filters,onRules,onExcel,activeView=true,rulesModel=model}) {
- const groups=knownGroups(model),zones=data.locations.find(l=>l.scraper_label===location)?.zones??[];
- const [group,setGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]);
- const [chosen,setChosen]=useState('');const zone=zones.includes(chosen)?chosen:zones[0];
+export function BandMatrix({data,rows,dates,location,transmission,model,workspace,service,onSelect,highlight,group,zone,onRules,onExcel,activeView=true,rulesModel=model}) {
  const [state,setState]=useState({}),[attempt,setAttempt]=useState(0),[expanded,setExpanded]=useState(null),[limit,setLimit]=useState(20);
  const excel=workspace?.status?.excel;
  const key=JSON.stringify([zone,group,data.report.runId,excel?.runId,excel?.files]);
- useEffect(()=>{let active=true;setState({key,busy:true});
+ useEffect(()=>{if(!activeView||(state.key===key&&state.data))return;let active=true;setState({key,busy:true});
   if(!excel||!zone||!group){setState({key,error:'Brak poprawnego Excela lub powiązania lokalizacji.'});return;}
   service.prices({mode:'matrix',zone,group,duration:2,transmission,reportRunId:data.report.runId,excelRunId:excel.runId})
    .then(result=>{if(active)setState({key,data:result});}).catch(error=>{if(active)setState({key,error:error.message});});
   return()=>{active=false;};
- },[key,attempt,service]);
+ },[key,attempt,service,activeView]);
  useEffect(()=>{setExpanded(null);setLimit(20);onSelect(null);},[key,dates.join(','),transmission,onSelect]);
  useEffect(()=>{if(!highlight)return;setLimit(n=>Math.max(n,dates.indexOf(highlight)+1));requestAnimationFrame(()=>document.getElementById('band-day-'+highlight)?.scrollIntoView({block:'nearest'}));},[highlight,dates.join(',')]);
  useEffect(()=>{if(!activeView)setExpanded(null);},[activeView]);
@@ -31,7 +27,6 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
  function moveDay(step){const day=matrix[dayIndex+step];if(day&&active){setExpanded(day.date+'-'+active.cell.band[0]);setLimit(n=>Math.max(n,dayIndex+step+1));}}
 
  return <section className="band-workspace">
-  <div className="market-filters band-filters">{filters}<label>Klasa w tabeli<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(g=><option key={g}>{g}</option>)}</select></label><div><span className="filter-label">Kod w tabeli</span><div className="segmented zone-segments" role="group" aria-label="Kod w tabeli">{zones.map(z=><button className="code" key={z} aria-pressed={zone===z} onClick={()=>setChosen(z)}>{z}</button>)}</div></div><span className="evidence-note">Stawka do importu · {zone??'brak kodu'} · PLN/dobę</span></div>
   <details className="technical-details"><summary>Źródła i zakres porównania</summary><p>Stawka do importu: wybrana klasa i kod z ostatniego poprawnego Excela. Różnica rynku: najtańsze oferty MM i konkurencji, niezależnie od klasy. W przedziale pokazano największą przewagę konkurencji, nie średnią. Brak MM oznacza potwierdzony brak oferty; brak danych oznacza niepotwierdzony odczyt.</p></details>
   {current.error&&<p role="alert">{current.error}<button className="text-button" onClick={()=>setAttempt(n=>n+1)}>Ponów odczyt Excela</button></p>}
   {current.data&&current.data.report.runId!==current.data.excel.runId&&<p className="alert">Excel i rynek pochodzą z różnych uruchomień. Nie traktuj stawki importowej jako aktualnej ceny na stronie.</p>}

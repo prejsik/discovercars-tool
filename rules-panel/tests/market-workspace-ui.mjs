@@ -5,6 +5,7 @@ import { chromium } from '../../node_modules/playwright/index.mjs';
 import { strToU8 } from 'fflate';
 import { loadPriceContext,loadPriceSource } from '../server/reports.mjs';
 import { readCalendarEvents,saveCalendarEvent } from '../server/calendar-events.mjs';
+import {openMarketFilters} from './market-ui-controls.mjs';
 const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}});const page=await context.newPage();
 const errors=[];page.on('pageerror',e=>errors.push(e.message));const requests=[];context.on('request',r=>{if(r.url().includes('/api/'))requests.push(r.url());});const writes=[];context.on('request',r=>{if(r.method()==='POST')writes.push(new URL(r.url()).pathname);});
@@ -68,10 +69,10 @@ try {
   assert.equal(await switcher.getByRole('button',{name:'Wszystkie auta',exact:true}).getAttribute('aria-pressed'),'true');
   await switcher.getByRole('button',{name:'Automaty',exact:true}).click();
   await page.locator('.dashboard-metric').first().click();
-  await page.getByLabel('Pozycje przeglądu').waitFor();
-  assert.equal(await page.getByLabel('Pozycje przeglądu').inputValue(),'missing');
+  await page.getByRole('combobox',{name:'Pokaż',exact:true}).waitFor();
+  assert.equal(await page.getByRole('combobox',{name:'Pokaż',exact:true}).inputValue(),'problems');
   assert.equal(await page.getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
-  assert.equal(await page.locator('.attention-map tbody tr').count(),1);
+  assert.equal(await page.locator('.attention-map tbody tr').count(),0,'A single missing duration out of the 3-4 band is not a map problem');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();
   for(const width of [1440,1024,390]){
     await page.setViewportSize({width,height:1000});
@@ -81,6 +82,7 @@ try {
   }
   await page.locator('.operations-dashboard').getByRole('button',{name:'Zacznij przegląd',exact:true}).click();
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await openMarketFilters(page);
   await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('Krakow Airport (KRK)');
   await page.getByText('Długość najmu: 3 dni',{exact:true}).click();
   await page.getByRole('checkbox',{name:'8 dni',exact:true}).check();
@@ -117,6 +119,7 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),0);
   await page.getByRole('tab',{name:'Kalendarz cen',exact:true}).click();
+  await openMarketFilters(page);
   assert.equal(await page.locator('.market-calendar-grid button').count(),30);
   assert.equal(await page.locator('.calendar-month strong').count(),1);
   assert.doesNotMatch(await page.locator('.calendar-section-heading h2').innerText(),/listopad/,'Only one month heading');
@@ -154,7 +157,7 @@ try {
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`calendar overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`calendar-${width}.png`,directory)),fullPage:true});
-    if(width===1440||width===390)await page.screenshot({path:`docs/market-filters/verification/calendar-${width}.png`,fullPage:true});
+    if(width===1440||width===390)await page.screenshot({path:`../output/market-calendar-${width}.png`,fullPage:true});
   }
   // Event management remains inside the price calendar, not a separate main tab.
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).click();
@@ -162,12 +165,15 @@ try {
   await page.getByRole('button',{name:'Przywróć Targi listopadowe'}).click();
   await page.getByRole('button',{name:'Archiwizuj Targi listopadowe'}).waitFor();
   assert.equal((await readCalendarEvents(storage)).items[0].active,true);
+  await openMarketFilters(page);
   await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
   const reads=requests.filter(url=>url.includes('/api/report/')).length;
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
+  await openMarketFilters(page);
   assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'automatic');
   await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('all');
   await page.getByRole('tab',{name:'Wykres',exact:true}).click();
+  await openMarketFilters(page);
   assert.equal(await page.locator('.shared-market-filters').getByRole('combobox',{name:'Skrzynia',exact:true}).inputValue(),'all');
   assert.equal(await page.locator('.market-chart').count(),2,'Multi-duration selection survives Excel inspection');
   await page.getByRole('button',{name:'Pulpit',exact:true}).click();

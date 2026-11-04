@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '../../node_modules/playwright/index.mjs';
 import { priceFixture } from './price-fixture.mjs';
 import { previewPolicy } from '../src/policy.mjs';
+import {openMarketFilters} from './market-ui-controls.mjs';
 
 const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';
 const browser=await chromium.launch({headless:true});
@@ -32,6 +33,10 @@ try {
   assert.equal(writes,0,'Automatic report read must not dispatch or write');
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
+  await page.locator('.price-decision-line').getByText('73,00',{exact:true}).waitFor({timeout:60000});
+  const forecast=await page.locator('.price-decision-line > span').boundingBox(),why=await page.getByRole('button',{name:'Dlaczego?',exact:true}).boundingBox();
+  assert.ok(Math.abs(forecast.y+forecast.height/2-why.y-why.height/2)<2,'Prediction and explanation button share one line');
+  assert.ok(await page.locator('.prices-table tbody > tr').first().evaluate(e=>e.getBoundingClientRect().height)<=56);
   await page.getByRole('button',{name:'Dlaczego?',exact:true}).click({timeout:60000});
   await page.getByText('Zapisana decyzja',{exact:true}).waitFor();
   assert.match(await page.locator('.prices-table').innerText(),/63,00/);
@@ -41,6 +46,7 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`prices overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`prices-${width}.png`,directory)),fullPage:true});
   }
+  await openMarketFilters(page);
   await page.locator('.shared-market-filters .range-picker > summary').click();
   await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2027-01-01');
   await page.getByText('Brak pozycji w wybranym zakresie.',{exact:true}).waitFor();
