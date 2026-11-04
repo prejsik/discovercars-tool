@@ -58,6 +58,16 @@ test('dashboard counts use next 14 days, all cars and 2-14 days, with selected t
  assert.equal(matchesReview({...row,marketConfirmed:false,rank:1,gap:30},'reserve'),false);
 });
 import {initialMarketWindow} from '../src/market-model.mjs';
+
+test('reserve drill-down uses exact scenario thresholds, not a band median',()=>{
+ const row={location:'A',date:'2026-11-05',duration:3,transmission:'automatic',marketConfirmed:true,mm:60,competitor:90,gap:30,rank:1};
+ const data={rows:[row,{...row,duration:4,gap:29.99},{...row,duration:10,gap:45},{...row,duration:14,gap:35},{...row,duration:15},{...row,rank:2},{...row,marketConfirmed:false},{...row,date:'2026-11-18'},{...row,transmission:'all'}]};
+ const overview=dashboardOverview(data,'2026-11-04');
+ const matches=overview.rows.filter(r=>matchesReview(r,'reserve'));
+ assert.deepEqual(matches.map(r=>r.duration),[3,10,14]);
+ assert.equal(overview.metrics.find(metric=>metric.reason==='reserve').count,matches.length);
+ assert.equal(dashboardOverview(data,'2026-11-04','all').metrics.find(metric=>metric.reason==='reserve').count,1);
+});
 test('initial window follows report start dates, including a first date without rows',()=>{
  assert.deepEqual(initialMarketWindow({report:{startDates:['2026-11-04','2026-11-02']},rows:[{date:'2026-11-04'}]}),{from:'2026-11-02',to:'2026-11-15'});
  assert.deepEqual(initialMarketWindow({rows:[{date:'2026-12-28'}]}),{from:'2026-12-28',to:'2027-01-10'});

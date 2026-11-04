@@ -5,6 +5,7 @@ import {buildAttentionMap} from './attention-map.mjs';
 import {validDate,dateRange} from './market-model.mjs';
 import {branchOverview,locationLabel} from './operations.mjs';
 import {BandMatrix} from './BandMatrix.jsx';
+import {ReserveScenarios} from './ReserveScenarios.jsx';
 export function AttentionView({data,onSelect,request,model,workspace,service,calendar,onRules,onExcel,active=true,rulesModel=model,filters,onFilters,band,reason,excelSelection}) {
  const {from,to,transmission}=filters;
  const location=filters.location==='*'?'':filters.location;
@@ -13,13 +14,14 @@ export function AttentionView({data,onSelect,request,model,workspace,service,cal
  const rangeValid=validDate(from)&&validDate(to)&&from<=to&&Date.parse(to)-Date.parse(from)<366*86400000;
  const rows=useMemo(()=>(rangeValid?data?.rows??[]:[]).filter(r=>r.transmission===transmission&&r.duration>=2&&r.duration<=14&&r.date>=from&&r.date<=to),[data,from,to,transmission,rangeValid]);
  const branches=useMemo(()=>branchOverview(rows),[rows]);
- useEffect(()=>{onSelect(null);},[from,to,transmission,location,onSelect]);
+ useEffect(()=>{onSelect(null);},[from,to,transmission,location,reason,onSelect]);
 
  const dates=useMemo(()=>rangeValid?dateRange(from,to):[],[from,to,rangeValid]);
  const map=useMemo(()=>buildAttentionMap(rows,dates,band),[rows,dates,band]);
  const visibleMap=reason==='all'?map:map.filter(branch=>branch.cells.some(cell=>cell.problem));
  function openBranch(name,date=''){setLocation(name);setHighlight(date);}
  const position=map.findIndex(item=>item.location===location),summary=branches.find(item=>item.location===location);
+ if(reason==='reserve')return <ReserveScenarios rows={rows} location={location} onSelect={onSelect}/>;
  return <section className="attention-view" aria-label="Przegląd oddziałów">
  {location?<header className="branch-header"><div className="branch-breadcrumb">
   <button className="text-button branch-back" aria-label="Wszystkie oddziały ›" onClick={()=>setLocation('')}><span>Wszystkie oddziały ›</span><span className="mobile-back-label">Oddziały ›</span></button>
