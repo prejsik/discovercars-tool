@@ -2,6 +2,7 @@ import {dayLabel} from './operations.mjs';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Archive, ArchiveRestore, CalendarDays, Pencil, Plus, RotateCcw, Save, X } from 'lucide-react';
 import { locationOptions } from './editor.mjs';
+import {LocationSelectOptions} from './LocationSelectOptions.jsx';
 import { timestamp } from './display.mjs';
 import { warsawToday } from './market-model.mjs';
 
@@ -26,7 +27,7 @@ export function CalendarEvents({calendar,model}) {
     {editor&&<form className="event-form" onSubmit={async e=>{e.preventDefault();if(await calendar.save(editor))setEditor(null);}}>
       <label className="event-wide">Nazwa wydarzenia<input required minLength={2} maxLength={120} value={editor.title} onChange={e=>patch('title',e.target.value)}/></label>
       <label>Rodzaj<select value={editor.kind} onChange={e=>patch('kind',e.target.value)}><option value="event">Wydarzenie</option><option value="holiday">Święto / okres szczególny</option></select></label>
-      <label>Lokalizacja wydarzenia<select value={editor.zones[0]} onChange={e=>patch('zones',[e.target.value])}><option value="*">Wszystkie lokalizacje</option>{zones.map(z=><option key={z.value} value={z.value}>{z.label}</option>)}</select></label>
+      <label>Lokalizacja wydarzenia<select value={editor.zones[0]} onChange={e=>patch('zones',[e.target.value])}><option value="*">Wszystkie lokalizacje</option><LocationSelectOptions values={zones} locations={model.locations.locations??model.locations}/></select></label>
       <label>Początek wydarzenia<input type="date" required value={editor.start} onChange={e=>patch('start',e.target.value)}/></label>
       <label>Koniec wydarzenia<input type="date" required min={editor.start} value={editor.end} onChange={e=>patch('end',e.target.value)}/></label>
       <label className="event-wide">Notatka<textarea maxLength={500} rows={3} value={editor.notes} onChange={e=>patch('notes',e.target.value)}/></label>

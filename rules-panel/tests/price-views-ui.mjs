@@ -32,7 +32,6 @@ try {
   await page.locator('.market-chart').waitFor({timeout:60000});
   assert.equal(writes,0,'Automatic report read must not dispatch or write');
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
-  await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
   await page.locator('.price-decision-line').getByText('73,00',{exact:true}).waitFor({timeout:60000});
   const forecast=await page.locator('.price-decision-line > span').boundingBox(),why=await page.getByRole('button',{name:'Dlaczego?',exact:true}).boundingBox();
   assert.ok(Math.abs(forecast.y+forecast.height/2-why.y-why.height/2)<2,'Prediction and explanation button share one line');
@@ -52,6 +51,9 @@ try {
   await page.getByText('Brak pozycji w wybranym zakresie.',{exact:true}).waitFor();
   await page.getByLabel('Klasa w Excelu').selectOption('EDMV');
   assert.equal(await page.locator('.prices-table').count(),0,'Filter change cannot display a previous class result');
+  await page.locator('.shared-market-filters').getByLabel('Start od',{exact:true}).fill('2026-11-04');
+  await page.locator('.prices-table tbody tr').first().waitFor();
+  assert.equal(await page.getByRole('button',{name:'Pokaż ceny',exact:true}).count(),0);
   await page.getByRole('button',{name:'Zasady cenowe',exact:true}).click();
   await page.getByRole('button',{name:'Kalendarz',exact:true}).click();
   await ruleMonth(page,'2026-12');

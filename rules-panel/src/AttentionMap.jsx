@@ -8,11 +8,17 @@ export function AttentionMap({branches,dates,locations,events=[],onOpen}) {
  const viewport=useRef(null),legend=useRef(null);
  useLayoutEffect(()=>{
   const element=viewport.current;
-  function fit(){element.style.maxHeight=Math.max(180,innerHeight-element.getBoundingClientRect().top-scrollY-legend.current.offsetHeight-48)+'px';}
+  function fit(){
+   const mobile=innerWidth<=760,table=element.querySelector('table'),head=table.tHead;
+   const gap=parseFloat(getComputedStyle(element.closest('.attention-view')).rowGap)||0,padding=parseFloat(getComputedStyle(element.closest('main')).paddingBottom)||0;
+   element.style.maxHeight=mobile?'none':Math.max(180,innerHeight-element.getBoundingClientRect().top-legend.current.offsetHeight-gap-padding-2)+'px';
+   // Horizontal overflow creates a sticky ancestor; follow page scrolling on mobile.
+   const box=table.getBoundingClientRect();head.style.transform=mobile?`translateY(${Math.max(0,Math.min(-box.top,box.height-head.offsetHeight))}px)`:'';
+  }
   let frame;
   const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(fit);};
-  const observer=new ResizeObserver(schedule);observer.observe(element.closest('.market-workspace'));window.addEventListener('resize',schedule);fit();
-  return()=>{observer.disconnect();window.removeEventListener('resize',schedule);cancelAnimationFrame(frame);};
+  const observer=new ResizeObserver(schedule);observer.observe(element.closest('.market-workspace'));window.addEventListener('resize',schedule);window.addEventListener('scroll',schedule,{passive:true});fit();
+  return()=>{observer.disconnect();window.removeEventListener('resize',schedule);window.removeEventListener('scroll',schedule);cancelAnimationFrame(frame);};
  },[]);
  const today=warsawToday();
  return <>

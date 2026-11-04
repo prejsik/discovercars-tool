@@ -4,9 +4,9 @@ import {monthDates,eventsForDay,money,priceTone,warsawToday} from './market-mode
 import {weekdayDate,isWeekend,signedPrice} from './visual-format.mjs';
 import {calendarSummary} from './attention-map.mjs';
 
-export function DurationChips({values,onChange}) {
- const chip=d=><button key={d} type="button" aria-pressed={values.includes(d)} onClick={()=>onChange(values.includes(d)?values.filter(n=>n!==d):[...values,d].sort((a,b)=>a-b))}>{d} d</button>;
- return <div className="duration-chips" role="group" aria-label="Długości najmu">{[2,3,4,5,7,10,14].map(chip)}<details><summary>więcej</summary><div>{[6,8,9,11,12,13].map(chip)}</div></details></div>;
+export function DurationChips({values,onChange,single=false,includeOne=false,labelFor,ariaLabel='Długości najmu'}) {
+ const chip=d=><button key={d} type="button" aria-pressed={values.includes(d)} onClick={()=>onChange(single?[d]:values.includes(d)?values.filter(n=>n!==d):[...values,d].sort((a,b)=>a-b))}>{labelFor?labelFor(d):`${d} d`}</button>;
+ return <div className="duration-chips" role="group" aria-label={ariaLabel}>{[...(includeOne?[1]:[]),2,3,4,5,7,10,14].map(chip)}<details><summary>więcej</summary><div>{[6,8,9,11,12,13].map(chip)}</div></details></div>;
 }
 const shortMoney=value=>Number.isFinite(value)?value.toLocaleString('pl-PL',{maximumFractionDigits:0,notation:value>=10000?'compact':'standard'}):'—';
 export function PriceCalendar({month,rows,duration,events,zones,onSelect,reportDates,showDurationHeading=true}) {

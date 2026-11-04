@@ -1,5 +1,6 @@
 import {locationLabel} from './operations.mjs';
 import {locationOptions} from './editor.mjs';
+import {LocationSelectOptions} from './LocationSelectOptions.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Search, ShieldCheck } from 'lucide-react';
 
@@ -54,7 +55,7 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
           update({ target, query: '', selectedQuery: '', candidates: [], placeId: '', markupSourceZone: '', daily: existing?.daily ?? true, searched: false, searchError: '' });
         }}>
           <option value="">Wybierz punkt</option>
-          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{pointLabel(item)}</option>)}</optgroup>
+          <LocationSelectOptions values={locations.map(item=>({value:`existing:${item.id}`,label:pointLabel(item),kind:item.kind}))}/>
           <option value="new">Nowy punkt</option>
         </select>
       </label>
@@ -74,13 +75,13 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
         {draft.candidates.length > 0 && <label className="location-field">Wynik wyszukiwania
           <select aria-label={`Wynik wyszukiwania ${zone}`} value={draft.placeId} onChange={event => update({ placeId: event.target.value })}>
             <option value="">Wybierz znaleziony punkt</option>
-            {draft.candidates.map(item => <option key={item.placeId} value={item.placeId}>{item.label} · {item.city} · {kindLabel(item.kind)}</option>)}
+            <LocationSelectOptions values={draft.candidates.map(item=>({value:String(item.placeId),label:`${item.label} · ${item.city} · ${kindLabel(item.kind)}`,kind:item.kind}))}/>
           </select>
         </label>}
         <label className="location-field">Źródło narzutów
           <select aria-label={`Źródło narzutów ${zone}`} value={draft.markupSourceZone} onChange={event => update({ markupSourceZone: event.target.value })}>
             <option value="">Wybierz tabelę narzutów</option>
-            {markupSources.map(item => <option key={item.zone} value={item.zone}>{item.zone} · {item.label}</option>)}
+            <LocationSelectOptions locations={locations} values={markupSources.map(item=>({value:item.zone,label:`${item.zone} · ${item.label}`}))}/>
           </select>
         </label>
       </>}

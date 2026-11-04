@@ -88,17 +88,17 @@ try {
   await page.getByRole('group',{name:'Długości najmu',exact:true}).getByRole('button',{name:'4 d',exact:true}).click();await collapse();
   await page.getByRole('tab',{name:'Stawki w Excelu',exact:true}).click();
   const ownLocation=await page.locator('.prices-view').getByRole('combobox',{name:'Lokalizacja',exact:true}).count();verify('no duplicate location select',()=>assert.equal(ownLocation,0));
-  await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();await page.locator('.prices-table tbody > tr').nth(13).waitFor();
+  if(before)await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();await page.locator('.prices-table tbody > tr').nth(13).waitFor();
   await screenshot(`excel-${width}`);
   const warnings=await page.getByText('Brak zapisanej prognozy dla klasy',{exact:true}).count();verify('one missing prediction notice',()=>assert.equal(warnings,1));
   if(width===1440){const heights=await page.locator('.prices-table tbody > tr').evaluateAll(rows=>rows.map(e=>e.getBoundingClientRect().height));verify('compact Excel rows',()=>assert.ok(heights.every(h=>h<=56),String(heights)));}
   if(!before){
-   const excelReads=reads.length;
+   const matrixReads=()=>reads.filter(url=>new URL(url).searchParams.get('mode')==='matrix').length;
+   const excelReads=matrixReads();
    await page.locator('.prices-view').getByRole('group',{name:'Kod w tabeli',exact:true}).getByRole('button',{name:'KRTI',exact:true}).click();
    assert.equal(await page.locator('.prices-table').count(),0,'A code change clears old code prices');
-   assert.equal(reads.length,excelReads,'Code selection does not fetch the hidden branch matrix');
-   await page.getByRole('button',{name:'Pokaż ceny',exact:true}).click();
    await page.locator('.prices-table tbody tr').first().getByText('64,00',{exact:true}).waitFor();
+   assert.equal(matrixReads(),excelReads,'Code selection does not fetch the hidden branch matrix');
   }
   if(!before){await filters();await page.getByRole('combobox',{name:'Oddział',exact:true}).selectOption('*');await page.getByText('Wybierz oddział u góry',{exact:true}).waitFor();assert.equal(await page.locator('.prices-table').count(),0);await collapse();}
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'No page overflow '+width);
