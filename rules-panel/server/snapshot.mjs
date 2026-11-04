@@ -31,6 +31,8 @@ export async function readSnapshot({ mode = "local" } = {}) {
       filename: manifest.source_filename,
       approvedAt: manifest.approved_at,
       sha256: manifest.workbook_sha256,
+      importConfirmed: manifest.confirmed === true || manifest.status === 'confirmed_imported',
+      coverage: manifest.coverage ? {rowCount:manifest.coverage.rowCount,firstDate:manifest.coverage.firstDate,lastDate:manifest.coverage.lastDate,groups:manifest.coverage.groups,zones:manifest.coverage.zones} : null,
     },
     capabilities: {
       mode,
