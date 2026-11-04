@@ -58,12 +58,12 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
       const preview = await db.get('preview');
       if (pendingStatuses.includes(preview?.status)) await db.put('preview', { ...preview, status: 'failure',
         interruptedAt: new Date().toISOString(), queued: false, testsSucceeded: false,
-        error: 'Podglad przerwany po restarcie lokalnego serwera. Uruchom go ponownie.' });
+        error: 'Podgląd przerwany po restarcie lokalnego serwera. Uruchom go ponownie.' });
     });
     initialized = true;
   }
   const capabilities = { sharedDraft: true, preview: true, publish: false, mode: 'local-shared',
-    reason: 'Wspolny szkic na tym komputerze. Zapis GitHub nie jest aktywny.' };
+    reason: 'Wspólny szkic na tym komputerze. Zapis GitHub nie jest aktywny.' };
   const repository = {
     json:async (path,revision)=>{
       if(path!=='locations.config.json'||!/^[a-f0-9]{40}$/.test(revision))throw new PanelError(422,'Nieprawidłowe źródło lokalizacji.');
@@ -114,16 +114,16 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
         const action = { '/api/calendar-events':'events','/api/calendar-events/save':'eventSave','/api/workspace': 'workspace', '/api/draft': 'save', '/api/preview': 'requestPreview', '/api/publish': 'publish', '/api/rollback': 'rollback' }[path];
         if (!action) throw new PanelError(404, 'Nieznana operacja.');
         const readOnly=['workspace','events'].includes(action);
-        if ((readOnly && req.method !== 'GET') || (!readOnly && req.method !== 'POST')) throw new PanelError(405, 'Nieprawidlowa metoda.');
+        if ((readOnly && req.method !== 'GET') || (!readOnly && req.method !== 'POST')) throw new PanelError(405, 'Nieprawidłowa metoda.');
         let body = {};
         if (req.method === 'POST') {
           if (req.headers.origin !== `http://${req.headers.host}` || req.headers['x-panel-request'] !== '1'
-            || req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw new PanelError(403, 'Niedozwolone zrodlo zadania.');
+            || req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw new PanelError(403, 'Niedozwolone źródło żądania.');
           let length = 0; const chunks = [];
-          for await (const chunk of req) { length += chunk.length; if (length > 256 * 1024) throw new PanelError(413, 'Zadanie jest zbyt duze.'); chunks.push(chunk); }
+          for await (const chunk of req) { length += chunk.length; if (length > 256 * 1024) throw new PanelError(413, 'Żądanie jest zbyt duże.'); chunks.push(chunk); }
           try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-          catch { throw new PanelError(400, 'Nieprawidlowy JSON.'); }
-          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PanelError(400, 'Nieprawidlowe dane.');
+          catch { throw new PanelError(400, 'Nieprawidłowy JSON.'); }
+          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PanelError(400, 'Nieprawidłowe dane.');
         }
         await initialize();
         if(action==='events'){res.end(JSON.stringify(await readCalendarEvents(storage)));return;}
@@ -132,7 +132,7 @@ export function localWorkspaceMiddleware({ directory = fileURLToPath(new URL('..
         res.end(JSON.stringify(result));
       } catch (error) {
         res.statusCode = error.status ?? 503;
-        res.end(JSON.stringify({ error: error.status ? error.message : 'Nie mozna wykonac operacji lokalnej.', details: error.details }));
+        res.end(JSON.stringify({ error: error.status ? error.message : 'Nie można wykonać operacji lokalnej.', details: error.details }));
       }
     };
     queue = queue.catch(() => {}).then(execute);
