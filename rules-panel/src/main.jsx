@@ -1,5 +1,7 @@
 import {locationLabel,countLabel} from './operations.mjs';
 import {ImpactReview} from './ImpactReview.jsx';
+import {FamilyDates} from './FamilyDates.jsx';
+import {canEditFamilyDates,updateFamilyDates} from './family-dates.mjs';
 import {familyTitles} from './editor.mjs';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -746,7 +748,7 @@ function App() {
                   const items = filtered.filter(rule => rule.category === id);
                   return items.length > 0 && <section className="rule-section" aria-labelledby={`section-${id}`} key={id}>
                     <h2 id={`section-${id}`}>{title}</h2>
-                    <RuleRows rules={items} model={model} changedIds={changedIds} blocked={blockedDraft || busy} expanded={Boolean(search) || category !== "all"} onEdit={rule => setEditor({ rule })} />
+                    <RuleRows rules={items} model={model} changedIds={changedIds} blocked={blockedDraft || busy} expanded={Boolean(search) || category !== "all"} onEdit={rule => setEditor({ rule })} onDates={family=>setEditor({family})}/>
                   </section>;
                 })}
                 {filtered.some(rule => rule.category === "legacy") && <details className="supplementary-rules" key={`${search}:${category}:${rulePeriod}`} open={Boolean(search) || category === "legacy"}>
@@ -871,7 +873,8 @@ function App() {
         await commit(next, fields.category === "protected" ? "Dodano okres ochronny" : "Dodano minimum dla lokalizacji i klas", changeReason);
         setEditor(null);
       }} />}
-      {editor && !editor.isNew && (
+      {editor?.family&&<FamilyDates family={editor.family} onClose={()=>setEditor(null)} onSave={async(dates,changeReason)=>{await commit(updateFamilyDates(model,editor.family.map(r=>r.id),dates),'Zmieniono daty całej reguły',changeReason);}}/>}
+      {editor && !editor.isNew && !editor.family && (
         <RuleEditor
           key={editor.rule?.id ?? "new"}
           {...editor}
@@ -914,7 +917,7 @@ function App() {
   );
 }
 
-function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit }) {
+function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit, onDates }) {
   const families=groupRuleBands(rules);const titles=familyTitles(families);
   const titleFor=rule=>titles[families.findIndex(family=>family.includes(rule))];
   const row = rule => <article className={`rule-row ${changedIds.has(rule.id) ? "changed" : ""}`} key={rule.id} data-rule-id={rule.id}>
@@ -931,6 +934,7 @@ function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit }) {
         <RuleCells rule={family[0]} title={titleFor(family[0])} family={family} model={model} changed={family.some(rule => changedIds.has(rule.id))} />
         <ChevronRight className="family-chevron" size={18} />
       </summary>
+      {onDates&&canEditFamilyDates(family)&&<button className="button" disabled={blocked} onClick={()=>onDates(family)}><CalendarDays size={17}/>Zmień daty wszystkich przedziałów</button>}
       {family.map(rule=><article className="rule-band-row" data-rule-id={rule.id} key={rule.id}><span>{days(rule)}</span><strong>{money(rule.amount)} PLN</strong><button className="icon-button" disabled={blocked||!rule.editable} aria-label={`Edytuj: ${rule.title}`} onClick={()=>onEdit(rule)}><Pencil size={17}/></button></article>)}
     </details>)}
   </div>;
