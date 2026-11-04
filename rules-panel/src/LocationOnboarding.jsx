@@ -1,4 +1,5 @@
 import {locationLabel} from './operations.mjs';
+import {locationOptions} from './editor.mjs';
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Search, ShieldCheck } from 'lucide-react';
 
@@ -6,11 +7,7 @@ const bands = ['1', '2', '3-4', '5-7', '8-20', '21-35'];
 const kindLabel = kind => kind === 'airport' ? 'Lotnisko' : kind === 'city' ? 'Miasto' : kind;
 const inheritedSource = (location, sources) => location?.zones.map(zone => sources.find(source => source.zone === zone)).find(Boolean);
 
-function MarkupBands({ source }) {
-  return <dl className="location-markup-bands" aria-label={`Narzuty ${source.zone}`}>
-    {bands.map(band => <div key={band}><dt>{band} dni</dt><dd>{source.amounts[band].toLocaleString('pl-PL')} PLN</dd></div>)}
-  </dl>;
-}
+const pointLabel=item=>locationOptions({locations:{locations:[item]}})[0]?.label??locationLabel(item.scraper_label);
 
 function LocationAssignment({ zone, locations, markupSources, service, disabled, onChange }) {
   const [draft, setDraft] = useState({ target: '', query: '', selectedQuery: '', candidates: [], placeId: '', markupSourceZone: '', daily: true, searching: false, searched: false, searchError: '' });
@@ -31,7 +28,8 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
     } else if (next.target === 'new' && candidate && next.query === next.selectedQuery && markupSources.some(item => item.zone === next.markupSourceZone)) {
       assignment = { zone, placeId: candidate.placeId, query: next.selectedQuery, markupSourceZone: next.markupSourceZone, daily: next.daily };
     }
-    onChange(zone, assignment);
+    const donor=existing?inheritedSource(existing,markupSources):markupSources.find(s=>s.zone===next.markupSourceZone);
+    onChange(zone, assignment, {source:donor,label:existing?pointLabel(existing):candidate?.label??'',placeId:candidate?.placeId,binding:existing?'Istniejący punkt':'Nowy punkt',daily:assignment?.daily});
     return searchVersion.current;
   };
   const search = async () => {
@@ -56,7 +54,7 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
           update({ target, query: '', selectedQuery: '', candidates: [], placeId: '', markupSourceZone: '', daily: existing?.daily ?? true, searched: false, searchError: '' });
         }}>
           <option value="">Wybierz punkt</option>
-          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{locationLabel(item.scraper_label)} · {item.city} · {kindLabel(item.kind)}</option>)}</optgroup>
+          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{pointLabel(item)}</option>)}</optgroup>
           <option value="new">Nowy punkt</option>
         </select>
       </label>
@@ -90,15 +88,16 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
         <input aria-label={`Źródło narzutów ${zone}`} readOnly value={source ? `${source.zone} · ${source.label}` : 'Brak tabeli narzutów dla tego punktu'} />
       </label>}
     </div>
-    {source && <MarkupBands source={source} />}
   </fieldset>;
 }
 
 export function LocationOnboarding({ onboarding, service, disabled, onChange }) {
+  const [rows,setRows]=useState({});const [closed,setClosed]=useState({});
   return <section className="location-onboarding" aria-labelledby="location-onboarding-heading">
     <h2 id="location-onboarding-heading">Nowe lokalizacje</h2>
     <p className="muted" role="status">Obecna baza pozostaje aktywna.</p>
-    {onboarding.unknownZones.map(zone => <LocationAssignment key={zone} zone={zone} locations={onboarding.locations} markupSources={onboarding.markupSources} service={service} disabled={disabled} onChange={onChange} />)}
+    <table className="location-onboarding-table"><thead><tr>{['Kod','Powiązanie','Punkt w DiscoverCars','Narzuty z','Codzienny scraper','Stan','Zmień'].map(text=><th key={text}>{text}</th>)}</tr></thead><tbody>{onboarding.unknownZones.map(zone=><React.Fragment key={zone}><tr><td data-label="Kod">{zone}</td><td data-label="Powiązanie">{rows[zone]?.binding??'Nie wybrano'}</td><td data-label="Punkt w DiscoverCars">{rows[zone]?.label||'Nie wybrano'}{rows[zone]?.placeId?` (ID ${'${rows[zone].placeId}'})`:''}</td><td data-label="Narzuty z">{rows[zone]?.source?.zone??'Nie wybrano'}</td><td data-label="Codzienny scraper">{rows[zone]?.daily===undefined?'Nie wybrano':rows[zone].daily?'Tak':'Nie'}</td><td data-label="Stan">{rows[zone]?.ready?'Skonfigurowano':'Do uzupełnienia'}</td><td><button type="button" className="button" disabled={disabled} onClick={()=>setClosed(current=>({...current,[zone]:!current[zone]}))}>{closed[zone]?'Zmień':'Zwiń formularz'}</button></td></tr><tr hidden={Boolean(closed[zone])}><td colSpan={7}><LocationAssignment zone={zone} locations={onboarding.locations} markupSources={onboarding.markupSources} service={service} disabled={disabled} onChange={(code,assignment,details)=>{setRows(current=>({...current,[code]:{...details,ready:Boolean(assignment)}}));onChange(code,assignment);}}/></td></tr></React.Fragment>)}</tbody></table>
+    <h3>Narzuty według kodu strefy</h3><div className="baseline-table-scroll"><table className="markup-table"><thead><tr><th>Kod / źródło</th>{bands.map((band,i)=><th key={band}>{i===0?'1 dzień':`${band.replace('-','–')} dni`}</th>)}</tr></thead><tbody>{onboarding.unknownZones.map(zone=><tr key={zone}><th scope="row">{zone} / {rows[zone]?.source?.zone??'—'}</th>{bands.map(band=><td key={band}>{rows[zone]?.source?`${rows[zone].source.amounts[band].toLocaleString('pl-PL')} PLN`:'—'}</td>)}</tr>)}</tbody></table></div>
   </section>;
 }
 
@@ -106,16 +105,11 @@ export function VerifiedLocations({ onboarding }) {
   return <section className="location-verified" aria-labelledby="location-verified-heading">
     <h3 id="location-verified-heading"><ShieldCheck size={18} aria-hidden="true" />Zweryfikowane lokalizacje</h3>
     {onboarding.addedLocations.map(location => {
-      const source = onboarding.markupSources.find(item => item.zone === location.markupSourceZone);
       return <article className="location-verified-row" key={location.zone} aria-label={`Zweryfikowana strefa ${location.zone}`}>
         <h4>{location.zone} · {location.label}</h4>
         <dl className="source-list">
-          <div><dt>Miasto / typ</dt><dd>{location.city} · {kindLabel(location.kind)}</dd></div>
-          <div><dt>Codzienny scraper</dt><dd>{location.daily ? 'Tak' : 'Nie'}</dd></div>
-          <div><dt>Narzuty skopiowane z</dt><dd>{source ? `${source.zone} · ${source.label}` : location.markupSourceZone}</dd></div>
           <div><dt>Lotnisko referencyjne</dt><dd>{location.airportLabels.length ? location.airportLabels.map(label => <span className="location-airport-label" key={label}>{label}</span>) : location.kind === 'airport' ? 'Nie dotyczy punktu lotniskowego' : 'Brak lotniska referencyjnego w tym mieście'}</dd></div>
         </dl>
-        {source && <MarkupBands source={source} />}
       </article>;
     })}
     <p className="location-policy-note">Nowe lokalizacje stosują ogólne zasady dla klas, z rozróżnieniem lotnisko/miasto, oraz chronione terminy. Wybór źródła narzutów nie kopiuje lokalnych minimów ani wyjątków. Baza i konfiguracja lokalizacji zostaną zapisane razem.</p>

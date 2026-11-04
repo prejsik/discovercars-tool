@@ -193,7 +193,7 @@ function App() {
   const [view, setView] = useState(routeView);
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [marketRequest,setMarketRequest]=useState(null);
-  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited||view==='results');
+  const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited||view==='results'||view==='baseline');
   const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
   const [ruleContext,setRuleContext]=useState(null);
   const [ruleView, setRuleView] = useState('list');
@@ -864,7 +864,7 @@ function App() {
           )}
           {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>go('diagnostics')} onMarket={openMarket}/></>}
           {view === 'diagnostics' && <><button className="button" onClick={()=>go('results')}>Powrót do Pulpitu</button><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
-          {view === 'baseline' && <><BaselineView snapshot={snapshot} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Powiązania lokalizacji ({locationList(original).length})</summary><table className="location-directory"><thead><tr><th>Lokalizacja rynku</th><th>Kody w Excelu</th><th>Typ</th></tr></thead><tbody>{locationList(original).map(item => <tr key={item.id}><td data-label="Lokalizacja rynku">{locationLabel(item.scraper_label)}</td><td data-label="Kody w Excelu">{item.zones.join(', ')}</td><td data-label="Typ">{item.kind === 'airport' ? 'Lotnisko' : 'Poza lotniskiem'}</td></tr>)}</tbody></table></details></>}
+          {view === 'baseline' && <BaselineView snapshot={snapshot} workspace={workspaceData} market={market} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())}/>}
         </main>
       </div>
       {publicationDialog&&<PublicationDialog model={model} original={original} confirmations={amountConfirmations} count={changes.length} busy={busy} error={actionError} onClose={()=>setPublicationDialog(null)} onConfirm={()=>publishDraft(true)}/>}

@@ -201,6 +201,7 @@ export class GitHubRepository {
       return { schemaVersion: 1, source: { revision, policyHash: await hashJson(documents), loadedAt: new Date().toISOString() },
         baseline: { filename: manifest.source_filename, approvedAt: manifest.approved_at, sha256: manifest.workbook_sha256,
           importConfirmed: manifest.confirmed === true || manifest.status === 'confirmed_imported',
+          coverage: manifest.coverage ? {rowCount:manifest.coverage.rowCount,firstDate:manifest.coverage.firstDate,lastDate:manifest.coverage.lastDate,groups:manifest.coverage.groups,zones:manifest.coverage.zones} : null,
           ...(manifest.onboarding_hash ? { onboardingHash: manifest.onboarding_hash } : {}),
           ...(manifest.onboarding_request_hash ? { onboardingRequestHash: manifest.onboarding_request_hash } : {}) },
         capabilities: { mode: 'github', authentication: 'cloudflare-access', publish: true }, documents };

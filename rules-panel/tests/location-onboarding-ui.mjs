@@ -78,6 +78,9 @@ async function discover(page) {
   await page.getByRole('group', { name: 'Strefa NCT1', exact: true }).waitFor();
   assert.equal(await page.getByRole('group', { name: 'Strefa NCT1', exact: true }).count(), 1, 'Discovery must show an inline assignment for every unknown zone');
   await page.getByText('Obecna baza pozostaje aktywna.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.markup-table').count(),1);
+  const toggle=page.locator('.location-onboarding-table tbody > tr').first().getByRole('button');await toggle.click();assert.equal(await page.getByRole('group',{name:'Strefa NCT1',exact:true}).isVisible(),false);await toggle.click();await page.getByRole('group',{name:'Strefa NCT1',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Powiązanie NCT2',{exact:true}).locator('option[value="existing:katowice-city"]').innerText(),'Katowice · Miasto (KATC)');
 }
 async function configure(page) {
   await page.getByLabel('Powiązanie NCT2', { exact: true }).selectOption('existing:katowice-city');
@@ -135,9 +138,9 @@ try {
       assert.match(await review.innerText(), /Katowice/);
       assert.match(await review.innerText(), /ogólne zasady dla klas, z rozróżnieniem lotnisko\/miasto/);
       assert.match(await review.innerText(), /nie kopiuje lokalnych minimów ani wyjątków/);
-      for (const band of Object.keys(bands)) assert.ok((await review.innerText()).includes(band));
-      for (const amount of Object.values(bands)) assert.ok((await review.innerText()).includes(`${amount} PLN`), `Missing verified markup ${amount}`);
-      assert.equal(await page.getByLabel('Ten plik jest już wgrany do DiscoverCars', { exact: true }).isChecked(), true);
+      for (const band of Object.keys(bands)) assert.ok((await page.locator('.markup-table').innerText()).includes(band.replace('-','–')));
+      for (const amount of Object.values(bands)) assert.ok((await page.locator('.markup-table').innerText()).includes(`${amount} PLN`), `Missing verified markup ${amount}`);
+      assert.equal(await page.getByLabel('Ten plik jest już wgrany do DiscoverCars', { exact: true }).isChecked(), false);
       await screenshot(page, `verified-${width}`);
       if (width === 390) {
         await page.setViewportSize({ width: 320, height: 960 });
@@ -148,10 +151,8 @@ try {
       assert.equal(await review.count(), 0, 'Editing removes the checked summary');
       await page.getByLabel('Codzienny scraper NCT1', { exact: true }).check();
       await validate(page);
-      page.once('dialog', dialog => dialog.dismiss());
-      await publishButton(page).click();
       assert.equal(publications.length, 0);
-      page.once('dialog', dialog => dialog.accept());
+      await page.getByLabel('Ten plik jest już wgrany do DiscoverCars', {exact:true}).check();
       await publishButton(page).click();
       await page.getByRole('status').filter({ hasText: 'Nowa baza zapisana na GitHubie' }).waitFor();
       assert.equal(publications.length, 1);
@@ -224,7 +225,7 @@ try {
     handlers.check = () => ({ json: { summary, sourceRevision: 'no-new-source', previousSha256: 'old-file' } });
     await page.getByRole('button', { name: 'Sprawdź plik', exact: true }).click();
     await publishButton(page).waitFor();
-    assert.equal(await page.getByLabel('Ten plik jest już wgrany do DiscoverCars', { exact: true }).isChecked(), true);
+    assert.equal(await page.getByLabel('Ten plik jest już wgrany do DiscoverCars', { exact: true }).isChecked(), false);
     page.once('dialog', dialog => dialog.accept());
     await publishButton(page).click();
     await page.getByRole('status').filter({ hasText: 'Nowa baza zapisana na GitHubie' }).waitFor();

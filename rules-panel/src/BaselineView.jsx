@@ -1,14 +1,18 @@
 import React, { useRef, useState } from 'react';
 import { Upload, FileCheck2, CheckCheck } from 'lucide-react';
+import {baselineRange} from './baseline-presentation.mjs';
+import {BaselineComparison} from './BaselineComparison.jsx';
+import {ReportBaseline} from './ReportBaseline.jsx';
+import {LocationDirectory} from './LocationDirectory.jsx';
 import { timestamp } from './display.mjs';
 import { LocationOnboarding, VerifiedLocations } from './LocationOnboarding.jsx';
 
-export function BaselineView({ snapshot, service, enabled, onPublished }) {
+export function BaselineView({ snapshot, workspace, market, service, enabled, onPublished }) {
   const [file, setFile] = useState(null);
   const [check, setCheck] = useState(null);
   const [onboarding, setOnboarding] = useState(null);
   const [additions, setAdditions] = useState({});
-  const [confirmed, setConfirmed] = useState(true);
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [published, setPublished] = useState(null);
@@ -27,9 +31,10 @@ export function BaselineView({ snapshot, service, enabled, onPublished }) {
   };
   const choose = async event => {
     const version = ++selection.current;
-    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(true);
+    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(false);
     setOnboarding(null); setAdditions({}); setBusy('');
     const selected = event.target.files?.[0];
+    if (event.target instanceof HTMLInputElement) event.target.value = '';
     if (!selected) return;
     if (!/\.xlsx$/i.test(selected.name) || selected.size > 8 * 1024 * 1024 || !selected.size) { setError('Wybierz plik .xlsx o rozmiarze do 8 MB.'); return; }
     try {
@@ -61,7 +66,6 @@ export function BaselineView({ snapshot, service, enabled, onPublished }) {
   };
   const publish = async () => {
     if (!file || !ready || busy || !enabled) return;
-    if (!window.confirm(`Ustawić ${file.filename} jako nową bazę dla obu harmonogramów i kolejnych plików Excel na Telegramie?`)) return;
     const version = selection.current;
     setBusy('publish'); setError('');
     try {
@@ -74,33 +78,38 @@ export function BaselineView({ snapshot, service, enabled, onPublished }) {
     finally { if (version === selection.current) setBusy(''); }
   };
   return <section className="baseline-view" aria-labelledby="baseline-heading">
+    <section className="baseline-current">
     <h2 id="baseline-heading">Aktualna baza cennika</h2>
     <dl className="source-list">
       <div><dt>Plik</dt><dd>{snapshot.baseline.filename}</dd></div>
       <div><dt>Zatwierdzony</dt><dd>{timestamp(snapshot.baseline.approvedAt)}</dd></div>
-      <div><dt>Import do DiscoverCars</dt><dd>{snapshot.baseline.importConfirmed ? 'Potwierdzony' : 'Niepotwierdzony'}</dd></div>
+      <div><dt>Import do DiscoverCars</dt><dd>{snapshot.baseline.importConfirmed ? <span className="positive"><CheckCheck size={16}/> Potwierdzony</span> : 'Niepotwierdzony'}</dd></div>
+      <div><dt>Daty startu</dt><dd>{baselineRange(snapshot.baseline.coverage)}</dd></div>
+      <div><dt>Wiersze / klasy / kody stref</dt><dd>{snapshot.baseline.coverage?`${snapshot.baseline.coverage.rowCount?.toLocaleString('pl-PL',{useGrouping:'always'})??'Brak danych'} / ${snapshot.baseline.coverage.groups?.length??'Brak danych'} / ${snapshot.baseline.coverage.zones?.length??'Brak danych'}`:'Brak danych'}</dd></div>
+      <div><dt>Ostatni Excel policzony na tej bazie</dt><dd>{workspace?.status?.excel?.baselineMatchesCurrent===true?timestamp(workspace.status.excel.generatedAt):workspace?.status?.excel?.baselineMatchesCurrent===false?'Ostatni Excel używa innej bazy':'Nie potwierdzono zgodności'}</dd></div>
     </dl>
-    <h2>Podmień bazę</h2>
+    <a href="https://github.com/prejsik/discovercars-tool/commits/main/input/baseline-manifest.json" target="_blank" rel="noreferrer">Historia bazy na GitHubie</a></section>
+    <h2>Podmień bazę</h2><div className="baseline-options"><ReportBaseline workspace={workspace} service={service} enabled={enabled} onPublished={onPublished}/><section className="baseline-option"><h3>Własny plik Excel</h3>
     {!enabled && <p className="alert">Podmiana bazy wymaga aktywnego połączenia z GitHubem.</p>}
-    <label className="baseline-file">Plik Excel (.xlsx)<input aria-label="Nowy plik bazowy" type="file" accept=".xlsx" disabled={!enabled || busy === 'publish'} onChange={choose} /></label>
+    <label className="baseline-file baseline-drop" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(enabled&&busy!=='publish')choose({target:{files:e.dataTransfer.files}});}}><Upload size={20}/><span>{file?.filename??'Wybierz plik .xlsx albo przeciągnij go tutaj'}</span><input aria-label="Nowy plik bazowy" type="file" accept=".xlsx" disabled={!enabled || busy === 'publish'} onChange={choose} /></label>
     {!hasNewZones && <div className="review-actions"><button className="button" disabled={!file || Boolean(busy) || !enabled} onClick={validate}><FileCheck2 size={18} />{busy === 'check' ? 'Sprawdzanie pliku…' : 'Sprawdź plik'}</button></div>}
+    </section></div>
     {error && <div className="alert error" role="alert">{error}</div>}
     {hasNewZones && <>
       <LocationOnboarding onboarding={onboarding} service={service} disabled={!enabled || busy === 'publish'} onChange={configure} />
       <div className="review-actions"><button className="button" disabled={!configured || Boolean(busy) || !enabled} onClick={validate}><FileCheck2 size={18} />{busy === 'check' ? 'Sprawdzanie konfiguracji…' : 'Sprawdź konfigurację'}</button></div>
     </>}
     {ready && <>
-      <div className="alert" role="status"><CheckCheck size={18} />Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.</div>
-      <dl className="source-list">
-        <div><dt>Wybrany plik</dt><dd>{file.filename}</dd></div>
-        <div><dt>Wiersze cennika</dt><dd>{checked.summary.rowCount.toLocaleString('pl-PL')}</dd></div>
-        <div><dt>Daty startu</dt><dd>{checked.summary.firstDate} – {checked.summary.lastDate}</dd></div>
-        <div><dt>Klasy / lokalizacje</dt><dd>{checked.summary.groups.length} / {checked.summary.zones.length}</dd></div>
-      </dl>
+      <div className="alert baseline-success" role="status"><CheckCheck size={18} />Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.</div>
+      <p>Sprawdzony plik: <strong>{file.filename}</strong></p>
+      <BaselineComparison before={snapshot.baseline.coverage} after={checked.summary} model={snapshot.documents}/>
       {hasNewZones && <VerifiedLocations onboarding={checked.onboarding} />}
       <label className="baseline-confirm"><input type="checkbox" checked={confirmed} disabled={Boolean(busy)} onChange={event => setConfirmed(event.target.checked)} />Ten plik jest już wgrany do DiscoverCars</label>
+      <p>Kolejne uruchomienia ({__SCRAPER_PLAN__.map(slot=>slot.time).join(' i ')}) użyją tego pliku po ustawieniu jako bazę.</p>
+      <button className="button" disabled={Boolean(busy)} onClick={()=>{selection.current++;setCheck(null);setFile(null);setOnboarding(null);setAdditions({});setConfirmed(false);}}>Anuluj</button>
       <button className="button primary" disabled={Boolean(busy) || !enabled} onClick={publish}><Upload size={18} />{busy === 'publish' ? 'Zapisywanie bazy…' : 'Ustaw jako bazę'}</button>
     </>}
-    {published && <div className="alert" role="status">Nowa baza zapisana na GitHubie. Kolejne uruchomienia użyją jej do obu plików Excel.{published.url && <> <a href={published.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}
+    {published && <div className="alert baseline-success" role="status">Nowa baza zapisana na GitHubie. Kolejne uruchomienia użyją jej do obu plików Excel.{published.url && <> <a href={published.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}
+    <LocationDirectory model={snapshot.documents} market={market}/>
   </section>;
 }

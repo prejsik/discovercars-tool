@@ -28,9 +28,15 @@ test("snapshot contains source hashes and current rules without private paths or
   assert.equal(JSON.stringify(snapshot).includes("C:\\\\Users"), false);
   assert.deepEqual(Object.keys(snapshot.baseline).sort(), [
     "approvedAt",
+    "coverage",
     "filename",
+    "importConfirmed",
     "sha256",
   ]);
+  const manifest=JSON.parse(await readFile(new URL('../../input/baseline-manifest.json',import.meta.url),'utf8'));
+  assert.equal(snapshot.baseline.importConfirmed,manifest.confirmed===true||manifest.status==='confirmed_imported');
+  assert.equal(snapshot.baseline.coverage.rowCount,manifest.coverage.rowCount);
+  assert.deepEqual(snapshot.baseline.coverage.zones,manifest.coverage.zones);
 });
 
 test("same source produces a stable policy fingerprint", async () => {
