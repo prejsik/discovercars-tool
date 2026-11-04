@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react';
+import React,{useMemo} from 'react';
 import {ArrowRight,Download,RotateCcw} from 'lucide-react';
 import {timestamp} from './display.mjs';
 import {weekdayDate} from './visual-format.mjs';
@@ -6,19 +6,20 @@ import {warsawToday} from './market-model.mjs';
 import {countLabel} from './operations.mjs';
 import {nextSchedule} from './change-review.mjs';
 import {dashboardOverview} from './dashboard-model.mjs';
+import {reviewDayLabel} from './panel-format.mjs';
 
 
-export function Dashboard({workspace,onMarket,market,changeCount=0,largeCount=0,onReview,onDiagnostics}) {
+export function Dashboard({workspace,onMarket,market,changeCount=0,largeCount=0,onReview,onDiagnostics,transmission='automatic',onTransmissionChange}) {
  const {report,excel,links={},executions}=workspace?.status??{};
  const {data,busy,error,load}=market;
- const [transmission,setTransmission]=useState('automatic');
+ const setTransmission=onTransmissionChange;
  const today=warsawToday(),overview=useMemo(()=>dashboardOverview(data,today,transmission),[data,today,transmission]);
  const old=report&&Date.now()-Date.parse(report.sourceStartedAt)>86400000;
  const next=nextSchedule(__SCRAPER_PLAN__),last=executions?.latestScrape;
  const latestUnknown=last&&last.runId!==report?.runId;
  const excelState=latestUnknown?'Sprawdź ostatni przebieg':report?.quality==='failure'?'Excel nieopublikowany':excel?'Excel dostępny':'Brak poprawnego Excela';
  const coverage=report?.coverage?.expected>0?(100*report.coverage.found/report.coverage.expected).toLocaleString('pl-PL',{maximumFractionDigits:1})+'% sprawdzeń':null;
- const longDay=new Intl.DateTimeFormat('pl-PL',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Warsaw'}).format(new Date(today+'T12:00:00Z'));
+ const longDay=reviewDayLabel(today);
  return <section className="operations-dashboard" aria-label="Podsumowanie raportu">
   <div className="dashboard-status">
    <div><span>Raport cen</span><strong>{!report?'Brak potwierdzonego raportu':old?'Starszy niż 24 h':'Aktualny'}</strong><small>{report?.sourceStartedAt?'Zbieranie cen od '+timestamp(report.sourceStartedAt):'Brak czasu odczytu cen'}{coverage&&' · '+coverage}</small></div>

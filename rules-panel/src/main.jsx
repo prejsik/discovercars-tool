@@ -1,4 +1,5 @@
 import {locationLabel,countLabel} from './operations.mjs';
+import {LocationSelectOptions} from './LocationSelectOptions.jsx';
 import {ImpactReview} from './ImpactReview.jsx';
 import {DurationWarnings} from './DurationWarnings.jsx';
 import {FamilyDates} from './FamilyDates.jsx';
@@ -46,8 +47,8 @@ import "./styles.css";
 import * as policy from "./policy.mjs";
 import { Dashboard } from "./Dashboard.jsx";
 import { useMarketReport } from "./useMarketReport.mjs";
-import { overviewRows } from "./market-review.mjs";
-import { marketSignals } from "./market-model.mjs";
+import { missingOfferCount } from './panel-format.mjs';
+import { warsawToday } from './market-model.mjs';
 import { ChangeTable,PublicationDialog,publishLabel } from "./ChangeReview.jsx";
 import { AmountField } from "./AmountField.jsx";
 import { amountChange,amountValid,confirmedChanges,requiredConfirmations,ruleDifferences,originalRuleFor,ruleScope,sameConfirmation } from "./change-review.mjs";
@@ -194,7 +195,8 @@ function App() {
   const [pricesVisited, setPricesVisited] = useState(() => routeView() === 'prices');
   const [marketRequest,setMarketRequest]=useState(null);
   const market=useMarketReport(service,workspaceData?.status?.report,pricesVisited||view==='results'||view==='baseline');
-  const attentionCount=useMemo(()=>market.data?overviewRows(market.data).filter(row=>marketSignals(row,market.data.report).includes('missing')).length:null,[market.data]);
+  const [dashboardTransmission,setDashboardTransmission]=useState('automatic');
+  const attentionCount=useMemo(()=>missingOfferCount(market.data,warsawToday(),dashboardTransmission),[market.data,dashboardTransmission,clockTick]);
   const [ruleContext,setRuleContext]=useState(null);
   const [ruleView, setRuleView] = useState('list');
   const [search, setSearch] = useState("");
@@ -578,7 +580,7 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
-              {id==="prices"&&attentionCount>0&&<span className="nav-count" aria-label={`${attentionCount} pozycji bez oferty MM`}>{attentionCount}</span>}
+              {id==="prices"&&attentionCount!==null&&<span className="nav-count" title={`Brak oferty MM · najbliższe 14 dni · ${dashboardTransmission==='automatic'?'automaty':'wszystkie auta'}`} aria-label={`Brak oferty MM · najbliższe 14 dni · ${dashboardTransmission==='automatic'?'automaty':'wszystkie auta'}`}>{attentionCount.toLocaleString('pl-PL')}</span>}
               {id==="rules"&&changes.length>0&&<span className="nav-count">szkic</span>}
             </button>
           ))}
@@ -862,7 +864,7 @@ function App() {
               )}
             </section>
           )}
-          {view === 'results' && <><Dashboard workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>go('diagnostics')} onMarket={openMarket}/></>}
+          {view === 'results' && <><Dashboard transmission={dashboardTransmission} onTransmissionChange={setDashboardTransmission} workspace={workspaceData} market={market} changeCount={changes.length} largeCount={requiredConfirmations(model,original).length} onReview={()=>go('review')} onDiagnostics={()=>go('diagnostics')} onMarket={openMarket}/></>}
           {view === 'diagnostics' && <><button className="button" onClick={()=>go('results')}>Powrót do Pulpitu</button><ReportsView workspace={workspaceData ?? {status:{available:false},capabilities:{publish:false}}} service={service} onRefresh={refreshWorkspace} onPublished={async () => acceptWorkspace(await service.workspace())} /><details className="technical-details"><summary>Konfiguracja techniczna</summary><Sources snapshot={snapshot} model={model} remote={remote} capabilities={workspaceData?.capabilities} /></details></>}
           {view === 'baseline' && <BaselineView snapshot={snapshot} workspace={workspaceData} market={market} service={service} enabled={Boolean(remote && workspaceData?.capabilities.publish)} onPublished={async () => acceptWorkspace(await service.workspace())}/>}
         </main>
@@ -1058,11 +1060,7 @@ function Preview({ model, rules }) {
             value={query.zone}
             onChange={(e) => set("zone", e.target.value)}
           >
-            {zones.map((item) => (
-              <option key={item.zone} value={item.zone}>
-                {item.label}
-              </option>
-            ))}
+            <LocationSelectOptions values={zones.map(item=>({value:item.zone,label:item.label}))} locations={model.locations.locations??model.locations}/>
           </select>
         </label>
         <div className="form-grid">

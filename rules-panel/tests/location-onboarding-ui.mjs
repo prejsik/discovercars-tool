@@ -82,10 +82,15 @@ async function discover(page) {
   const toggle=page.locator('.location-onboarding-table tbody > tr').first().getByRole('button');await toggle.click();assert.equal(await page.getByRole('group',{name:'Strefa NCT1',exact:true}).isVisible(),false);await toggle.click();await page.getByRole('group',{name:'Strefa NCT1',exact:true}).waitFor();
   assert.equal(await page.getByLabel('Powiązanie NCT2',{exact:true}).locator('option[value="existing:katowice-city"]').innerText(),'Katowice · Miasto (KATC)');
 }
+async function editAssignment(page,zone){
+ const group=page.getByRole('group',{name:`Strefa ${zone}`,exact:true});if(!await group.isVisible())await page.locator('.location-onboarding-table tbody > tr').filter({has:page.getByText(zone,{exact:true})}).getByRole('button',{name:'Zmień',exact:true}).click();
+}
 async function configure(page) {
+    await editAssignment(page,'NCT2');
   await page.getByLabel('Powiązanie NCT2', { exact: true }).selectOption('existing:katowice-city');
   assert.equal(await page.getByLabel('Codzienny scraper NCT2', { exact: true }).isChecked(), false, 'An existing point retains its current daily flag');
   assert.equal(await page.getByLabel('Codzienny scraper NCT2', { exact: true }).isEnabled(), true);
+    await editAssignment(page,'NCT2');
   await page.getByLabel('Powiązanie NCT2', { exact: true }).selectOption('existing:krakow-airport');
   const daily = page.getByLabel('Codzienny scraper NCT2', { exact: true });
   assert.equal(await daily.isChecked(), true);
@@ -94,15 +99,19 @@ async function configure(page) {
   assert.equal(await page.getByLabel('Źródło narzutów NCT2', { exact: true }).getAttribute('readonly'), '');
   await cannotPublish(page);
   assert.equal(await page.getByRole('button', { name: 'Sprawdź konfigurację', exact: true }).isDisabled(), true);
+    await editAssignment(page,'NCT1');
   await page.getByLabel('Powiązanie NCT1', { exact: true }).selectOption('new');
   assert.equal(await page.getByLabel('Codzienny scraper NCT1', { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('Źródło narzutów NCT1', { exact: true }).inputValue(), '', 'A new point has no implicit donor');
+    await editAssignment(page,'NCT1');
   await page.getByLabel('Szukana lokalizacja NCT1', { exact: true }).fill('Katowice dworzec');
   await cannotPublish(page);
   await page.getByRole('button', { name: 'Szukaj lokalizacji NCT1', exact: true }).click();
   assert.equal(await page.getByLabel('Wynik wyszukiwania NCT1', { exact: true }).inputValue(), '', 'A search result must be explicitly selected');
+    await editAssignment(page,'NCT1');
   await page.getByLabel('Wynik wyszukiwania NCT1', { exact: true }).selectOption('5002');
   assert.equal(await page.getByRole('button', { name: 'Sprawdź konfigurację', exact: true }).isDisabled(), true);
+    await editAssignment(page,'NCT1');
   await page.getByLabel('Źródło narzutów NCT1', { exact: true }).selectOption('KATC');
 }
 async function validate(page) {
@@ -129,6 +138,8 @@ try {
       assert.equal(checks[0].locationAdditions, undefined);
       await cannotPublish(page);
       await configure(page);
+      assert.match(await page.locator('.location-onboarding-table').innerText(),/ID 5002/);
+      assert.doesNotMatch(await page.locator('.location-onboarding-table').innerText(),/\$\{rows/);
       assert.deepEqual(searches, [{ query: 'Katowice dworzec' }]);
       await screenshot(page, `configured-${width}`);
       await validate(page);
@@ -146,9 +157,11 @@ try {
         await page.setViewportSize({ width: 320, height: 960 });
         await screenshot(page, 'verified-320');
       }
+    await editAssignment(page,'NCT1');
       await page.getByLabel('Codzienny scraper NCT1', { exact: true }).uncheck();
       await cannotPublish(page);
       assert.equal(await review.count(), 0, 'Editing removes the checked summary');
+    await editAssignment(page,'NCT1');
       await page.getByLabel('Codzienny scraper NCT1', { exact: true }).check();
       await validate(page);
       assert.equal(publications.length, 0);
@@ -171,6 +184,7 @@ try {
     handlers.check = () => ({ status: 422, json: { error: 'Brak potwierdzonego punktu w konfiguracji.' } });
     await page.getByRole('button', { name: 'Sprawdź konfigurację', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Brak potwierdzonego punktu' }).waitFor();
+    await editAssignment(page,'NCT1');
     assert.equal(await page.getByRole('group', { name: 'Strefa NCT1', exact: true }).count(), 1, 'A failed configuration check retains the wizard');
     await page.getByText('old-active.xlsx', { exact: true }).waitFor();
     await cannotPublish(page);
@@ -178,11 +192,13 @@ try {
     const pending = deferred();
     handlers.check = async () => { await pending.promise; return { json: validated }; };
     await page.getByRole('button', { name: 'Sprawdź konfigurację', exact: true }).click();
+    await editAssignment(page,'NCT1');
     await page.getByLabel('Źródło narzutów NCT1', { exact: true }).selectOption('KRLO');
     const stale = page.waitForResponse(response => response.url().endsWith('/api/baseline/check'));
     pending.resolve(); await stale; await rendered(page);
     await cannotPublish(page);
     handlers.check = () => ({ json: validated });
+    await editAssignment(page,'NCT1');
     await page.getByLabel('Źródło narzutów NCT1', { exact: true }).selectOption('KATC');
     await validate(page);
     handlers.publish = () => ({ status: 409, json: { error: 'Konfiguracja źródłowa zmieniła się.' } });
@@ -193,6 +209,7 @@ try {
     await cannotPublish(page);
     handlers.publish = () => ({ json: { revision: 'published', sha256: 'checked-file' } });
     await validate(page);
+    await editAssignment(page,'NCT1');
     await page.getByLabel('Szukana lokalizacja NCT1', { exact: true }).fill('Katowice nowe');
     await cannotPublish(page);
     assert.equal(await page.getByRole('button', { name: 'Sprawdź konfigurację', exact: true }).isDisabled(), true, 'Changing a query invalidates its selected candidate');
@@ -201,6 +218,7 @@ try {
     const searchPending = deferred();
     handlers.search = async () => { await searchPending.promise; return { json: { candidates: [{ placeId: 'stale-place', label: 'Stary wynik', city: 'Katowice', kind: 'city' }] } }; };
     await page.getByRole('button', { name: 'Szukaj lokalizacji NCT1', exact: true }).click();
+    await editAssignment(page,'NCT1');
     await page.getByLabel('Szukana lokalizacja NCT1', { exact: true }).fill('Inne miasto');
     const staleSearch = page.waitForResponse(response => response.url().endsWith('/api/locations/search'));
     searchPending.resolve(); await staleSearch; await rendered(page);

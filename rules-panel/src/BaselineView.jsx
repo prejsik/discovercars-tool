@@ -96,7 +96,7 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
     </section></div>
     {error && <div className="alert error" role="alert">{error}</div>}
     {hasNewZones && <>
-      <LocationOnboarding onboarding={onboarding} service={service} disabled={!enabled || busy === 'publish'} onChange={configure} />
+      <LocationOnboarding verified={ready} onboarding={onboarding} service={service} disabled={!enabled || busy === 'publish'} onChange={configure} />
       <div className="review-actions"><button className="button" disabled={!configured || Boolean(busy) || !enabled} onClick={validate}><FileCheck2 size={18} />{busy === 'check' ? 'Sprawdzanie konfiguracji…' : 'Sprawdź konfigurację'}</button></div>
     </>}
     {ready && <>
@@ -106,8 +106,10 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
       {hasNewZones && <VerifiedLocations onboarding={checked.onboarding} />}
       <label className="baseline-confirm"><input type="checkbox" checked={confirmed} disabled={Boolean(busy)} onChange={event => setConfirmed(event.target.checked)} />Ten plik jest już wgrany do DiscoverCars</label>
       <p>Kolejne uruchomienia ({__SCRAPER_PLAN__.map(slot=>slot.time).join(' i ')}) użyją tego pliku po ustawieniu jako bazę.</p>
-      <button className="button" disabled={Boolean(busy)} onClick={()=>{selection.current++;setCheck(null);setFile(null);setOnboarding(null);setAdditions({});setConfirmed(false);}}>Anuluj</button>
+      <div className="baseline-publish-actions">
       <button className="button primary" disabled={Boolean(busy) || !enabled} onClick={publish}><Upload size={18} />{busy === 'publish' ? 'Zapisywanie bazy…' : 'Ustaw jako bazę'}</button>
+      <button className="button" disabled={Boolean(busy)} onClick={()=>{selection.current++;setCheck(null);setFile(null);setOnboarding(null);setAdditions({});setConfirmed(false);}}>Anuluj</button>
+      </div>
     </>}
     {published && <div className="alert baseline-success" role="status">Nowa baza zapisana na GitHubie. Kolejne uruchomienia użyją jej do obu plików Excel.{published.url && <> <a href={published.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}
     <LocationDirectory model={snapshot.documents} market={market}/>

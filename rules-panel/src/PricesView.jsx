@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Search, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { knownGroups, DURATION_BANDS } from './policy.mjs';
 import { timestamp } from './display.mjs';
 import './price-views.css';
 import {weekdayDate as dayLabel} from './visual-format.mjs';
+import {DurationChips} from './PriceCalendar.jsx';
 
 const money=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'Brak danych';
 const bandLabel=days=>{const band=DURATION_BANDS.find(([low,high])=>low<=days&&days<=high);return band?band[0]===band[1]?String(band[0]):band.join('–'):'Brak danych';};
 const list=value=>Array.isArray(value)?value.length?value.join(', '):'Brak':'Brak danych';
 
-export function PricesView({model,workspace,service,selection,onSelectionChange,sharedFilters=false,zones=[]}) {
+export function PricesView({model,workspace,service,selection,onSelectionChange,sharedFilters=false,zones=[],active=true}) {
   const groups=useMemo(()=>knownGroups(model),[model]);
   const {zone,duration,transmission,from,to}=selection;
   const setZone=zone=>onSelectionChange({zone});const setDuration=duration=>onSelectionChange({duration});
@@ -17,32 +18,35 @@ export function PricesView({model,workspace,service,selection,onSelectionChange,
   const [localGroup,setLocalGroup]=useState(groups.includes('CDMV')?'CDMV':groups[0]??'');
   const group=selection.group??localGroup;
   const setGroup=value=>{setLocalGroup(value);onSelectionChange({group:value});};
-  const [data,setData]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [loaded,setLoaded]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [selected,setSelected]=useState('');const [limit,setLimit]=useState(20);
   const report=workspace?.status?.report;const excel=workspace?.status?.excel;
   const query={zone,group,duration,transmission,reportRunId:report?.runId,excelRunId:excel?.runId};
   const key=JSON.stringify([query,report?.reportSha256,excel?.files,excel?.baselineSha256]);
   const requestKey=React.useRef(key);requestKey.current=key;
-  useEffect(()=>{setData(null);setError('');setSelected('');setLimit(20);},[key]);
-  async function load() {
-    setBusy(true);setError('');setData(null);const current=key;
-    try {const result=await service.prices(query);if(requestKey.current===current){setData(result);setSelected('');setLimit(20);}}
-    catch(error){if(requestKey.current===current)setError(error.message);}
-    finally{setBusy(false);}
+  const pending=React.useRef(null),activeRef=React.useRef(active);activeRef.current=active;
+  const data=loaded?.key===key?loaded.value:null;
+  useEffect(()=>{setLoaded(null);setError('');setSelected('');setLimit(20);if(active&&zone&&group&&report&&excel)void load();else setBusy(false);},[key,active]);
+  async function load(force=false) {
+    if(!active||!zone||!group||!report||!excel)return;
+    setBusy(true);setError('');setLoaded(null);const current=key;
+    try {if(force||pending.current?.key!==key)pending.current={key,promise:service.prices(query)};const result=await pending.current.promise;if(requestKey.current===current&&activeRef.current){setLoaded({key:current,value:result});setSelected('');setLimit(20);}}
+    catch(error){if(requestKey.current===current&&activeRef.current)setError(error.message);}
+    finally{if(requestKey.current===current&&activeRef.current)setBusy(false);}
   }
   const rows=(data?.rows??[]).filter(row=>(!from||row.date>=from)&&(!to||row.date<=to));
   const noPredictions=rows.length>0&&rows.every(row=>row.predicted==null);
   if(!zone)return <section className="prices-view" aria-label="Ceny i rynek"><p>Wybierz oddział u góry</p></section>;
   return <section className="prices-view" aria-label="Ceny i rynek">
-    <form className="price-filters" onSubmit={event=>{event.preventDefault();load();}}>
+    <form className="price-filters" onSubmit={event=>{event.preventDefault();load(true);}}>
       {zones.length>1&&<div><span className="filter-label">Kod w tabeli</span><div className="segmented zone-segments" role="group" aria-label="Kod w tabeli">{zones.map(code=><button type="button" key={code} className="code" aria-pressed={zone===code} onClick={()=>setZone(code)}>{code}</button>)}</div></div>}
       <label>Klasa w Excelu<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(item=><option key={item}>{item}</option>)}</select></label>
-      <label>Długość najmu<select value={duration} onChange={e=>setDuration(Number(e.target.value))}>{Array.from({length:14},(_,i)=>i+1).map(day=><option key={day} value={day}>{day} dni · Excel {bandLabel(day)}</option>)}</select></label>
+      <DurationChips values={[duration]} onChange={values=>setDuration(values[0])} single includeOne ariaLabel="Długość najmu w Excelu" labelFor={d=>d===1?'1 dzień':`${d} dni · Excel ${bandLabel(d)}`}/>
       {!sharedFilters&&<label>Skrzynia<select value={transmission} onChange={e=>setTransmission(e.target.value)}><option value="all">Wszystkie auta</option><option value="automatic">Tylko automaty</option></select></label>}
-      <button className="button primary" disabled={busy||!report||!excel||!zone||!group}><Search size={17}/>{busy?'Odczytywanie plików…':'Pokaż ceny'}</button>
+      <button className="button" disabled={busy||!report||!excel||!zone||!group}><RotateCcw size={17}/>{busy?'Odczytywanie plików…':'Odśwież'}</button>
     </form>
     {!report||!excel?<p className="freshness-warning">Do porównania potrzebny jest potwierdzony raport i poprawny Excel. Sprawdź Pulpit.</p>:null}
-    {error&&<div className="alert error" role="alert">{error}<button className="button" disabled={busy} onClick={load}><RotateCcw size={16}/>Ponów odczyt</button></div>}
+    {error&&<div className="alert error" role="alert">{error}<button className="button" disabled={busy} onClick={()=>load(true)}><RotateCcw size={16}/>Ponów odczyt</button></div>}
     {busy&&<p role="status">Odczytywanie opublikowanych wyników. Bez uruchamiania scrapera.</p>}
     {data&&<>
       <div className="price-context"><span>PLN brutto / dobę · Excel: {bandLabel(duration)} dni</span><span>Raport: {timestamp(data.report.generatedAt)} · Excel: {timestamp(data.excel.generatedAt)}</span></div>

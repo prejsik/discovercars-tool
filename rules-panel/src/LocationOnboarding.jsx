@@ -1,5 +1,6 @@
 import {locationLabel} from './operations.mjs';
 import {locationOptions} from './editor.mjs';
+import {LocationSelectOptions} from './LocationSelectOptions.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Search, ShieldCheck } from 'lucide-react';
 
@@ -54,7 +55,7 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
           update({ target, query: '', selectedQuery: '', candidates: [], placeId: '', markupSourceZone: '', daily: existing?.daily ?? true, searched: false, searchError: '' });
         }}>
           <option value="">Wybierz punkt</option>
-          <optgroup label="Istniejące punkty">{locations.map(item => <option key={item.id} value={`existing:${item.id}`}>{pointLabel(item)}</option>)}</optgroup>
+          <LocationSelectOptions values={locations.map(item=>({value:`existing:${item.id}`,label:pointLabel(item),kind:item.kind}))}/>
           <option value="new">Nowy punkt</option>
         </select>
       </label>
@@ -74,13 +75,13 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
         {draft.candidates.length > 0 && <label className="location-field">Wynik wyszukiwania
           <select aria-label={`Wynik wyszukiwania ${zone}`} value={draft.placeId} onChange={event => update({ placeId: event.target.value })}>
             <option value="">Wybierz znaleziony punkt</option>
-            {draft.candidates.map(item => <option key={item.placeId} value={item.placeId}>{item.label} · {item.city} · {kindLabel(item.kind)}</option>)}
+            <LocationSelectOptions values={draft.candidates.map(item=>({value:String(item.placeId),label:`${item.label} · ${item.city} · ${kindLabel(item.kind)}`,kind:item.kind}))}/>
           </select>
         </label>}
         <label className="location-field">Źródło narzutów
           <select aria-label={`Źródło narzutów ${zone}`} value={draft.markupSourceZone} onChange={event => update({ markupSourceZone: event.target.value })}>
             <option value="">Wybierz tabelę narzutów</option>
-            {markupSources.map(item => <option key={item.zone} value={item.zone}>{item.zone} · {item.label}</option>)}
+            <LocationSelectOptions locations={locations} values={markupSources.map(item=>({value:item.zone,label:`${item.zone} · ${item.label}`}))}/>
           </select>
         </label>
       </>}
@@ -91,12 +92,13 @@ function LocationAssignment({ zone, locations, markupSources, service, disabled,
   </fieldset>;
 }
 
-export function LocationOnboarding({ onboarding, service, disabled, onChange }) {
+export function LocationOnboarding({ onboarding, service, disabled, onChange, verified=false }) {
   const [rows,setRows]=useState({});const [closed,setClosed]=useState({});
+  useEffect(()=>{if(verified)setClosed(Object.fromEntries(onboarding.unknownZones.map(zone=>[zone,true])));},[verified,onboarding.unknownZones]);
   return <section className="location-onboarding" aria-labelledby="location-onboarding-heading">
     <h2 id="location-onboarding-heading">Nowe lokalizacje</h2>
     <p className="muted" role="status">Obecna baza pozostaje aktywna.</p>
-    <table className="location-onboarding-table"><thead><tr>{['Kod','Powiązanie','Punkt w DiscoverCars','Narzuty z','Codzienny scraper','Stan','Zmień'].map(text=><th key={text}>{text}</th>)}</tr></thead><tbody>{onboarding.unknownZones.map(zone=><React.Fragment key={zone}><tr><td data-label="Kod">{zone}</td><td data-label="Powiązanie">{rows[zone]?.binding??'Nie wybrano'}</td><td data-label="Punkt w DiscoverCars">{rows[zone]?.label||'Nie wybrano'}{rows[zone]?.placeId?` (ID ${'${rows[zone].placeId}'})`:''}</td><td data-label="Narzuty z">{rows[zone]?.source?.zone??'Nie wybrano'}</td><td data-label="Codzienny scraper">{rows[zone]?.daily===undefined?'Nie wybrano':rows[zone].daily?'Tak':'Nie'}</td><td data-label="Stan">{rows[zone]?.ready?'Skonfigurowano':'Do uzupełnienia'}</td><td><button type="button" className="button" disabled={disabled} onClick={()=>setClosed(current=>({...current,[zone]:!current[zone]}))}>{closed[zone]?'Zmień':'Zwiń formularz'}</button></td></tr><tr hidden={Boolean(closed[zone])}><td colSpan={7}><LocationAssignment zone={zone} locations={onboarding.locations} markupSources={onboarding.markupSources} service={service} disabled={disabled} onChange={(code,assignment,details)=>{setRows(current=>({...current,[code]:{...details,ready:Boolean(assignment)}}));onChange(code,assignment);}}/></td></tr></React.Fragment>)}</tbody></table>
+    <table className="location-onboarding-table"><thead><tr>{['Kod','Powiązanie','Punkt w DiscoverCars','Narzuty z','Codzienny scraper','Stan','Zmień'].map(text=><th key={text}>{text}</th>)}</tr></thead><tbody>{onboarding.unknownZones.map(zone=><React.Fragment key={zone}><tr><td data-label="Kod">{zone}</td><td data-label="Powiązanie">{rows[zone]?.binding??'Nie wybrano'}</td><td data-label="Punkt w DiscoverCars">{rows[zone]?.label||'Nie wybrano'}{rows[zone]?.placeId?` (ID ${rows[zone].placeId})`:''}</td><td data-label="Narzuty z">{rows[zone]?.source?.zone??'Nie wybrano'}</td><td data-label="Codzienny scraper">{rows[zone]?.daily===undefined?'Nie wybrano':rows[zone].daily?'Tak':'Nie'}</td><td data-label="Stan">{rows[zone]?.ready?'Skonfigurowano':'Do uzupełnienia'}</td><td><button type="button" className="button" disabled={disabled} onClick={()=>setClosed(current=>({...current,[zone]:!current[zone]}))}>{closed[zone]?'Zmień':'Zwiń formularz'}</button></td></tr><tr hidden={Boolean(closed[zone])}><td colSpan={7}><LocationAssignment zone={zone} locations={onboarding.locations} markupSources={onboarding.markupSources} service={service} disabled={disabled} onChange={(code,assignment,details)=>{setRows(current=>({...current,[code]:{...details,ready:Boolean(assignment)}}));setClosed(current=>({...current,[code]:Boolean(assignment)}));onChange(code,assignment);}}/></td></tr></React.Fragment>)}</tbody></table>
     <h3>Narzuty według kodu strefy</h3><div className="baseline-table-scroll"><table className="markup-table"><thead><tr><th>Kod / źródło</th>{bands.map((band,i)=><th key={band}>{i===0?'1 dzień':`${band.replace('-','–')} dni`}</th>)}</tr></thead><tbody>{onboarding.unknownZones.map(zone=><tr key={zone}><th scope="row">{zone} / {rows[zone]?.source?.zone??'—'}</th>{bands.map(band=><td key={band}>{rows[zone]?.source?`${rows[zone].source.amounts[band].toLocaleString('pl-PL')} PLN`:'—'}</td>)}</tr>)}</tbody></table></div>
   </section>;
 }
