@@ -35,13 +35,13 @@ try {
   assert.equal(await page.getByRole('link',{name:'Pobierz import',exact:true}).getAttribute('href'),workspace.status.links.import);
   assert.equal(await page.getByRole('button',{name:'Ustaw ten plik jako nową bazę',exact:true}).count(),0);assert.equal(checks,0);assert.equal(publications,0);
   await page.getByRole('link',{name:'Ustaw plik jako bazę w „Baza i lokalizacje”'}).click();
-  const publish=page.getByRole('button',{name:'Sprawdź i ustaw jako bazę',exact:true});await publish.waitFor();assert.equal(await publish.isDisabled(),true);
+  const reportSection=page.locator('.report-baseline');assert.equal(await reportSection.getByRole('button',{name:'Ustaw jako bazę',exact:true}).count(),0);await reportSection.getByRole('button',{name:'Sprawdź plik z ostatniego przebiegu'}).click();const publish=reportSection.getByRole('button',{name:'Ustaw jako bazę',exact:true});await publish.waitFor();assert.equal(await publish.isDisabled(),true);assert.equal(checks,1);assert.equal(publications,0);
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`reports overflow ${width}`);
     await page.screenshot({path:fileURLToPath(new URL(`results-${width}.png`,output))});
   }
-  const checkbox=page.getByRole('checkbox',{name:'Wgrałem ten plik do DiscoverCars',exact:true});assert.equal(await checkbox.isChecked(),false);await checkbox.check();await checkbox.uncheck();assert.equal(await publish.isDisabled(),true);assert.equal(checks,0);assert.equal(publications,0);await checkbox.check();await publish.click();
+  const checkbox=page.getByRole('checkbox',{name:'Wgrałem ten plik do DiscoverCars',exact:true});assert.equal(await checkbox.isChecked(),false);await checkbox.check();await checkbox.uncheck();assert.equal(await publish.isDisabled(),true);assert.equal(checks,1);assert.equal(publications,0);await checkbox.check();await publish.click();
   await page.getByRole('status').filter({hasText:'Plik importowy ustawiony jako nowa baza.'}).waitFor();
   assert.equal(publications,1);assert.deepEqual(errors,[]);
   console.log('Results UI PASS: scoped files, partial runs, statistics, explicit import/confirmation, mobile and no automatic baseline changes.');
