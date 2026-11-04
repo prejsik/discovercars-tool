@@ -7,10 +7,20 @@ import { searchDiscovercarsLocations } from '../server/location-search.mjs';
 import { loadPublishedWorkbook, workbookInput } from '../server/reports.mjs';
 import { tickSchedule } from './scheduler.mjs';
 import { readCalendarEvents, saveCalendarEvent } from '../server/calendar-events.mjs';
+import { PriceEvidenceReader } from '../server/price-evidence-reader.mjs';
 
 // One coordination atom is one repository, shared by its authorized directors.
 export class RulesWorkspace extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.queue = Promise.resolve(); }
+
+  async priceEvidence(input,actor,source=false) {
+    const allowed=(this.env.ACCESS_EMAILS??'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean);
+    if(!allowed.includes(actor))return Response.json({error:'Brak dostępu.'},{status:403});
+    if(!githubConfigured(this.env))return Response.json({error:'Integracja GitHub nie jest skonfigurowana.'},{status:503});
+    this.priceReader??=new PriceEvidenceReader(()=>new GitHubRepository(this.env));
+    // Read-only evidence must not queue behind baseline publication or change storage.
+    return this.priceReader.read(input,source);
+  }
 
   async scheduleTick(now) {
     const task = this.queue.catch(() => {}).then(async () => {

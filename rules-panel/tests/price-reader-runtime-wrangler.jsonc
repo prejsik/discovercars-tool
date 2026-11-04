@@ -1,0 +1,8 @@
+{
+ "name":"price-reader-local-test",
+ "main":"price-reader-runtime-worker.mjs",
+ "compatibility_date":"2026-10-15",
+ "vars":{"ACCESS_EMAILS":"owner@example.test","GITHUB_APP_ID":"1","GITHUB_INSTALLATION_ID":"2","GITHUB_APP_PRIVATE_KEY":"fixture-only","PANEL_PREVIEW_KEY":"fixture-only"},
+ "durable_objects":{"bindings":[{"name":"PROBE","class_name":"PriceProbe"}]},
+ "migrations":[{"tag":"test-v1","new_sqlite_classes":["PriceProbe"]}]
+}

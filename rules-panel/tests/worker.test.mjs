@@ -88,6 +88,28 @@ test('price evidence endpoint remains private and read-only',async()=>{
   assert.equal(requests.length,0);
 });
 
+test('price reads keep expensive metadata and binary processing off the HTTP Worker',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>{throw new Error('Metadata or GitHub work escaped the private reader');});
+  const calls=[];
+  const {env}=setup({PANEL_WRITES_ENABLED:'true',GITHUB_APP_ID:'1',GITHUB_INSTALLATION_ID:'2',GITHUB_APP_PRIVATE_KEY:'configured',PANEL_PREVIEW_KEY:'configured',
+    RULES_WORKSPACE:{getByName:name=>({priceEvidence:async(input,actor,source)=>{
+      calls.push({name,input,actor,source});
+      return source?new Response(new Uint8Array([1,2,3]),{headers:{'Content-Type':'application/octet-stream'}}):Response.json({location:'Krakow Airport (KRK)'});
+    }})}});
+  const jwt=await token();
+  const params='zone=KRLO&group=CDMV&duration=3&transmission=automatic&reportRunId=123&excelRunId=123';
+  const context=await worker.fetch(await request('/api/report/prices?'+params,jwt),env);
+  assert.equal(context.status,200,await context.clone().text());
+  assert.equal((await context.json()).location,'Krakow Airport (KRK)');
+  const binary=await worker.fetch(await request('/api/report/price-source?'+params+'&kind=baseline',jwt),env);
+  assert.equal(binary.status,200);
+  assert.deepEqual([...new Uint8Array(await binary.arrayBuffer())],[1,2,3]);
+  assert.equal(binary.headers.get('cache-control'),'private, no-store');
+  assert.deepEqual(calls.map(c=>[c.name,c.actor,c.source,c.input.duration]),[
+    ['prejsik/discovercars-tool',emails[0],false,3],['prejsik/discovercars-tool',emails[0],true,3],
+  ]);
+});
+
 for (const email of emails) {
   test(`signed approved identity can read all protected assets: ${email}`, async () => {
     const { env, requests } = setup();
