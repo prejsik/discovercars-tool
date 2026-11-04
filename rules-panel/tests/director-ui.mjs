@@ -109,7 +109,8 @@ try {
   workspace = { ...workspace, preview: { revision: "preview-a", draftRevision: "draft-a", sourceRevision: snapshot.source.revision, status: "success", testsSucceeded: true, completedAt: "2026-10-15T08:00:00Z", dataCollectedAt: "2026-10-15T07:00:00Z", impact: { changedRateCells: 12, increasedRateCells: 12, decreasedRateCells: 0, unchangedRateCells: 48, samples: [{ position: { zone: "GDLO", group: "CDMV", pickupDate: "2026-10-16", durationBand: "3-4", cell: "K5" }, beforeRate: 70, afterRate: 95, afterDecision: { reason: "Minimum reguły" } }] } } };
   await page.reload();
   await page.goto(`${origin}/?view=review`);
-  assert.equal(await page.locator('.impact-review').count(), 0);
+  await page.locator('.impact-review').waitFor();
+  assert.equal(await page.locator('.impact-review').count(), 1);
   await page.screenshot({ path: fileURLToPath(new URL("review-desktop.png", output)) });
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 });

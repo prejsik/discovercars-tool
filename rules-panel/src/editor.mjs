@@ -5,7 +5,7 @@ export function locationOptions(model) {
   return (model.locations.locations ?? model.locations).flatMap(location => {
     const city = cities[location.city] ?? location.city;
     const type = location.id.includes("west_station") ? "Dworzec Zachodni" : location.id.includes("train_station") ? "Dworzec kolejowy" : location.id.includes("galeria") ? "Galeria Krakowska" : location.kind === "airport" ? "Lotnisko" : "Miasto";
-    return location.zones.map(value => ({ value, label: `${city} · ${type} (${value})` }));
+    return location.zones.map((value,index) => ({ value, label: index ? `${value} · wg rynku ${city} · ${type}` : `${city} · ${type} (${value})` }));
   });
 }
 
@@ -22,6 +22,19 @@ export function groupRuleBands(rules) {
     families.get(key).push(rule);
   }
   return [...families.values()];
+}
+
+export function familyTitles(families) {
+  const used=new Set();
+  return families.map(([rule])=>{
+    let title=rule.title;
+    if(families.filter(([other])=>other.title===rule.title).length>1){
+      const date=value=>value?value.split('-').reverse().join('.'):'bezterminowo';
+      title+=` · ${date(rule.startDate)}–${date(rule.endDate)} · ${rule.groups.join(', ')}`;
+    }
+    const base=title;let n=2;while(used.has(title))title=`${base} (${n++})`;
+    used.add(title);return title;
+  });
 }
 
 export function publishBlocker(workspace) {

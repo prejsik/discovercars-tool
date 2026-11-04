@@ -6,7 +6,7 @@ test("location choices show Polish labels with each Excel code", () => {
   assert.deepEqual(locationOptions({ locations: { locations: [
     { id: "gdansk_airport", city: "Gdansk", kind: "airport", zones: ["GDLO"] },
     { id: "wroclaw_train_station", city: "Wroclaw", kind: "city", zones: ["WRDW", "WR2"] },
-  ] } }).map(({ value, label }) => [value, label]), [["GDLO", "Gdańsk · Lotnisko (GDLO)"], ["WRDW", "Wrocław · Dworzec kolejowy (WRDW)"], ["WR2", "Wrocław · Dworzec kolejowy (WR2)"]]);
+  ] } }).map(({ value, label }) => [value, label]), [["GDLO", "Gdańsk · Lotnisko (GDLO)"], ["WRDW", "Wrocław · Dworzec kolejowy (WRDW)"], ["WR2", "WR2 · wg rynku Wrocław · Dworzec kolejowy"]]);
 });
 
 test("publication requires a current saved draft, independent of impact preview", () => {

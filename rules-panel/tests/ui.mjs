@@ -113,6 +113,8 @@ try {
     .click();
   const toggle = page.getByRole("switch", { name: "Rekomendacje dla CDMV" });
   await toggle.click();
+  await page.getByRole('dialog').getByLabel('Powód zmiany').fill('Test wyłączenia klasy');
+  await page.getByRole('dialog').getByRole('button',{name:'Zapisz w szkicu'}).click();
   await page.waitForFunction(() => document.querySelector('[aria-label="Rekomendacje dla CDMV"]').checked === false);
   assert.equal(await toggle.isChecked(), false);
   await page

@@ -99,7 +99,7 @@ function ruleEntries(model) {
   }
   array(pricing.mandatoryScopedFloorsPlnDay).forEach((rule, index) => {
     if (!object(rule)) return;
-    append(`scoped:${index}`, 'mandatory', 'Wybrane klasy i strefy: obowiazkowa stawka minimalna', rule,
+    append(`scoped:${index}`, 'mandatory', `${rule.zones?.length === 1 ? rule.zones[0] : `${rule.zones?.length ?? 0} lokalizacji · ${rule.groups?.length ?? 0} klas`}: obowiązkowa stawka minimalna`, rule,
       `${root}.mandatoryScopedFloorsPlnDay[${index}]`, {
         groups: clone(array(rule.groups)), zones: clone(array(rule.zones)),
         minDays: rule.minDays, maxDays: rule.maxDays, amount: rule.minimumRatePlnDay,

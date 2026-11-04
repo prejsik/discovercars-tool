@@ -1,4 +1,6 @@
 import {locationLabel,countLabel} from './operations.mjs';
+import {ImpactReview} from './ImpactReview.jsx';
+import {familyTitles} from './editor.mjs';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -776,19 +778,19 @@ function App() {
           {pricesVisited && <div hidden={view !== 'prices'}><MarketWorkspace active={view==='prices'} rulesModel={model} onRules={query=>{setRuleContext(query);go('rules');}} model={original} workspace={workspaceData} service={service} calendar={calendarEvents} market={market} request={marketRequest}/></div>}
           {view === "groups" && (
             <>
-            {remote && <div className="shared-reason"><ReasonField value={reason} onChange={setReason} /></div>}
             <Groups
               model={model}
               stale={blockedDraft || busy}
-              onToggle={async (group, enabled) => {
+              onToggle={async (group, enabled, changeReason) => {
                 try {
                   await commit(
                     setGroupEnabled(model, group, enabled),
-                    `${group}: ${enabled ? "dopuszczenie" : "wyłączenie"} rekomendacji`,
+                    `${group}: ${enabled ? "dopuszczenie" : "wyłączenie"} rekomendacji`, changeReason,
                   );
                 } catch (error) {
                   setNotice(error.message);
                   setActionError(error.message);
+                  throw error;
                 }
               }}
             />
@@ -799,7 +801,7 @@ function App() {
             <>
             {!remote && <p className="empty-copy">Publikacja niepodłączona. Zmiany pozostają w szkicu tej przeglądarki.</p>}
             {remote && publicationBlocker && <p className="empty-copy">{publicationBlocker}</p>}
-            <Review
+            <Review workspace={workspaceData} service={service} onRefresh={refreshWorkspace}
               {...{
                 model,
                 original,
@@ -846,7 +848,7 @@ function App() {
                           <strong>{item.label}</strong>
                           <span>
                             {new Date(item.at).toLocaleString("pl-PL")} ·{" "}
-                            {item.changes.length} zmienionych pól
+                            {countLabel(item.changes.length,'zmienione pole','zmienione pola','zmienionych pól')}
                           </span>
                         </div>
                         <span className="badge amber">Szkic</span>
@@ -913,8 +915,10 @@ function App() {
 }
 
 function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit }) {
+  const families=groupRuleBands(rules);const titles=familyTitles(families);
+  const titleFor=rule=>titles[families.findIndex(family=>family.includes(rule))];
   const row = rule => <article className={`rule-row ${changedIds.has(rule.id) ? "changed" : ""}`} key={rule.id} data-rule-id={rule.id}>
-    <RuleCells rule={rule} model={model} changed={changedIds.has(rule.id)} />
+    <RuleCells rule={rule} title={titleFor(rule)} model={model} changed={changedIds.has(rule.id)} />
     <div className="row-action">
       {rule.editable ? <button className="icon-button" disabled={blocked} aria-label={`Edytuj: ${rule.title}`} title="Edytuj regułę" onClick={() => onEdit(rule)}><Pencil size={17} /></button>
         : <span className="readonly-icon" title="Reguła tylko do odczytu" aria-label="Reguła tylko do odczytu"><LockKeyhole size={16} /></span>}
@@ -924,15 +928,15 @@ function RuleRows({ rules, model, changedIds, blocked, expanded, onEdit }) {
     <div className="table-head"><span>Reguła i zakres</span><span>Minimum / dobę</span><span>Najem</span><span>Daty startu</span><span className="sr-only">Działania</span></div>
     {groupRuleBands(rules).map(family => family.length === 1 ? row(family[0]) : <details className="rule-family" key={`${family[0].id}:${expanded}`} open={expanded || family.some(rule => changedIds.has(rule.id))}>
       <summary className={`rule-row ${family.some(rule => changedIds.has(rule.id)) ? "changed" : ""}`}>
-        <RuleCells rule={family[0]} family={family} model={model} changed={family.some(rule => changedIds.has(rule.id))} />
+        <RuleCells rule={family[0]} title={titleFor(family[0])} family={family} model={model} changed={family.some(rule => changedIds.has(rule.id))} />
         <ChevronRight className="family-chevron" size={18} />
       </summary>
-      {family.map(row)}
+      {family.map(rule=><article className="rule-band-row" data-rule-id={rule.id} key={rule.id}><span>{days(rule)}</span><strong>{money(rule.amount)} PLN</strong><button className="icon-button" disabled={blocked||!rule.editable} aria-label={`Edytuj: ${rule.title}`} onClick={()=>onEdit(rule)}><Pencil size={17}/></button></article>)}
     </details>)}
   </div>;
 }
 
-function RuleCells({ rule, family, model, changed }) {
+function RuleCells({ rule, title, family, model, changed }) {
   const expired = rule.endDate && rule.endDate < today();
   const amounts = (family ?? [rule]).map(item => item.amount).filter(Number.isFinite);
   const minimum = Math.min(...amounts);
@@ -940,7 +944,7 @@ function RuleCells({ rule, family, model, changed }) {
   const amount = minimum === maximum ? money(minimum) : `${money(minimum)}–${money(maximum)}`;
   return <>
     <div className="rule-primary"><div>
-      <div className="rule-title">{family && rule.category === "priority" ? "Priorytet Top 1" : rule.title}{changed && <span className="draft-tag">Szkic</span>}</div>
+      <div className="rule-title">{title ?? rule.title}{changed && <span className="draft-tag">Szkic</span>}</div>
       <div className="rule-scope">{rule.zones?.length > 3 && !rule.zones.includes("*") ? family ? <span>{rule.zones.length} lokalizacji</span> : <details className="scope-details"><summary>{rule.zones.length} lokalizacji</summary>{scopeText(rule, model)}</details> : scopeText(rule, model)}</div>
       <div className="rule-groups">{groupText(rule)}</div>
       {rule.overrideProtected && <span className="exception-label">Wyjątek od ochrony dat</span>}
@@ -949,7 +953,7 @@ function RuleCells({ rule, family, model, changed }) {
       {amounts.length ? <><strong>{amount}</strong><span> PLN</span></> : <span className="muted">Bez zmiany cen</span>}
       {rule.category === "priority" && <small className="subordinate-floor">Nadrzędne: lotnisko {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport)} · miasto {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city)} PLN</small>}
     </div>
-    <div className="duration-cell" data-label="Najem">{family ? `Przedziały: ${family.length}` : rule.minDays ? days(rule) : "Wszystkie długości"}</div>
+    <div className="duration-cell" data-label="Najem">{family ? <span className="family-bands">{family.map(item=><span key={item.id}>{item.minDays===item.maxDays?`${item.minDays} d`:`${item.minDays}–${item.maxDays}`} <strong>{money(item.amount)}</strong></span>)}</span> : rule.minDays ? days(rule) : "Wszystkie długości"}</div>
     <div className="dates-cell" data-label="Daty startu">{period(rule)}
       {expired && <span className="status-label muted">Okres zakończony</span>}
       {!expired && rule.startDate > today() && <span className="status-label">Nadchodzący okres</span>}
@@ -968,6 +972,7 @@ function Empty({ icon: Icon, title, action }) {
 }
 function Groups({ model, onToggle, stale }) {
   const parity = model.excel.group_price_parity;
+  const [pending,setPending]=useState(null);
   return (
     <section>
       <div className="info-line">
@@ -977,6 +982,7 @@ function Groups({ model, onToggle, stale }) {
           FVMD nie występuje w SZLO.
         </span>
       </div>
+      {pending&&<GroupConfirmation pending={pending} onClose={()=>setPending(null)} onSave={onToggle}/>}
       <div className="group-table">
         <div className="group-head">
           <span>Klasa</span>
@@ -1003,7 +1009,7 @@ function Groups({ model, onToggle, stale }) {
                   aria-label={`Rekomendacje dla ${group}`}
                   checked={enabled}
                   disabled={Boolean(stale)}
-                  onChange={(e) => onToggle(group, e.target.checked)}
+                  onChange={(e) => setPending({group,enabled:e.target.checked})}
                 />
                 <span className="switch-track" />
                 <span>{enabled ? "Włączone" : "Wyłączone"}</span>
@@ -1016,6 +1022,11 @@ function Groups({ model, onToggle, stale }) {
   );
 }
 
+function GroupConfirmation({pending,onClose,onSave}) {
+ const ref=useRef(null);const [reason,setReason]=useState('');const [saving,setSaving]=useState(false);const [error,setError]=useState('');
+ useEffect(()=>{const previous=document.activeElement;const element=ref.current;element.showModal();return()=>{element.close();previous?.focus();};},[]);
+ return <dialog ref={ref} className="editor-dialog" aria-labelledby="group-confirm-title" onCancel={e=>{e.preventDefault();if(!saving)onClose();}}><form onSubmit={async e=>{e.preventDefault();setSaving(true);try{await onSave(pending.group,pending.enabled,reason);onClose();}catch(e){setError(e.message);}finally{setSaving(false);}}}><div className="dialog-body"><h2 id="group-confirm-title">{pending.enabled?'Włączyć':'Wyłączyć'} rekomendacje dla {pending.group}?</h2><ReasonField value={reason} onChange={setReason}/>{error&&<p role="alert">{error}</p>}</div><footer className="dialog-footer"><button type="button" className="button" disabled={saving} onClick={onClose}>Anuluj</button><button className="button primary" disabled={saving||reason.trim().length<3}>Zapisz w szkicu</button></footer></form></dialog>;
+}
 function Preview({ model, rules }) {
   const zones = locationOptions(model).map(item => ({ zone: item.value, label: item.label }));
   const [query, setQuery] = useState({
@@ -1201,6 +1212,7 @@ function Preview({ model, rules }) {
 }
 
 function Review({
+  workspace, service, onRefresh,
   model,
   original,
   rules,
@@ -1223,6 +1235,7 @@ function Review({
   );
   return (
     <section>
+      <ImpactReview workspace={workspace} service={service} onRefresh={onRefresh}/>
       {changes.length === 0 ? (
         <Empty icon={CheckCheck} title="Nie ma jeszcze zmian do sprawdzenia" />
       ) : (
@@ -1236,7 +1249,7 @@ function Review({
                   : "Szkic przeszedł walidację pól"}
               </strong>
               <span>
-                {changes.length} zmienionych pól · {differences.length} reguł ·{" "}
+                {countLabel(changes.length,'zmienione pole','zmienione pola','zmienionych pól')} · {differences.length} reguł ·{" "}
                 {groupDiff.length} klas
               </span>
             </div>

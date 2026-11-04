@@ -33,17 +33,17 @@ try {
   const szlo = page.locator('.rule-family').filter({ has: page.locator('summary', { hasText: 'SZLO:' }) });
   assert.equal(await szlo.getAttribute('open'), null);
   await szlo.locator('summary').click();
-  assert.equal(await szlo.locator('article.rule-row:visible').count(), 6);
-  await szlo.locator('article.rule-row').first().getByRole('button').click();
+  assert.equal(await szlo.locator('article[data-rule-id]:visible').count(), 6);
+  await szlo.locator('article[data-rule-id]').first().getByRole('button').click();
   assert.equal(await page.getByLabel('Stawka minimalna (PLN / dobę)', { exact: true }).inputValue(), '300');
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
   await szlo.locator('summary').click();
   await page.getByLabel('Szukaj zasad').fill('SZLO');
-  assert.equal(await page.locator('article.rule-row:visible').count(), 6, 'Search exposes matching duration bands');
+  assert.equal(await page.locator('article[data-rule-id^="zone:SZLO:"]:visible').count(), 6, 'Search exposes all six SZLO duration bands');
   await page.getByRole('button', { name: 'Wyczyść wyszukiwanie' }).click();
   await page.getByLabel('Rodzaj reguły').selectOption('legacy');
-  assert.ok(await page.locator('.supplementary-rules article.rule-row:visible').count() > 0, 'Explicit filter reveals supplementary rules');
+  assert.ok(await page.locator('.supplementary-rules article[data-rule-id]:visible').count() > 0, 'Explicit filter reveals supplementary rules');
   await page.getByLabel('Rodzaj reguły').selectOption('all');
   for (const [width, height] of [[1440, 960], [1024, 900], [768, 900], [390, 844], [320, 844]]) {
     await page.setViewportSize({ width, height });
