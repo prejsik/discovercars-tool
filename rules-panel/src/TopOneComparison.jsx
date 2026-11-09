@@ -1,15 +1,20 @@
-import React,{useMemo,useState} from 'react';
-import {ChevronLeft,ChevronRight} from 'lucide-react';
-import {money} from './market-model.mjs';
+import React,{useMemo} from 'react';
+import {CalendarDays} from 'lucide-react';
+import {MarketMap} from './AttentionMap.jsx';
+import {eventsForDay,money} from './market-model.mjs';
+import {locationLabel} from './operations.mjs';
 import {groupedLocations} from './panel-format.mjs';
 import {weekdayDate} from './visual-format.mjs';
 
 export function TopOneLocations({values,locations,selected,onChange}) {
  const groups=groupedLocations(values,locations);
- const visible=selected?.filter(value=>values.includes(value))??groups.flatMap(group=>group.items.map(item=>item.value)).slice(0,2);
+ const visible=selected?.filter(value=>values.includes(value))??values;
  return <details className="top-one-locations">
-  <summary>Oddziały ({visible.length})</summary>
-  <div className="top-one-options">{groups.map(group=><fieldset key={group.label}>
+  <summary>{visible.length===values.length?'Wszystkie oddziały':`Oddziały (${visible.length})`}</summary>
+  <div className="top-one-options">
+   <button type="button" className="text-button" onClick={()=>onChange(null)}>Wszystkie oddziały</button>
+   <button type="button" className="text-button" onClick={()=>onChange([])}>Wyczyść wybór</button>
+   {groups.map(group=><fieldset key={group.label}>
    <legend>{group.label}</legend>
    {group.items.map(({value,label})=><label key={value}><input type="checkbox" checked={visible.includes(value)}
     onChange={e=>onChange(e.target.checked?[...visible,value]:visible.filter(item=>item!==value))}/>{label}</label>)}
@@ -17,47 +22,47 @@ export function TopOneLocations({values,locations,selected,onChange}) {
  </details>;
 }
 
-export function TopOneComparison({data,locations,selected,days,durations,transmission}) {
- const columns=useMemo(()=>{
+export function TopOneComparison({data,locations,selected,days,durations,transmission,events,onOpen,onSelect}) {
+ const branches=useMemo(()=>{
   const options=groupedLocations(locations,data.locations).flatMap(group=>group.items);
-  return selected===null?options.slice(0,2):options.filter(item=>selected.includes(item.value));
+  return options.filter(item=>selected===null||selected.includes(item.value)).map(item=>({location:item.value}));
  },[data.locations,locations,selected]);
- const [page,setPage]=useState(0);
- const pageSize=7;
- const dates=days.slice(page*pageSize,(page+1)*pageSize);
+ const reportDates=useMemo(()=>new Set(data.report.startDates),[data.report.startDates]);
  const indexed=useMemo(()=>{
-  const branches=new Set(columns.map(item=>item.value));
+  const selectedBranches=new Set(branches.map(item=>item.location));
+  const selectedDates=new Set(days);
   const lengths=new Set(durations);
   const result=new Map();
   for(const row of data.rows){
-   if(row.marketConfirmed&&row.transmission===transmission&&branches.has(row.location)&&lengths.has(row.duration)&&row.date>=days[0]&&row.date<=days.at(-1)){
+   if(row.marketConfirmed&&row.transmission===transmission&&selectedBranches.has(row.location)&&lengths.has(row.duration)&&selectedDates.has(row.date)){
     result.set(row.key,row);
    }
   }
   return result;
- },[data.rows,columns,days,durations,transmission]);
- if(!columns.length)return <p>Wybierz co najmniej jeden oddział.</p>;
+ },[data.rows,branches,days,durations,transmission]);
+ if(!branches.length)return <p>Wybierz co najmniej jeden oddział.</p>;
  if(!days.length||!durations.length)return null;
- return <section className="top-one-comparison" aria-label="Stawki Top1">
-  <h2>Stawki Top1 · PLN brutto/dobę</h2>
-  <div className="top-one-scroll" role="region" aria-label="Stawki według oddziału" tabIndex={0}>
-   <table aria-label="Porównanie stawek Top1">
-    <thead><tr><th scope="col">Odbiór i najem</th>{columns.map(({value,label})=><th scope="col" key={value}>{label}</th>)}</tr></thead>
-    <tbody>{dates.flatMap(date=>durations.map(duration=><tr key={`${date}|${duration}`}>
-     <th scope="row">{weekdayDate(date)}<small>{duration} dni</small></th>
-     {columns.map(({value})=>{
-      const row=indexed.get(`${date}|${duration}|${value}|${transmission}`);
-      const mm=Number.isFinite(row?.mm), competitor=Number.isFinite(row?.competitor);
-      const own=mm&&(competitor?row.mm<=row.competitor:row.rank===1);
-      return <td key={value}>{own||competitor?<><strong>{money(own?row.mm:row.competitor)}</strong><small>{own?'MM Cars Rental':row.provider??'Konkurencja'}</small></>:<span>Brak danych</span>}</td>;
-     })}
-    </tr>))}</tbody>
-   </table>
-  </div>
-  {days.length>pageSize&&<nav className="top-one-pages" aria-label="Strony porównania">
-   <button className="icon-button" aria-label="Poprzednie daty" title="Poprzednie daty" disabled={page===0} onClick={()=>setPage(page-1)}><ChevronLeft size={18}/></button>
-   <span>{page+1} / {Math.ceil(days.length/pageSize)}</span>
-   <button className="icon-button" aria-label="Kolejne daty" title="Kolejne daty" disabled={(page+1)*pageSize>=days.length} onClick={()=>setPage(page+1)}><ChevronRight size={18}/></button>
-  </nav>}
+ return <section className="attention-view top-one-comparison" aria-label="Stawki Top1">
+  <h2>Stawki Top1</h2>
+  <MarketMap branches={branches} dates={days} locations={data.locations} onOpen={onOpen}
+   tableLabel="Porównanie stawek Top1" regionLabel="Mapa stawek Top1 według dat startu"
+   legend={<><span><i className="legend-square tone-under-2" aria-hidden="true"/>MM Cars Rental</span><span><i className="legend-square tone-neutral" aria-hidden="true"/>Konkurencja</span><span><i className="legend-square tone-nodata" aria-hidden="true"/>? brak danych</span><span>Top1 · PLN brutto/dobę</span></>}
+   renderCell={({location},date,zones)=>{
+    if(!reportDates.has(date))return <span className="map-cell tone-nodata" title="Brak danych" role="img" aria-label="Brak danych">?</span>;
+    const entries=eventsForDay(events,date,zones);
+    return <div className="top-one-quotes">{durations.map((duration,index)=>{
+     const row=indexed.get(`${date}|${duration}|${location}|${transmission}`);
+     const mm=Number.isFinite(row?.mm),competitor=Number.isFinite(row?.competitor);
+     const own=mm&&(competitor?row.mm<=row.competitor:row.rank===1);
+     const available=own||competitor;
+     const rate=available?money(own?row.mm:row.competitor):'?';
+     const provider=own?'MM Cars Rental':row?.provider??'Konkurencja';
+     const label=`${locationLabel(location)}, ${weekdayDate(date)}, ${duration} ${duration===1?'dzień':'dni'}: ${available?`${rate} PLN/dobę · ${provider}`:'Brak danych'}${entries.length?' · '+entries.map(e=>e.title).join(', '):''}`;
+     const content=<>{durations.length>1&&<small>{duration} d</small>}<strong>{rate}</strong>{index===0&&entries.length>0&&<CalendarDays size={12} aria-hidden="true"/>}</>;
+     return available?<button key={duration} className={`map-cell tone-${own?'under-2':'neutral'}`} aria-label={label} title={label}
+      onClick={()=>onSelect(row,days.map(day=>indexed.get(`${day}|${duration}|${location}|${transmission}`)).filter(Boolean))}>{content}</button>
+     :<span key={duration} className="map-cell tone-nodata" role="img" aria-label={label} title={label}>{content}</span>;
+    })}</div>;
+   }}/>
  </section>;
 }

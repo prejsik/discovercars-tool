@@ -6,17 +6,12 @@
 .top-one-options legend{font-weight:600;font-size:13px}
 .top-one-options label{display:flex;align-items:center;min-height:32px;color:var(--ink)}
 .market-filters .top-one-options input{width:auto;flex:none}
-.top-one-content,.top-one-comparison{min-width:0}
-.top-one-comparison h2{font-size:17px;margin:0 0 10px}
-.top-one-scroll{overflow:auto;max-height:65dvh;border:1px solid var(--line)}
-.top-one-scroll table{width:100%;border-spacing:0;font-size:13px;font-variant-numeric:tabular-nums}
-.top-one-scroll th,.top-one-scroll td{min-width:144px;padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;background:white}
-.top-one-scroll thead th{position:sticky;top:0;z-index:2;background:#f2f4f6}
-.top-one-scroll tr>th:first-child{position:sticky;left:0;z-index:1;min-width:116px;border-right:1px solid var(--line)}
-.top-one-scroll thead tr>th:first-child{z-index:3}
-.top-one-scroll small,.top-one-scroll td>span{display:block;color:var(--muted);font-size:12px;margin-top:3px}
-.top-one-pages{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px;font-size:13px}
-@media(max-width:600px){.top-one-locations{flex:1 1 100%}.top-one-options{position:static;width:100%}.top-one-scroll th,.top-one-scroll td{min-width:128px;padding:8px}.top-one-scroll tr>th:first-child{min-width:100px}}
+.top-one-content{min-width:0}
+.top-one-quotes{display:grid;gap:2px}
+.top-one-comparison .attention-map .map-cell{min-width:70px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.top-one-quotes small{flex:none}
+.top-one-quotes svg{flex:none}
+@media(max-width:600px){.top-one-locations{flex:1 1 100%}.top-one-options{position:static;width:100%}}
 .attention-view{display:grid;gap:16px;min-width:0}.attention-view h2{font-size:18px;margin:0}
 .attention-view .market-filters .attention-sort{flex-basis:100%}
 .reason-filters{display:flex;gap:8px;flex-wrap:wrap}.reason-filters .button{min-height:44px;font-size:12px;white-space:normal}.reason-filters .button[aria-pressed=true]{background:#1f2933;color:#fff;border-color:#1f2933}
