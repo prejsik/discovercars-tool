@@ -89,7 +89,36 @@ try {
  await page.getByRole('combobox',{name:'Pokaż',exact:true}).selectOption('all');
  await page.locator('.attention-map').waitFor();
  assert.equal(await list.count(),0,'Can return to the unchanged band map');
+ await page.setViewportSize({width:1440,height:1000});
+ await page.getByRole('tab',{name:'Stawki Top1',exact:true}).click({timeout:4000});
+ const comparison=page.getByRole('table',{name:'Porównanie stawek Top1'});
+ await page.getByRole('button',{name:'Kolejne daty',exact:true}).click();
+ assert.match(await comparison.locator('tbody tr').first().innerText(),/11.11.2026/);
+ await page.getByRole('group',{name:'Długości najmu'}).getByRole('button',{name:'4 d',exact:true}).click();
+ await page.locator('.range-picker summary').click();
+ await page.getByLabel('Start od',{exact:true}).fill('2026-11-05');
+ await page.getByLabel('Start do',{exact:true}).fill('2026-11-05');
+ await page.locator('.range-picker summary').click();
+ assert.equal(await comparison.locator('tbody tr').count(),2);
+ assert.equal(await comparison.getByRole('columnheader').count(),3);
+ assert.match(await comparison.locator('tbody tr').first().innerText(),/60,00.*80,00/s);
+ await page.getByRole('combobox',{name:'Skrzynia',exact:true}).selectOption('automatic');
+ assert.match(await comparison.locator('tbody tr').last().innerText(),/55,00.*Flex To Go.*80,00/s);
+ const fiveDays=page.getByRole('group',{name:'Długości najmu'}).getByRole('button',{name:'5 d',exact:true});
+ await fiveDays.click();
+ assert.match(await comparison.locator('tbody tr').last().innerText(),/5 dni.*Brak danych.*Brak danych/s);
+ await fiveDays.click();
+ await page.locator('.top-one-locations summary').click();
+ await page.getByRole('checkbox',{name:/Warszawa · Miasto/}).uncheck();
+ assert.equal(await comparison.getByRole('columnheader').count(),2);
+ await page.getByRole('checkbox',{name:/Warszawa · Miasto/}).check();
+ await page.locator('.top-one-locations summary').click();
+ for(const width of [1440,390,320]){
+  await page.setViewportSize({width,height:844});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Top1 comparison overflow ${width}`);
+  await page.screenshot({path:`../output/playwright/reserve-drilldown/top-one-${width}.png`});
+ }
  assert.equal(priceRequests.length,requestCount,'Drill-down and details reuse loaded report; no extra price API requests');
  assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
- console.log('Reserve drill-down UI passed: exact threshold, dates, transmission, durations, branch, pagination, details, 320/390/1024/1440px, no writes or extra price requests.');
+ console.log('Reserve and Top1 comparison UI passed: dates, transmission, durations, multiple branches, prices, missing data, pagination, responsive widths, no writes or extra price requests.');
 } finally {await browser.close();}
