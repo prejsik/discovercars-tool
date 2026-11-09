@@ -12,12 +12,14 @@ export function TopOneLocations({values,locations,selected,onChange}) {
  return <details className="top-one-locations">
   <summary>{visible.length===values.length?'Wszystkie oddziały':`Oddziały (${visible.length})`}</summary>
   <div className="top-one-options">
-   <button type="button" className="text-button" onClick={()=>onChange(null)}>Wszystkie oddziały</button>
-   <button type="button" className="text-button" onClick={()=>onChange([])}>Wyczyść wybór</button>
+   <div className="top-one-option-actions">
+    <button type="button" className="text-button" onClick={()=>onChange(null)}>Wszystkie oddziały</button>
+    <button type="button" className="text-button" onClick={()=>onChange([])}>Wyczyść wybór</button>
+   </div>
    {groups.map(group=><fieldset key={group.label}>
    <legend>{group.label}</legend>
-   {group.items.map(({value,label})=><label key={value}><input type="checkbox" checked={visible.includes(value)}
-    onChange={e=>onChange(e.target.checked?[...visible,value]:visible.filter(item=>item!==value))}/>{label}</label>)}
+   {group.items.map(({value,label})=><label className="checkbox-label" key={value}><input type="checkbox" checked={visible.includes(value)}
+    onChange={e=>onChange(e.target.checked?[...visible,value]:visible.filter(item=>item!==value))}/><span>{label}</span></label>)}
   </fieldset>)}</div>
  </details>;
 }
