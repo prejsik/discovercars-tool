@@ -112,7 +112,23 @@ try {
  await fiveDays.click();
  assert.equal(await comparison.getByLabel(/5 dni.*Brak danych/).count(),2);
  await fiveDays.click();
- await page.locator('.top-one-locations summary').click();
+ const picker=page.locator('.top-one-locations');
+ async function checkPickerLayout(width) {
+  const checkbox=picker.getByRole('checkbox',{name:/Kraków · Lotnisko/});
+  const {width:boxWidth,height:boxHeight,inline}=await checkbox.evaluate(input=>{
+   const box=input.getBoundingClientRect();
+   return {width:box.width,height:box.height,inline:getComputedStyle(input.parentElement).display==='flex'};
+  });
+  assert.ok(boxWidth<=20&&boxHeight<=20,`Checkbox is oversized at ${width}px: ${boxWidth}×${boxHeight}`);
+  assert.ok(inline,`Checkbox and branch name are not inline at ${width}px`);
+  const all=await picker.getByRole('button',{name:'Wszystkie oddziały',exact:true}).boundingBox();
+  const clear=await picker.getByRole('button',{name:'Wyczyść wybór',exact:true}).boundingBox();
+  assert.ok(all.x+all.width+6<=clear.x||all.y+all.height<=clear.y,`Picker actions touch at ${width}px`);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Open picker overflow ${width}`);
+  await page.screenshot({path:`../output/playwright/reserve-drilldown/top-one-picker-${width}.png`});
+ }
+ await picker.locator('summary').click();
+ await checkPickerLayout(1440);
  await page.getByRole('checkbox',{name:/Warszawa · Miasto/}).uncheck();
  assert.equal(await comparison.getByRole('rowheader').count(),1);
  await page.getByRole('checkbox',{name:/Warszawa · Miasto/}).check();
@@ -131,6 +147,12 @@ try {
   await page.setViewportSize({width,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Top1 comparison overflow ${width}`);
   await page.screenshot({path:`../output/playwright/reserve-drilldown/top-one-${width}.png`});
+  if(width!==1440){
+   await openMarketFilters(page);
+   await picker.locator('summary').click();
+   await checkPickerLayout(width);
+   await picker.locator('summary').click();
+  }
  }
  assert.equal(priceRequests.length,requestCount,'Drill-down and details reuse loaded report; no extra price API requests');
  assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
