@@ -9,13 +9,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-function decision(rates, { zone = 'GDLO', days = 3, date = '2026-11-02', mm = 150, markup } = {}) {
+function decision(rates, { zone = 'GDLO', days = 3, date = '2026-11-02', mm = 150, markup, policy = pricing } = {}) {
   const location = registry.locations.find(point => point.zones.includes(zone)).scraper_label;
   const offer = (provider_name, rate) => ({ provider_name, total_price: rate * days, rental_days: days, currency: 'PLN' });
   const view = { top_3: rates.map((rate, i) => offer(`Competitor ${i}`, rate)), mm_cars_rental: mm == null ? null : offer('MM Cars Rental', mm) };
   return buildPricingRecommendations({ locations: [location], scenarios: [{ start_date: date, rental_days: days,
     top_3_plus_mm_by_location: { [location]: view }, offer_views_by_location: { [location]: { automatic: view } } }] },
-  { ...pricing, recommendedFallbackToMinimum: false, excelPolicy: excel, locationRegistry: registry, brokerMarkupCalibration: markup || { enabled: false } }).decisions[0];
+  { ...policy, recommendedFallbackToMinimum: false, excelPolicy: excel, locationRegistry: registry, brokerMarkupCalibration: markup || { enabled: false } }).decisions[0];
 }
 
 test('legacy best-rank policy chooses the best feasible rank without a 10 PLN limit', () => {
@@ -43,10 +43,12 @@ test('rank feasibility includes the fixed broker amount and the existing premium
   const markup = require('../input/broker-markup-frozen.json').brokerMarkupCalibration;
   const { resolveBrokerMarkupCalibration } = require('../src/brokerMarkupCalibration');
   const amount = resolveBrokerMarkupCalibration({ location: 'Gdansk Airport (GDN)', rental_days: 3, group: 'CDMV' }, markup).amountPlnDay;
-  const top1 = decision([amount + 32, amount + 85, amount + 105], { markup });
+  const policy = structuredClone(pricing);
+  policy.locationTypeFloorsPlnDay.minimumRatesByKind.airport = 30;
+  const top1 = decision([amount + 32, amount + 85, amount + 105], { markup, policy });
   assert.equal(top1.target_rank, 1);
   assert.equal(top1.suggested_rate_pln_day, 31);
-  const top2 = decision([amount + 31, amount + 85, amount + 105], { markup });
+  const top2 = decision([amount + 31, amount + 85, amount + 105], { markup, policy });
   assert.equal(top2.target_rank, 2);
   assert.equal(top2.suggested_rate_pln_day, 84);
 });
