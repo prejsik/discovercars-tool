@@ -13,7 +13,7 @@
       "maxDays": 20,
       "minimumRatesByKind": {
         "city": 50,
-        "airport": 30
+        "airport": 31.5
       }
     },
     "mandatoryGroupFloorsPlnDay": {
