@@ -10,6 +10,7 @@ const {mergePricingRecommendations} = require('../src/mergePricingRecommendation
 const fixed = require('../input/broker-markup-frozen.json').brokerMarkupCalibration;
 const registry = require('./fixtures/excel-policy-0939d46/locations.config.json');
 const productionRegistry = require('../locations.config.json');
+const {buildLocationZones, buildPinnedLocationIds, getDailyLocations} = require('../src/locationRegistry');
 const {pricing, excelPolicy} = require('./pricing_test_fixtures');
 const expected = {
   BYLO:[38,28,15,13,11,11], GD1:[41,31,15,11,13,13], GDLO:[41,31,15,10,13,13],
@@ -41,6 +42,23 @@ for (const entry of registry.locations) {
 }
 assert.throws(()=>resolve({location:'Warsaw',rental_days:2},fixed),/Missing fixed/);
 // Newly approved points must have complete, consistent fixed tables, not historical numeric fixtures.
+const stationZones = buildLocationZones(productionRegistry);
+const stationIds = buildPinnedLocationIds(productionRegistry);
+const dailyLocations = getDailyLocations(productionRegistry);
+for (const [zone, label, placeId, city] of [
+  ['BYT', 'Bydgoszcz Train Station', 355148, 'Bydgoszcz'],
+  ['GDT', 'Gdansk Railway Station', 8502, 'Gdansk']
+]) {
+  assert.deepEqual(productionRegistry.locations.filter(point => point.zones.includes(zone))
+    .map(point => [point.scraper_label, point.city, point.kind, point.discovercars.require_place_id]),
+  [[label, city, 'city', true]], zone);
+  assert.deepEqual(stationZones[label], [zone]);
+  assert.equal(stationIds[label], placeId);
+  assert.ok(dailyLocations.includes(label));
+  for (const [days, amount] of [[1,38], [2,28], [3,15], [5,13], [8,11], [21,11]]) {
+    assert.equal(resolve({location: label, zone, rental_days: days, group:'CDMV'}, fixed).amountPlnDay, amount);
+  }
+}
 for (const entry of productionRegistry.locations) {
   for (let day = 1; day <= 35; day++) {
     const result = resolve({ location: entry.scraper_label, rental_days: day, group: 'CDMV' }, fixed);

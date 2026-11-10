@@ -3,8 +3,10 @@
   "profiles": {
     "daily": [
       "bydgoszcz_airport",
+      "bydgoszcz_train_station",
       "gdansk_downtown",
       "gdansk_airport",
+      "gdansk_railway_station",
       "katowice_downtown",
       "katowice_airport",
       "krakow_train_station",
@@ -48,8 +50,6 @@
       "kind": "airport",
       "zones": [
         "BYLO",
-        "BYT",
-        "GDT",
         "LDT",
         "OLT",
         "OPT",
@@ -61,6 +61,14 @@
       "discovercars": {
         "place_id": 5827
       }
+    },
+    {
+      "id": "bydgoszcz_train_station",
+      "scraper_label": "Bydgoszcz Train Station",
+      "city": "Bydgoszcz",
+      "kind": "city",
+      "zones": ["BYT"],
+      "discovercars": { "place_id": 355148, "require_place_id": true }
     },
     {
       "id": "gdansk_downtown",
@@ -85,6 +93,14 @@
       "discovercars": {
         "place_id": 2106
       }
+    },
+    {
+      "id": "gdansk_railway_station",
+      "scraper_label": "Gdansk Railway Station",
+      "city": "Gdansk",
+      "kind": "city",
+      "zones": ["GDT"],
+      "discovercars": { "place_id": 8502, "require_place_id": true }
     },
     {
       "id": "katowice_downtown",

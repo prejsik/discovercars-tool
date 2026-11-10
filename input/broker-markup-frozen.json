@@ -5,7 +5,9 @@
   "note": "Conservative user-approved PLN/day estimates, not guaranteed broker fees. Change only on explicit user request; no automatic measurement or learning.",
   "assumptions": {
     "proxy_zones": [
+      "BYT",
       "GD1",
+      "GDT",
       "WA1",
       "WA2",
       "WR2",
@@ -22,6 +24,7 @@
     },
     "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference.",
     "station_proxy": "WR2 uses the frozen WR1 markup by explicit user agreement; no station-specific measurement.",
+    "bydgoszcz_gdansk_station_proxy": "BYT and GDT use their own station market prices; their existing Bydgoszcz Airport markup amounts are unchanged pending explicit recalibration.",
     "szczecin_proxy": "SZLO/SZO1/SZ1 use Katowice Downtown, the largest existing fixed markup in every duration band, by explicit user agreement on 2026-10-03. These are provisional estimates, not Szczecin measurements; no automatic recalibration."
   },
   "brokerMarkupCalibration": {
@@ -76,6 +79,8 @@
       "WRLO": "Wroclaw Airport (WRO)",
       "BYT": "Bydgoszcz Airport (BZG)",
       "GDT": "Bydgoszcz Airport (BZG)",
+      "Bydgoszcz Train Station": "Bydgoszcz Airport (BZG)",
+      "Gdansk Railway Station": "Bydgoszcz Airport (BZG)",
       "LDT": "Bydgoszcz Airport (BZG)",
       "OLT": "Bydgoszcz Airport (BZG)",
       "OPT": "Bydgoszcz Airport (BZG)",
