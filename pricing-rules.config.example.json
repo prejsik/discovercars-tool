@@ -12,7 +12,7 @@
       "minDays": 1,
       "maxDays": 20,
       "minimumRatesByKind": {
-        "city": 50,
+        "city": 40,
         "airport": 31.5
       }
     },
