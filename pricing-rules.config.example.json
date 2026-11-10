@@ -333,7 +333,7 @@
         "endDate": "2027-12-04",
         "minDays": 8,
         "maxDays": 20,
-        "minimumRatePlnDay": 50,
+        "minimumRatePlnDay": 30,
         "overrideProtected": false
       },
       {
