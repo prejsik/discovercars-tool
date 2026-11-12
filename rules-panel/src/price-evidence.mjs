@@ -78,17 +78,9 @@ const displayedRate = value => {
   return match?Number(match[1].replace(/\s/g,'').replace(',','.')):null;
 };
 export function readMarket(bytes,query) {
-  const match=strFromU8(bytes).match(/<script type="application\/json" id="report-data">([\s\S]*?)<\/script>/);
-  if(!match) fail('Raport nie zawiera obsługiwanego zestawu cen. Otwórz raport cenowy.');
-  const data=JSON.parse(match[1]);
-  if(!Array.isArray(data.scenarios)) fail('Nieprawidłowe dane raportu cen.');
-  return data.scenarios.filter(item=>Number(item.duration)===query.duration).map(item=>{
-    const values=item.rows?.find(row=>row[0]===query.location)?.[query.transmission==='all'?3:2];
-    const offers=values ? [[values[0],values[2]],[values[5],values[7]],[values[8],values[10]]]
-      .map(([provider,price])=>({provider,rate:displayedRate(price)})).filter(row=>row.rate!==null&&!/mm\s+cars\s+rental/i.test(row.provider)) : [];
-    offers.sort((a,b)=>a.rate-b.rate);
-    return {date:item.date,mm:displayedRate(values?.[11]),competitor:offers[0]?.rate??null,provider:offers[0]?.provider??null,rank:values?.[13]??null};
-  });
+  return readMarketRows(bytes).filter(row=>row.duration===query.duration&&row.location===query.location
+    &&row.transmission===(query.transmission==='all'?'all':'automatic'))
+    .map(row=>({date:row.date,mm:row.mm,competitor:row.competitor,provider:row.provider,rank:row.rankLabel}));
 }
 
 export function readMarketRows(bytes) {
@@ -106,7 +98,10 @@ export function readMarketRows(bytes) {
         if(keys.has(key)) fail('Powtórzone pozycje rynku.');keys.add(key);
         const offers=Array.isArray(values)?[[0,2],[5,7],[8,10]].map(([name,price])=>({provider:values[name],rate:displayedRate(values[price])}))
           .filter(o=>typeof o.provider==='string'&&o.provider&&o.rate!==null&&o.rate>0&&!/mm\s+cars\s+rental/i.test(o.provider)).sort((a,b)=>a.rate-b.rate):[];
-        const error=Array.isArray(scenario.errors)&&scenario.errors.some(e=>e?.location===location);
+        // This exact collector message means all-car offers exist, but none are
+        // automatic. Extraction failures and all other errors still fail closed.
+        const error=Array.isArray(scenario.errors)&&scenario.errors.some(e=>e?.location===location
+          &&!(transmission==='all'&&e.error===`No automatic offers available for location "${location}".`));
         const rawMm=displayedRate(values?.[11]);const mm=!error&&rawMm>0?rawMm:null;
         const competitor=error?null:offers[0]?.rate??null;
         const rankMatch=String(values?.[13]??'').match(/^Top\s+(\d+)$/i);

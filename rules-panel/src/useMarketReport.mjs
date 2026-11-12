@@ -7,12 +7,20 @@ export function useMarketReport(service,report,enabled) {
   const load=useCallback(async()=>{
     if(!report?.runId)return;
     setState(old=>({...old,key,busy:true,error:'',data:old.key===key?old.data:null}));
+    if(pending.current?.key!==key){
+      pending.current?.controller.abort();const controller=new AbortController();
+      pending.current={key,controller,promise:service.market({reportRunId:report.runId},{signal:controller.signal})};
+    }
+    const job=pending.current;
     try {
-      if(pending.current?.key!==key){const promise=service.market({reportRunId:report.runId});pending.current={key,promise};promise.finally(()=>{if(pending.current?.promise===promise)pending.current=null;}).catch(()=>{});}
-      const data=await pending.current.promise;
-      if(current.current===key)setState({key,data,busy:false,error:''});
-    }catch(error){if(current.current===key)setState(old=>({...old,key,busy:false,error:error.message}));}
+      const data=await job.promise;
+      if(current.current===key&&!job.controller.signal.aborted)setState({key,data,busy:false,error:''});
+    }catch(error){if(current.current===key&&!job.controller.signal.aborted)setState(old=>({...old,key,busy:false,error:error.message}));}
+    finally{if(pending.current===job)pending.current=null;}
   },[key,service,report?.runId]);
-  useEffect(()=>{if(enabled&&report?.runId&&attempted.current!==key){attempted.current=key;void load();}},[key,enabled,load,report?.runId]);
+  useEffect(()=>{
+    if(enabled&&report?.runId&&attempted.current!==key){attempted.current=key;void load();}
+    return()=>{if(pending.current?.key===key){pending.current.controller.abort();pending.current=null;attempted.current=null;}};
+  },[key,enabled,load,report?.runId]);
   return {...(state.key===key?state:{data:null,busy:false,error:''}),load};
 }

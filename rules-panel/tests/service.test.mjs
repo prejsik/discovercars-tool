@@ -42,3 +42,28 @@ test("publish and rollback have separate revision-bound payloads", async () => {
   await service.rollback("history-a", "draft-a");
   assert.deepEqual(calls, [["/api/publish", { draftRevision: "draft-a" }], ["/api/rollback", { revision: "history-a", expectedRevision: "draft-a" }]]);
 });
+
+test('price reads reuse one worker and abort only the obsolete caller', async t => {
+  const workers=[];
+  const original=globalThis.Worker;t.after(()=>{if(original)globalThis.Worker=original;else delete globalThis.Worker;});
+  globalThis.Worker=class {
+    constructor(){this.messages=[];workers.push(this);}
+    postMessage(message){this.messages.push(message);}
+    terminate(){this.terminated=true;}
+  };
+  const service=createService();const controller=new AbortController();
+  const first=service.prices({group:'CDMV'},{signal:controller.signal});
+  const cancelled=assert.rejects(first,error=>error.name==='AbortError');
+  const second=service.prices({group:'EDMV'});
+  try {
+    controller.abort();
+    const [worker]=workers;const job=worker.messages.find(item=>item.query?.group==='EDMV');
+    // Complete all workers too, so a failed assertion cannot leave timers behind.
+    for(const item of workers)item.onmessage({data:{id:job?.id,result:{group:'EDMV'}}});
+    await cancelled;
+    assert.deepEqual(await second,{group:'EDMV'});
+    assert.equal(workers.length,1);
+    assert.deepEqual(worker.messages.at(-1),{id:worker.messages[0].id,cancel:true});
+    assert.equal(worker.terminated,undefined);
+  }finally{for(const worker of workers)worker.onmessage({data:{id:worker.messages[0]?.id,result:{}}});}
+});

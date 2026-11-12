@@ -1,8 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { zipSync, strToU8 } from 'fflate';
-import { workbookRows, selectRates, readMarket, combineEvidence } from '../src/price-evidence.mjs';
+import { workbookRows, selectRates, readMarket, readMarketRows, combineEvidence } from '../src/price-evidence.mjs';
 import { priceFixture } from './price-fixture.mjs';
+const {buildReportData}=createRequire(import.meta.url)('../../src/reportHtml.js');
+
+for(const failure of ['automatic-absence','timeout','both','extraction-failure'])test(`both market readers agree on real report errors: ${failure}`,()=>{
+  const location='Gdansk Airport (GDN)';
+  const offer=(provider_name,rate)=>({location,provider_name,total_price:rate*3,rental_days:3,currency:'PLN'});
+  const mm=offer('MM Cars Rental',70),other=offer('Competitor',60);
+  const empty={top_3:[],mm_cars_rental:null},all={top_3:[other,mm],mm_cars_rental:mm};
+  const absence={location,error:`No automatic offers available for location "${location}".`};
+  const timeout={location,error:'timeout'};
+  const errors=failure==='automatic-absence'?[absence]:failure==='both'?[absence,timeout]:failure==='timeout'?[timeout]
+    :[{location,error:'No automatic offers could be extracted from the results page.'}];
+  const data=buildReportData({locations:[location],scenarios:[{start_date:'2026-11-13',rental_days:3,
+    offer_views_by_location:{[location]:{automatic:empty,all}},errors}]});
+  const bytes=strToU8(`<script type="application/json" id="report-data">${JSON.stringify(data)}</script>`);
+  for(const transmission of ['automatic','all']){
+    const valid=transmission==='all'&&failure==='automatic-absence';
+    const overview=readMarketRows(bytes).find(row=>row.transmission===transmission);
+    const detail=readMarket(bytes,{location,duration:3,transmission})[0];
+    assert.equal(overview.marketConfirmed,valid);
+    assert.equal(detail.mm,valid?70:null);
+    assert.equal(detail.competitor,valid?60:null);
+    for(const field of ['mm','competitor','provider'])assert.equal(detail[field],overview[field],field);
+    assert.equal(detail.rank,overview.rankLabel);
+  }
+});
 
 test('browser reader and private source endpoints bind workbook, report, baseline and summary hashes',async()=>{
   const result=await priceFixture();

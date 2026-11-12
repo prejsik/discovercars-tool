@@ -19,13 +19,16 @@ try {
     .locator('[data-rule-id="location:airport"]')
     .getByRole("button")
     .click();
+  const originalAirport=Number(await b.getByLabel("Stawka minimalna (PLN / dobę)",{exact:true}).inputValue());
+  const changedAirport=originalAirport+10;
   await b
     .getByLabel("Stawka minimalna (PLN / dobę)", { exact: true })
-    .fill("40");
+    .fill(String(changedAirport));
   await a.locator('[data-rule-id="location:city"]').getByRole("button").click();
+  const changedCity=Number(await a.getByLabel("Stawka minimalna (PLN / dobę)",{exact:true}).inputValue())+15;
   await a
     .getByLabel("Stawka minimalna (PLN / dobę)", { exact: true })
-    .fill("75");
+    .fill(String(changedCity));
   await a.getByRole("button", { name: "Zapisz w szkicu" }).click();
   await a.getByRole("dialog").waitFor({ state: "hidden" });
   await b.getByRole("button", { name: "Zapisz w szkicu" }).click();
@@ -35,7 +38,7 @@ try {
   );
   assert.deepEqual(
     first.model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind,
-    { city: 75, airport: 30 },
+    { city: changedCity, airport: originalAirport },
   );
   await b.getByRole("button", { name: "Zamknij edycję" }).click();
   assert.equal(
@@ -57,7 +60,7 @@ try {
     .click();
   await b
     .getByLabel("Stawka minimalna (PLN / dobę)", { exact: true })
-    .fill("40");
+    .fill(String(changedAirport));
   await b.getByRole("button", { name: "Zapisz w szkicu" }).click();
   await b.getByRole("dialog").waitFor({ state: "hidden" });
   const second = await a.evaluate(() =>
@@ -65,7 +68,7 @@ try {
   );
   assert.deepEqual(
     second.model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind,
-    { city: 75, airport: 40 },
+    { city: changedCity, airport: changedAirport },
   );
   assert.notEqual(first.revision, second.revision);
   await a

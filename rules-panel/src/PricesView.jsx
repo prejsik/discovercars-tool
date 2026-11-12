@@ -26,13 +26,20 @@ export function PricesView({model,workspace,service,selection,onSelectionChange,
   const requestKey=React.useRef(key);requestKey.current=key;
   const pending=React.useRef(null),activeRef=React.useRef(active);activeRef.current=active;
   const data=loaded?.key===key?loaded.value:null;
-  useEffect(()=>{setLoaded(null);setError('');setSelected('');setLimit(20);if(active&&zone&&group&&report&&excel)void load();else setBusy(false);},[key,active]);
+  useEffect(()=>{
+    setLoaded(null);setError('');setSelected('');setLimit(20);
+    if(active&&zone&&group&&report&&excel)void load();else setBusy(false);
+    return()=>{pending.current?.controller.abort();pending.current=null;};
+  },[key,active]);
   async function load(force=false) {
     if(!active||!zone||!group||!report||!excel)return;
     setBusy(true);setError('');setLoaded(null);const current=key;
-    try {if(force||pending.current?.key!==key)pending.current={key,promise:service.prices(query)};const result=await pending.current.promise;if(requestKey.current===current&&activeRef.current){setLoaded({key:current,value:result});setSelected('');setLimit(20);}}
-    catch(error){if(requestKey.current===current&&activeRef.current)setError(error.message);}
-    finally{if(requestKey.current===current&&activeRef.current)setBusy(false);}
+    if(force||pending.current?.key!==key){pending.current?.controller.abort();const controller=new AbortController();pending.current={key,controller,promise:service.prices(query,{signal:controller.signal})};}
+    const job=pending.current;
+    const isCurrent=()=>pending.current===job&&requestKey.current===current&&activeRef.current;
+    try {const result=await job.promise;if(isCurrent()){setLoaded({key:current,value:result});setSelected('');setLimit(20);}}
+    catch(error){if(isCurrent()&&!job.controller.signal.aborted)setError(error.message);}
+    finally{if(isCurrent())setBusy(false);}
   }
   const rows=(data?.rows??[]).filter(row=>(!from||row.date>=from)&&(!to||row.date<=to));
   const noPredictions=rows.length>0&&rows.every(row=>row.predicted==null);

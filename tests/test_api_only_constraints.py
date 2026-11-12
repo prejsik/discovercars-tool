@@ -209,6 +209,55 @@ class ApiOnlyConstraintTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.fixture = ApiOnlyConstraintFixture(self.temp.name)
 
+    def test_city_cap_uses_retained_airport_rate_after_api_band_block(self):
+        for airport_floor in (None, 110):
+            with self.subTest(airport_floor=airport_floor):
+                fixture = self.fixture
+                fixture.config['location_zones'] = {'City': ['WA1'], 'Airport': ['WALO']}
+                fixture.config['city_top1_airport_cap'] = {
+                    'enabled': True, 'max_multiplier': 1.3,
+                    'recommendation_types': ['force_top1_undercut'],
+                }
+                fixture.config['city_zone_airport_zones'] = {'WA1': ['WALO']}
+                fixture.write_workbook([(group, zone, '2026-12-01', 100 + (group == 'EDMV'))
+                                        for zone in ('WA1', 'WALO') for group in ('CDMV', 'EDMV')])
+                rules = json.loads(fixture.rules_path.read_text())
+                rules['pricing']['mandatoryScopedFloorsPlnDay'] = ([] if airport_floor is None else [{
+                    'zones': ['WALO'], 'groups': ['CDMV', 'EDMV'],
+                    'minDays': 8, 'maxDays': 20, 'minimumRatePlnDay': airport_floor,
+                    'startDate': '2026-12-01', 'endDate': '2026-12-01', 'overrideProtected': False,
+                }])
+                fixture.rules_path.write_text(json.dumps(rules))
+                decisions = make_api_only_decisions(location='Airport', selected_cap=121, api_cap=120.5)
+                for day in range(8, 15):
+                    item = make_selected_candidate(day, location='City', cap=200)
+                    item.update(recommendation_type='force_top1_undercut', target_rank=1,
+                                benchmark_rate_pln_day=201)
+                    decisions.append(item)
+                original = fixture.workbook_path.read_bytes()
+                summary, review, imported = fixture.apply(decisions, name='blocked-airport')
+                expected_airport = airport_floor or 100
+                # Premium parity leaves a shared base cap of 1.3 * floor - 1 when
+                # the independent scoped floor sets both airport classes to 110.
+                expected_city = 142 if airport_floor else 130
+                for path in (review, imported):
+                    with open_readonly_workbook(path) as book:
+                        rates = {(row[3], row[0]): row[8]
+                                 for row in book['Sheet1'].iter_rows(min_row=5, values_only=True)}
+                    self.assertEqual(rates['WALO', 'CDMV'], expected_airport)
+                    self.assertEqual(rates['WA1', 'CDMV'], expected_city)
+                    self.assertLessEqual(rates['WA1', 'EDMV'], rates['WALO', 'EDMV'] * 1.3)
+                self.assertEqual(summary['city_top1_airport_cap_violation_count'], 0)
+                self.assertEqual(summary['city_top1_airport_cap_ignored_count'], 0)
+                self.assertEqual(summary['skipped_target_count'], 1)
+                city_changes = [item for item in summary['changes'] if item['zone'] == 'WA1']
+                self.assertEqual(city_changes[0]['airport_reference_rate'], expected_airport)
+                dry_run = engine.apply_updates(fixture.workbook_path,
+                    fixture.root / 'blocked-airport-recommendations.json', None, fixture.config, None, True)
+                self.assertEqual([(c['cell'], c['new_rate']) for c in dry_run['changes']],
+                                 [(c['cell'], c['new_rate']) for c in summary['changes']])
+                self.assertEqual(fixture.workbook_path.read_bytes(), original)
+
     def test_config_helper_defaults_and_strictly_validates_allowed_days(self):
         self.fixture.write_rules(api_days=_UNSET)
         self.assertEqual(engine.get_api_only_constraint_rental_days(self.fixture.config), set())

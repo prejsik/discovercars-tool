@@ -1,9 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildPricingRecommendations } = require('../src/pricingRecommendations');
-const { pricing } = require('../pricing-rules.config.example.json');
-const excel = require('../excel-rate-update.config.example.json');
-const registry = require('../locations.config.json');
+const fixture = require('./pricing_test_fixtures');
+const pricing = { ...structuredClone(fixture.pricing), bestAvailableRank: true, priorityTop1Rules: [],
+  mandatoryScopedFloorsPlnDay: [{ zones: ['KALO'], groups: ['CDMV'], minDays: 3, maxDays: 4,
+    minimumRatePlnDay: 80, startDate: '2026-01-01', endDate: '2028-12-31', overrideProtected: false }] };
+const excel = structuredClone(fixture.excelPolicy);
+excel.minimum_rates.bands = [];
+const registry = require('./fixtures/excel-policy-0939d46/locations.config.json');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -30,7 +34,7 @@ test('legacy best-rank policy chooses the best feasible rank without a 10 PLN li
   }
 });
 
-test('current floors remain binding for cities and special airports', () => {
+test('configured fixture floors remain binding for cities and special airports', () => {
   assert.equal(decision([50, 85, 100], { zone: 'GD1' }).target_rank, 2);
   assert.equal(decision([50, 85, 100], { zone: 'KALO' }).target_rank, 2);
   assert.equal(decision([100, 140, 180], { zone: 'SZLO' }).target_rank, 2);
@@ -53,10 +57,12 @@ test('rank feasibility includes the fixed broker amount and the existing premium
   assert.equal(top2.suggested_rate_pln_day, 84);
 });
 
-test('expired Top1 and obsolete seasonal minima are absent from production policy', () => {
-  assert.deepEqual(pricing.priorityTop1Rules, []);
-  assert.deepEqual(excel.minimum_rates.bands, []);
-  assert.deepEqual(excel.protected_rate_periods, [{ start_date: '2026-12-15', end_date: '2027-01-02' }]);
+test('live policy and baseline validate independently of synthetic expected prices', () => {
+  const result = spawnSync(process.env.PYTHON || 'python', ['-B', 'tools/validate_excel_inputs.py'], {
+    cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true, timeout: 60000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
+  assert.equal(JSON.parse(result.stdout).status, 'ok');
 });
 
 test('real Excel exports preserve exclusions, protected dates and premium parity', () => {
@@ -70,18 +76,21 @@ test('real Excel exports preserve exclusions, protected dates and premium parity
       }
     }
     fs.writeFileSync(path.join(directory, 'recommendations.json'), JSON.stringify({ recommendations }));
+    fs.writeFileSync(path.join(directory, 'legacy-pricing.json'), JSON.stringify({ pricing: {
+      ...pricing, recommendedFallbackToMinimum: false,
+    } }));
+    fs.writeFileSync(path.join(directory, 'config.json'), JSON.stringify({ ...excel,
+      baseline_manifest_file: '',
+      location_registry_file: path.join(__dirname, 'fixtures/excel-policy-0939d46/locations.config.json'),
+      pricing_rules_file: path.join(directory, 'legacy-pricing.json'),
+    }));
     const script = `import sys,json
 from pathlib import Path
 from datetime import date
 import openpyxl
 from tools import update_excel_rates as e
 p=Path(sys.argv[1]);root=Path.cwd()
-config=json.loads((root/'excel-rate-update.config.example.json').read_text())
-legacy_rules=json.loads((root/'pricing-rules.config.example.json').read_text())
-legacy_rules['pricing']['recommendedFallbackToMinimum']=False
-(p/'legacy-pricing.json').write_text(json.dumps(legacy_rules))
-config.update(baseline_manifest_file='',location_registry_file=str(root/'locations.config.json'),pricing_rules_file=str(p/'legacy-pricing.json'))
-(p/'config.json').write_text(json.dumps(config));c=e.load_config(p/'config.json')
+c=e.load_config(p/'config.json')
 w=openpyxl.Workbook();s=w.active;s.title='Sheet1'
 s.append(['Rental rates for packages: INCLUSIVE POA'])
 s.append(['Min days']+[None]*7+[1,2,3,5,8,21]);s.append(['Max days']+[None]*7+[1,2,4,7,20,35])

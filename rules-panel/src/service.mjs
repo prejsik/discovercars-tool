@@ -39,19 +39,31 @@ export function createService(fetcher = (...args) => fetch(...args)) {
       throw new Error("Nieobsługiwana wersja danych panelu.");
     return { snapshot, draft: null, preview: null, history: [], status: { available: false }, capabilities: { sharedDraft: false, publish: false, preview: false } };
   }
-  const readPrices=query=>new Promise((resolve,reject)=>{
+  let priceWorker=null,nextPriceId=0;const priceJobs=new Map();
+  function getPriceWorker() {
+    if(priceWorker)return priceWorker;
     const worker=new Worker(new URL('./price-reader.worker.mjs',import.meta.url),{type:'module'});
-    const timer=setTimeout(()=>{worker.terminate();reject(new Error('Odczyt trwał zbyt długo. Ponów próbę.'));},180000);
-    const finish=()=>{clearTimeout(timer);worker.terminate();};
-    worker.onmessage=({data})=>{finish();data.error?reject(Object.assign(new Error(data.error),{status:data.status})):resolve(data.result);};
-    worker.onerror=()=>{finish();reject(new Error('Nie udało się odczytać plików w przeglądarce. Odśwież panel.'));};
-    worker.postMessage(query);
+    worker.onmessage=({data})=>priceJobs.get(data.id)?.finish(data.error?Object.assign(new Error(data.error),{status:data.status}):null,data.result);
+    worker.onerror=()=>{
+      worker.terminate();priceWorker=null;
+      for(const job of priceJobs.values())job.finish(new Error('Nie udało się odczytać plików w przeglądarce. Odśwież panel.'));
+    };
+    priceWorker=worker;return worker;
+  }
+  const readPrices=(query,{signal}={})=>new Promise((resolve,reject)=>{
+    signal?.throwIfAborted();
+    const worker=getPriceWorker(),id=++nextPriceId;
+    const finish=(error,result)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);priceJobs.delete(id);error?reject(error):resolve(result);};
+    const abort=()=>{worker.postMessage({id,cancel:true});finish(signal.reason);};
+    const timer=setTimeout(()=>{worker.postMessage({id,cancel:true});finish(new Error('Odczyt trwał zbyt długo. Ponów próbę.'));},180000);
+    priceJobs.set(id,{finish});signal?.addEventListener('abort',abort,{once:true});
+    try{worker.postMessage({id,query});}catch(error){finish(error);}
   });
   return {
     workspace,
     calendarEvents:()=>request('/api/calendar-events'),
     saveCalendarEvent:input=>request('/api/calendar-events/save',input),
-    market:query=>readPrices({...query,mode:'market'}),
+    market:(query,options)=>readPrices({...query,mode:'market'},options),
     diagnostics: runId => request(`/api/report/diagnostics?runId=${encodeURIComponent(runId)}`),
     prices:readPrices,
     async save(input) {

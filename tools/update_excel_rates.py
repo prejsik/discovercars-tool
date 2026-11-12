@@ -3242,6 +3242,32 @@ def build_group_price_parity_scope(
     return scope
 
 
+def build_parity_minimum_rates(ws: Any, targets: dict, config: dict[str, Any],
+                               allowed_groups: set[str]) -> dict[tuple[str, date, int], float]:
+    parity = get_group_price_parity(config)
+    groups = (set(parity[0]) | set(parity[1])) & allowed_groups if parity else set()
+    columns = config["columns"]
+    periods = get_protected_rate_periods(config)
+    minima: dict[tuple[str, date, int], float] = {}
+    for row in range(int(config["data_start_row"]), ws.max_row + 1):
+        group = normalize_code(ws.cell(row, int(columns["group"])).value)
+        zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
+        pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
+        if group not in groups or date_is_rate_protected(pickup, periods):
+            continue
+        for original in targets.get(zone, {}).get(pickup, []):
+            target = target_for_group(original, group)
+            priority = priority_top1_applies(target, group, config)
+            if (target.get("priority_rule_id") and not priority) or (group_is_excluded(group, config) and not priority):
+                continue
+            key = (zone, pickup, int(target["rate_col"]))
+            rate = parse_number(ws.cell(row, key[2]).value)
+            base = None if rate is None else rate - get_group_rate_adjustment(group, config)
+            _, _, minimum, _ = calculate_target_base_rate({**target, "group": group}, base, config)
+            minima[key] = max(minima.get(key, 0), minimum)
+    return minima
+
+
 def find_api_only_cap_blocked_targets(
     ws: Any,
     targets: dict[str, dict[date, list[dict[str, Any]]]],
@@ -3372,6 +3398,8 @@ def build_city_top1_airport_rate_caps(
     config: dict[str, Any],
     targets: dict[str, dict[date, list[dict[str, Any]]]],
     allowed_groups: set[str] | None = None,
+    *, blocked_airport_targets: set[tuple[str, date, int]] | None = None,
+    project_airport_updates: bool = True,
 ) -> tuple[dict[tuple[str, date, int], dict[str, Any]], list[dict[str, Any]]]:
     cap_rule = get_city_top1_airport_cap(config)
     city_zone_airport_zones = {
@@ -3438,7 +3466,9 @@ def build_city_top1_airport_rate_caps(
                     candidate_groups = tracked_groups or {
                         group for group in airport_rows if not group_is_excluded(group, config)
                     }
-                    airport_target = targets_by_cell.get((airport_zone, target_date, rate_col))
+                    airport_key = (airport_zone, target_date, rate_col)
+                    airport_target = (targets_by_cell.get(airport_key) if project_airport_updates
+                                      and airport_key not in (blocked_airport_targets or set()) else None)
                     projected_rates: dict[str, float] = {}
 
                     if airport_target is not None:
@@ -3471,7 +3501,7 @@ def build_city_top1_airport_rate_caps(
                                 minimum, _ = get_mandatory_correction_floor(
                                     airport_zone, group, city_target["duration_min_days"],
                                     city_target["duration_max_days"], config, target_date)
-                                projected_rates[group] = max(rate, minimum or 0)
+                                projected_rates[group] = max(rate, minimum or 0) if project_airport_updates else rate
 
                     base_cap_candidates = [
                         rate * multiplier - get_group_rate_adjustment(group, config)
@@ -4188,7 +4218,18 @@ def apply_updates(
             else set()
         )
         targets, accepted_target_count, filtered_unaccepted_target_count = filter_targets_by_acceptance(targets, accepted_keys)
-    city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(ws, config, targets, allowed_groups)
+    parity_minimum_rates = build_parity_minimum_rates(ws, targets, config, allowed_groups)
+    airport_zones = {normalize_code(zone) for zones in (config.get("city_zone_airport_zones") or {}).values()
+                     for zone in zones}
+    airport_targets = {zone: dates for zone, dates in targets.items() if normalize_code(zone) in airport_zones}
+    # Airport decisions do not depend on city caps. Resolve their evidence vetoes
+    # first so a rejected airport price never becomes the city's reference.
+    blocked_airport_targets = find_api_only_cap_blocked_targets(
+        ws, airport_targets, config, allowed_groups, {}, set(), parity_minimum_rates,
+    )
+    city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(
+        ws, config, targets, allowed_groups, blocked_airport_targets=set(blocked_airport_targets),
+    )
     if missing_airport_references:
         details = "; ".join(
             f"{item['city_zone']}/{item['pickup_date']} {item['duration_band']} -> "
@@ -4214,7 +4255,6 @@ def apply_updates(
     # Resolve caps for the whole parity family before writing individual class rates.
     ignored_city_caps: dict[tuple[str, date, int], dict[str, Any]] = {}
     ignored_cap_cells: set[tuple[str, date, int, str]] = set()
-    parity_minimum_rates: dict[tuple[str, date, int], float] = {}
     parity = get_group_price_parity(config)
     parity_groups = (set(parity[0]) | set(parity[1])) & allowed_groups if parity else set()
     for row in range(data_start_row, ws.max_row + 1):
@@ -4234,8 +4274,6 @@ def apply_updates(
             adjustment = get_group_rate_adjustment(group, config)
             current_base = None if old_rate is None else old_rate - adjustment
             _, _, minimum_rate, _ = calculate_target_base_rate({**target, "group": group}, current_base, config)
-            if group in parity_groups:
-                parity_minimum_rates[key] = max(parity_minimum_rates.get(key, 0), minimum_rate)
             if cap_info is None:
                 continue
             base_cap = float(cap_info["base_rate_cap_pln_day"])
@@ -4472,6 +4510,10 @@ def apply_updates(
 
     cap_diagnostics: list[dict[str, Any]] = []
     preserved_city_cap_positions: list[dict[str, Any]] = []
+    if not dry_run:
+        city_top1_airport_caps, _ = build_city_top1_airport_rate_caps(
+            ws, config, targets, allowed_groups, project_airport_updates=False,
+        )
     city_top1_airport_cap_violations = (
         [] if dry_run else find_city_top1_airport_cap_violations(
             ws, config,

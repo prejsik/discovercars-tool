@@ -16,6 +16,7 @@
     "test:market-compact": "node tests/market-compact-ui.mjs",
     "test:reserve": "node tests/reserve-drilldown-ui.mjs",
     "test:price-views": "node tests/price-views-ui.mjs",
+    "test:price-cancellation": "node tests/price-cancellation-ui.mjs",
     "test:market": "node --test tests/market-data.test.mjs tests/calendar-events.test.mjs tests/market-review.test.mjs && node tests/market-workspace-ui.mjs && node tests/market-autoload-ui.mjs"
   },
   "dependencies": {

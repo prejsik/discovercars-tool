@@ -15,7 +15,8 @@ export function InlineDecision({row,data,model,workspace,service,onRules,lockedS
     if(cached&&row.excelSelection?.zone===zone&&row.excelSelection?.group===group&&cached.report.runId===data.report.runId&&cached.excel.runId===excel.runId&&JSON.stringify(cached.excel.files)===JSON.stringify(excel.files)){
       setState({key,data:cached});return;
     }
-    service.prices({zone,group,duration:row.duration,transmission:row.transmission,reportRunId:data.report.runId,excelRunId:excel.runId}).then(result=>{if(active)setState({key,data:result});}).catch(error=>{if(active)setState({key,error:error.message});});return()=>{active=false;};
+    const controller=new AbortController();
+    service.prices({zone,group,duration:row.duration,transmission:row.transmission,reportRunId:data.report.runId,excelRunId:excel.runId},{signal:controller.signal}).then(result=>{if(active)setState({key,data:result});}).catch(error=>{if(active)setState({key,error:error.message});});return()=>{active=false;controller.abort();};
   },[key,attempt,service]);
   const current=state.key===key?state:{};const record=current.data?.rows.find(item=>item.date===row.date);
   return <section className="inline-decision"><h3>Dlaczego taka stawka w Excelu?</h3>

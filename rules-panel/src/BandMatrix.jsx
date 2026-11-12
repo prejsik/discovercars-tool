@@ -13,9 +13,10 @@ export function BandMatrix({data,rows,dates,location,transmission,model,workspac
  const key=JSON.stringify([zone,group,data.report.runId,excel?.runId,excel?.files]);
  useEffect(()=>{if(!activeView||(state.key===key&&state.data))return;let active=true;setState({key,busy:true});
   if(!excel||!zone||!group){setState({key,error:'Brak poprawnego Excela lub powiązania lokalizacji.'});return;}
-  service.prices({mode:'matrix',zone,group,duration:2,transmission,reportRunId:data.report.runId,excelRunId:excel.runId})
+  const controller=new AbortController();
+  service.prices({mode:'matrix',zone,group,duration:2,transmission,reportRunId:data.report.runId,excelRunId:excel.runId},{signal:controller.signal})
    .then(result=>{if(active)setState({key,data:result});}).catch(error=>{if(active)setState({key,error:error.message});});
-  return()=>{active=false;};
+  return()=>{active=false;controller.abort();};
  },[key,attempt,service,activeView]);
  useEffect(()=>{setExpanded(null);setLimit(20);onSelect(null);},[key,dates.join(','),transmission,onSelect]);
  useEffect(()=>{if(!highlight)return;setLimit(n=>Math.max(n,dates.indexOf(highlight)+1));requestAnimationFrame(()=>document.getElementById('band-day-'+highlight)?.scrollIntoView({block:'nearest'}));},[highlight,dates.join(',')]);
