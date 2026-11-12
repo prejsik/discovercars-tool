@@ -28,7 +28,14 @@
       "warsaw_airport",
       "wroclaw_downtown",
       "wroclaw_train_station",
-      "wroclaw_airport"
+      "wroclaw_airport",
+      "lodz_kaliska_station",
+      "olsztyn_train_station",
+      "opole_train_station",
+      "poznan_train_station",
+      "katowice_train_station",
+      "warsaw_west_railway_station",
+      "warsaw_east_railway_station"
     ],
     "legacy_default": [
       "Warsaw",
@@ -49,14 +56,7 @@
       "city": "Bydgoszcz",
       "kind": "airport",
       "zones": [
-        "BYLO",
-        "LDT",
-        "OLT",
-        "OPT",
-        "POT",
-        "KTT",
-        "WSTW",
-        "WWTE"
+        "BYLO"
       ],
       "discovercars": {
         "place_id": 5827
@@ -67,8 +67,13 @@
       "scraper_label": "Bydgoszcz Train Station",
       "city": "Bydgoszcz",
       "kind": "city",
-      "zones": ["BYT"],
-      "discovercars": { "place_id": 355148, "require_place_id": true }
+      "zones": [
+        "BYT"
+      ],
+      "discovercars": {
+        "place_id": 355148,
+        "require_place_id": true
+      }
     },
     {
       "id": "gdansk_downtown",
@@ -99,8 +104,13 @@
       "scraper_label": "Gdansk Railway Station",
       "city": "Gdansk",
       "kind": "city",
-      "zones": ["GDT"],
-      "discovercars": { "place_id": 8502, "require_place_id": true }
+      "zones": [
+        "GDT"
+      ],
+      "discovercars": {
+        "place_id": 8502,
+        "require_place_id": true
+      }
     },
     {
       "id": "katowice_downtown",
@@ -374,6 +384,97 @@
       ],
       "discovercars": {
         "place_id": 2103
+      }
+    },
+    {
+      "id": "lodz_kaliska_station",
+      "scraper_label": "Lodz Kaliska Train Station",
+      "city": "Lodz",
+      "kind": "city",
+      "zones": [
+        "LDT"
+      ],
+      "discovercars": {
+        "place_id": 355197,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "olsztyn_train_station",
+      "scraper_label": "Olsztyn Train Station",
+      "city": "Olsztyn",
+      "kind": "city",
+      "zones": [
+        "OLT"
+      ],
+      "discovercars": {
+        "place_id": 355152,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "opole_train_station",
+      "scraper_label": "Opole Train Station",
+      "city": "Opole",
+      "kind": "city",
+      "zones": [
+        "OPT"
+      ],
+      "discovercars": {
+        "place_id": 355133,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "poznan_train_station",
+      "scraper_label": "Poznan Train Station",
+      "city": "Poznan",
+      "kind": "city",
+      "zones": [
+        "POT"
+      ],
+      "discovercars": {
+        "place_id": 8506,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "katowice_train_station",
+      "scraper_label": "Katowice Train Station",
+      "city": "Katowice",
+      "kind": "city",
+      "zones": [
+        "KTT"
+      ],
+      "discovercars": {
+        "place_id": 8503,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "warsaw_west_railway_station",
+      "scraper_label": "Warsaw West Railway Station",
+      "city": "Warsaw",
+      "kind": "city",
+      "zones": [
+        "WSTW"
+      ],
+      "discovercars": {
+        "place_id": 356108,
+        "require_place_id": true
+      }
+    },
+    {
+      "id": "warsaw_east_railway_station",
+      "scraper_label": "Warsaw East Railway Station",
+      "city": "Warsaw",
+      "kind": "city",
+      "zones": [
+        "WWTE"
+      ],
+      "discovercars": {
+        "place_id": 360523,
+        "require_place_id": true
       }
     }
   ],

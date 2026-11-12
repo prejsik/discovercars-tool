@@ -13,7 +13,14 @@
       "WR2",
       "SZLO",
       "SZO1",
-      "SZ1"
+      "SZ1",
+      "LDT",
+      "OLT",
+      "OPT",
+      "POT",
+      "KTT",
+      "WSTW",
+      "WWTE"
     ],
     "extrapolated_bands": [
       "1",
@@ -25,7 +32,8 @@
     "group_supplement": "FVMD/PDAH/PDAV/SWAV: user-requested safety buffer, not measured commission difference.",
     "station_proxy": "WR2 uses the frozen WR1 markup by explicit user agreement; no station-specific measurement.",
     "bydgoszcz_gdansk_station_proxy": "BYT and GDT use their own station market prices; their existing Bydgoszcz Airport markup amounts are unchanged pending explicit recalibration.",
-    "szczecin_proxy": "SZLO/SZO1/SZ1 use Katowice Downtown, the largest existing fixed markup in every duration band, by explicit user agreement on 2026-10-03. These are provisional estimates, not Szczecin measurements; no automatic recalibration."
+    "szczecin_proxy": "SZLO/SZO1/SZ1 use Katowice Downtown, the largest existing fixed markup in every duration band, by explicit user agreement on 2026-10-03. These are provisional estimates, not Szczecin measurements; no automatic recalibration.",
+    "additional_station_proxy": "LDT/OLT/OPT/POT/KTT/WSTW/WWTE use their confirmed railway station markets; existing fixed Bydgoszcz Airport markup amounts remain unchanged. WSTW and WA1 share a DiscoverCars point but retain separate markup tables."
   },
   "brokerMarkupCalibration": {
     "enabled": true,
@@ -87,7 +95,14 @@
       "POT": "Bydgoszcz Airport (BZG)",
       "KTT": "Bydgoszcz Airport (BZG)",
       "WSTW": "Bydgoszcz Airport (BZG)",
-      "WWTE": "Bydgoszcz Airport (BZG)"
+      "WWTE": "Bydgoszcz Airport (BZG)",
+      "Lodz Kaliska Train Station": "Bydgoszcz Airport (BZG)",
+      "Olsztyn Train Station": "Bydgoszcz Airport (BZG)",
+      "Opole Train Station": "Bydgoszcz Airport (BZG)",
+      "Poznan Train Station": "Bydgoszcz Airport (BZG)",
+      "Katowice Train Station": "Bydgoszcz Airport (BZG)",
+      "Warsaw West Railway Station": "Bydgoszcz Airport (BZG)",
+      "Warsaw East Railway Station": "Bydgoszcz Airport (BZG)"
     },
     "locationDurationAmounts": {
       "Bydgoszcz Airport (BZG)": {

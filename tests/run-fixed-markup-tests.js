@@ -46,6 +46,13 @@ const stationZones = buildLocationZones(productionRegistry);
 const stationIds = buildPinnedLocationIds(productionRegistry);
 const dailyLocations = getDailyLocations(productionRegistry);
 for (const [zone, label, placeId, city] of [
+  ['LDT', 'Lodz Kaliska Train Station', 355197, 'Lodz'],
+  ['OLT', 'Olsztyn Train Station', 355152, 'Olsztyn'],
+  ['OPT', 'Opole Train Station', 355133, 'Opole'],
+  ['POT', 'Poznan Train Station', 8506, 'Poznan'],
+  ['KTT', 'Katowice Train Station', 8503, 'Katowice'],
+  ['WSTW', 'Warsaw West Railway Station', 356108, 'Warsaw'],
+  ['WWTE', 'Warsaw East Railway Station', 360523, 'Warsaw'],
   ['BYT', 'Bydgoszcz Train Station', 355148, 'Bydgoszcz'],
   ['GDT', 'Gdansk Railway Station', 8502, 'Gdansk']
 ]) {
