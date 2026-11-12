@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-12T13:14:58.088Z",
-  "workbook_sha256": "a48756cfaa39ad8e9a89f72a4d9f447e174ae1a0eb312b3b2574a2f9759b382b",
-  "source_filename": "rates-import-ready (1).xlsx",
+  "approved_at": "2026-11-12T13:39:51.480Z",
+  "workbook_sha256": "a5110d403773846c55e858067a1370cee25519019b3e2584557beb63934d5e9f",
+  "source_filename": "rates-import-ready (2).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "0f3568dee1635871c3a77c927a5d844a71ae1ea42be54899d4a37aa402a25877",
+  "previous_baseline_sha256": "a48756cfaa39ad8e9a89f72a4d9f447e174ae1a0eb312b3b2574a2f9759b382b",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "a48756cfaa39ad8e9a89f72a4d9f447e174ae1a0eb312b3b2574a2f9759b382b",
-    "source_filename": "rates-import-ready (1).xlsx"
+    "workbook_sha256": "a5110d403773846c55e858067a1370cee25519019b3e2584557beb63934d5e9f",
+    "source_filename": "rates-import-ready (2).xlsx"
   },
   "coverage": {
-    "sha256": "a48756cfaa39ad8e9a89f72a4d9f447e174ae1a0eb312b3b2574a2f9759b382b",
+    "sha256": "a5110d403773846c55e858067a1370cee25519019b3e2584557beb63934d5e9f",
     "rowCount": 33334,
     "groups": [
       "CDMV",
