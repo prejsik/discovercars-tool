@@ -1,5 +1,5 @@
 name: DiscoverCars daily run
-run-name: DiscoverCars ${{ inputs.schedule_slot || github.event.schedule || github.event_name }} ${{ inputs.report_date || '' }}
+run-name: DiscoverCars isolated smoke test (Ubuntu 24.04)
 
 on:
   # Cloudflare targets 09:37 (day/20) and 18:07 (night/45) Europe/Warsaw.
@@ -49,8 +49,6 @@ on:
 permissions:
   actions: read
   contents: read
-  pages: write
-  id-token: write
 
 env:
   # Night: all configured points, next 45 pickup dates; day: 20. Rental durations 2..14.
@@ -406,7 +404,7 @@ jobs:
       speed_mode: ${{ needs.prepare.outputs.speed_mode }}
       scraper_duration_seconds: ${{ steps.scraper.outputs.duration_seconds }}
       scrape_quality_status: ${{ steps.scrape-quality.outputs.status }}
-      pages_enabled: ${{ steps.pages-status.outputs.enabled }}
+      pages_enabled: 'false'
       page_url: ${{ steps.pages-status.outputs.page_url }}
       shard_count: ${{ steps.workload.outputs.shard_count }}
       shard_matrix: ${{ steps.workload.outputs.shard_matrix }}
@@ -981,9 +979,6 @@ jobs:
       group: discovercars-pages-site
       cancel-in-progress: false
       queue: max
-    environment:
-      name: github-pages
-      url: ${{ steps.pages-deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1256,7 +1251,7 @@ jobs:
             exit 0
           fi
 
-          message="$(node src/telegramSummary.js)"
+          message="$(printf 'TEST DiscoverCars (Ubuntu 24.04)\n\n'; node src/telegramSummary.js)"
 
           if ! curl --fail --show-error --silent \
             --request POST \
