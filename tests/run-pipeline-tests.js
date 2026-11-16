@@ -43,7 +43,13 @@ assert.deepEqual(pipeline.jobs.assemble.needs, ['scrape', 'verify']);
 assert.deepEqual(pipeline.jobs.publish.needs, ['scrape', 'assemble']);
 assert.equal(pipeline.jobs.publish.concurrency.group, 'discovercars-pages-site');
 for (const name of fs.readdirSync(path.join(root, '.github/workflows')).filter(name => /\.ya?ml$/.test(name))) {
-  YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', name), 'utf8'));
+  const definition = YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', name), 'utf8'));
+  if (!/^(discovercars-|rules-panel-preview\.)/.test(name)) continue;
+  for (const [jobName, jobDefinition] of Object.entries(definition.jobs)) {
+    if (!jobDefinition.steps?.some(step => /\bplaywright\s+install\b/.test(step.run || ''))) continue;
+    assert.equal(jobDefinition['runs-on'], 'ubuntu-24.04',
+      `${name}/${jobName} must pin a runner OS supported by the locked Playwright version`);
+  }
 }
 const bash = process.platform === 'win32'
   ? [process.env.GIT_BASH_PATH, path.join(process.env.ProgramW6432 || process.env.ProgramFiles || 'C:\\Program Files', 'Git/bin/bash.exe')]
