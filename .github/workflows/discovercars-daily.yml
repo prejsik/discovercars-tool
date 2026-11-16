@@ -97,7 +97,8 @@ jobs:
     name: Freeze scope and collection plan
     needs: gate
     if: needs.gate.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    # Keep browser jobs on an OS supported by the locked Playwright version.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       should_run: ${{ needs.gate.outputs.should_run }}
@@ -320,7 +321,7 @@ jobs:
   collect:
     name: Collect offers - shard ${{ matrix.shard }}
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 355
     strategy:
       fail-fast: false
@@ -661,7 +662,7 @@ jobs:
     name: Verify offers - shard ${{ matrix.shard }}
     needs: scrape
     if: ${{ !cancelled() && needs.scrape.result == 'success' && needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.shard_count != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 175
     strategy:
       fail-fast: false
