@@ -180,8 +180,11 @@ export function updateRule(model, id, patch) {
   const next = createModel(model);
   const entry = findRule(next, id);
   if (!entry.row.editable) throw new Error('Reguła tylko do odczytu');
+  const splitAirport = entry.type === 'location' && entry.kind === 'airport'
+    && Object.hasOwn(entry.target, 'airportMinimumRate8To20PlnDay');
   const allowed = entry.type === 'scoped' ? ['groups', 'zones', 'amount', 'minDays', 'maxDays', 'startDate', 'endDate', 'overrideProtected']
     : entry.type === 'protected' ? ['startDate', 'endDate']
+    : splitAirport ? ['amount']
     : entry.type === 'location' || entry.type === 'zone' ? ['amount', 'minDays', 'maxDays']
       : ['amount', 'minDays', 'maxDays', 'startDate', 'endDate', ...(entry.type === 'group' ? ['overrideProtected'] : [])];
   for (const [key, value] of entries(patch)) {
@@ -206,6 +209,18 @@ export function updateRule(model, id, patch) {
   }
   if (entry.type === 'group' && !entry.target.start_date && !entry.target.end_date
     && entry.target.override_protected_dates === false) delete entry.target.override_protected_dates;
+  return next;
+}
+
+export function restoreAirportFloorBands(model, original) {
+  const next = createModel(model);
+  const historical = pricingOf(next).locationTypeFloorsPlnDay;
+  const current = pricingOf(original).locationTypeFloorsPlnDay;
+  // A historical flat airport rate applied to both bands.
+  if (object(historical) && object(current) && Object.hasOwn(current, 'airportMinimumRate8To20PlnDay')
+    && !Object.hasOwn(historical, 'airportMinimumRate8To20PlnDay')) {
+    historical.airportMinimumRate8To20PlnDay = historical.minimumRatesByKind?.airport;
+  }
   return next;
 }
 
@@ -310,7 +325,7 @@ function lockedParts(model) {
     delete location.minDays;
     delete location.maxDays;
     delete location.minimumRatesByKind;
-    delete location.airportMinimumRate8To20PlnDay;
+    if (Object.hasOwn(location, 'airportMinimumRate8To20PlnDay')) location.airportMinimumRate8To20PlnDay = null;
   }
   for (const rule of array(pricing.priorityTop1Rules)) {
     if (!object(rule)) continue;

@@ -514,7 +514,7 @@ Kolory w Excelu:
 - w `Changed Positions` czerwony oznacza rekomendacje `top3_small_decrease`: obnizka mniejsza niz `10 PLN/dzien` pozwala przeskoczyc wyzej ustawionego rywala z top3 ofert; cel jest `1 PLN` ponizej tej oferty.
 - w `Changed Positions` pomaranczowy oznacza rekomendacje `top1_undercut`: MM Cars Rental jest top2 i brakuje mniej niz `10 PLN/dzien`, zeby zostac top1; cel jest `1 PLN` ponizej obecnego top1.
 
-Bezterminowe minima dla klas `CDMV`, `CGAV`, `CWAV`, `CWMR`, `EDAV` i `EDMV`, dla calego duration `1-20` dni: **60 PLN brutto/doba poza lotniskami** oraz **35 PLN brutto/doba na lotniskach**. Jedynym zrodlem jest `pricing.locationTypeFloorsPlnDay`; rodzaj lokalizacji pochodzi z `locations.config.json`, nie z nazwy punktu. `KRTI` jest lotniskiem, a `WR2`, `SZ1` i `SZO1` sa punktami miejskimi. Te minima zastepuja dawne normalne floory 30/39/40/50 PLN w tym zakresie, takze przy priorytecie Top1. Wyzsze obowiazkowe minima SZLO i swiateczne nadal maja pierwszenstwo.
+Bezterminowe minima dla klas `CDMV`, `CGAV`, `CWAV`, `CWMR`, `EDAV` i `EDMV`, dla najmu `1-20` dni: **40 PLN brutto/dobę poza lotniskami**, a na lotniskach **22 PLN brutto/dobę dla 1–7 dni** i **35 PLN brutto/dobę dla 8–20 dni**. Jedynym zrodlem jest `pricing.locationTypeFloorsPlnDay`; rodzaj lokalizacji pochodzi z `locations.config.json`, nie z nazwy punktu. `KRTI` jest lotniskiem, a `WR2`, `SZ1` i `SZO1` sa punktami miejskimi. Te minima zastepuja dawne normalne floory 30/39/40/50 PLN w tym zakresie, takze przy priorytecie Top1. Wyzsze obowiazkowe minima SZLO i swiateczne nadal maja pierwszenstwo.
 
 Generowanie Excela podnosi tylko stawki ponizej tych minimow, rowniez gdy brak ceny konkurencji lub floor blokuje Top1-Top3. Takie korekty nie obiecuja pozycji rankingowej i sa oznaczane jako minimum, a nie rekomendacja konkurencyjna. Nie obnizamy wyzszych cen do progu, nie zmieniamy pliku bazowego, klas wykluczonych ani przedzialu `21-35`. Chronione daty zachowuja stawki bazowe poza wczesniej zatwierdzonymi wyjatkami. Parytet grup nadal dotyczy rekomendacji rynkowych; EDMV i EDAV maja stawke bazowa +1 PLN.
 
@@ -530,7 +530,7 @@ Na koncu generowania importu updater wyrownuje relacje pozostalych grup: `CDMV`,
 
 Przy aktywnej rekomendacji top1 (`top1_gap`, `force_top1_maintain` lub `force_top1_undercut`) stawka oddzialu miejskiego moze wynosic maksymalnie `130%` stawki odpowiadajacego lotniska dla tej samej daty, grupy i kolumny duration. Relacja miasto-lotnisko jest wyprowadzana z `locations.config.json`; brak wymaganej stawki lotniskowej nadal blokuje zapis. Gdy limit 130% jest nizszy od obowiazujacego minimum, pomijamy limit dla dotknietych klas (razem z powiazanymi klasami parytetu) i realizujemy rekomendacje z zachowaniem minimum, kontroli danych i ochrony dat. Pominiecie limitu jest opisane w rekomendacjach; nie jest zablokowana rekomendacja. Lotniska nie podlegaja limitowi miejskiemu.
 
-Bezterminowe minimum dla CDMV/CGAV/CWAV/CWMR/EDAV/EDMV, duration 1-20 dni, pochodzi wylacznie z `locationTypeFloorsPlnDay`: lotniska 30 PLN/doba, miasta 60 PLN/doba, z zachowaniem wyzszych minimow obowiazkowych. Usunieto zastapione bezterminowe wpisy 40 PLN dla 8-20 dni, 39 PLN dla Krakowa oraz osobne 30 PLN dla KRLO/KRTI przy 2-4 dniach. Reguly z datami poczatku i konca pozostaja bez zmian.
+Po wdrożeniu aktualnej wersji panelu oba minima lotniskowe można edytować osobno w **Zasady cenowe → Minima podstawowe**. Po publikacji nowe kwoty obowiązują od kolejnego zleconego przebiegu.
 
 W trybie konsolowym:
 

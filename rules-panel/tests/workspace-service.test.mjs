@@ -58,6 +58,26 @@ test('both airport amounts can be saved independently through the panel', async 
   assert.equal(floor.minimumRatesByKind.city, 40);
 });
 
+test('the airport split cannot be removed by a draft save', async () => {
+  const { service } = setup();
+  const draft = createModel(snapshot.documents);
+  delete draft.pricing.pricing.locationTypeFloorsPlnDay.airportMinimumRate8To20PlnDay;
+  await assert.rejects(service.save(input(draft), actor), error => error.status === 422);
+});
+
+test('restoring legacy airport rates populates both current airport bands', async () => {
+  const { service, store } = setup();
+  const legacy = createModel(snapshot.documents);
+  const legacyFloor = legacy.pricing.pricing.locationTypeFloorsPlnDay;
+  legacyFloor.minimumRatesByKind.airport = 31.5;
+  delete legacyFloor.airportMinimumRate8To20PlnDay;
+  const previous = await store.saveDraft({ model: legacy, reason: 'Starsze minimum', savedBy: actor }, null);
+  const result = await service.rollback({ revision: previous.revision, expectedRevision: previous.revision }, actor);
+  const floor = result.draft.model.pricing.pricing.locationTypeFloorsPlnDay;
+  assert.equal(floor.minimumRatesByKind.airport, 31.5);
+  assert.equal(floor.airportMinimumRate8To20PlnDay, 31.5);
+});
+
 test('large amount confirmation is stored privately with verified actor and exact values',async()=>{
   const {service}=setup();const model=updateRule(createModel(snapshot.documents),'location:airport',{amount:4999});
   await assert.rejects(service.save(input(model),actor),error=>error.status===422&&/Potwierdź/.test(error.message));
