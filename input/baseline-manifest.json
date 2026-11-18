@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-18T20:18:07.471Z",
-  "workbook_sha256": "6d8a5cee441c2116766080ef6537f62fb6f98582e048a5b2a64b388fcf4cc3ff",
-  "source_filename": "Cennik bazowy 18-11-2026 bez FVMD na trzech lotniskach.xlsx",
+  "approved_at": "2026-11-18T22:47:00.836Z",
+  "workbook_sha256": "fce5d90a1e23b3d241732f7672d7f532f67219bbd756afb5f979893b983e9674",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 18-Nov-26 (1).xlsx",
   "confirmed": false,
-  "previous_baseline_sha256": "3316234f0f541369f57a65bf5a2cc978f5c78870844df227019eb5e957ac480e",
+  "previous_baseline_sha256": "6d8a5cee441c2116766080ef6537f62fb6f98582e048a5b2a64b388fcf4cc3ff",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "6d8a5cee441c2116766080ef6537f62fb6f98582e048a5b2a64b388fcf4cc3ff",
-    "source_filename": "Cennik bazowy 18-11-2026 bez FVMD na trzech lotniskach.xlsx"
+    "workbook_sha256": "fce5d90a1e23b3d241732f7672d7f532f67219bbd756afb5f979893b983e9674",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 18-Nov-26 (1).xlsx"
   },
   "coverage": {
-    "sha256": "6d8a5cee441c2116766080ef6537f62fb6f98582e048a5b2a64b388fcf4cc3ff",
+    "sha256": "fce5d90a1e23b3d241732f7672d7f532f67219bbd756afb5f979893b983e9674",
     "rowCount": 33187,
     "groups": [
       "CDMV",
@@ -401,5 +401,5 @@
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
-  "note": "User-approved removal of FVMD rows at GDLO, POLO and WRLO from the current shared pricing baseline. All remaining rates retained. DiscoverCars import is unconfirmed."
+  "note": "Original user-supplied workbook, including its rate changes, approved through a pull request. DiscoverCars import is unconfirmed."
 }
