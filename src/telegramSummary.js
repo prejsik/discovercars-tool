@@ -279,13 +279,9 @@ function buildTelegramSummary(options = {}) {
       || env.EXCEL_ARTIFACT_URL
   );
   const pagesPublicationFailed = env.PAGES_PUBLICATION_FAILED === "true";
+  const filesReadyPanelStale = pagesPublicationFailed && excelReady && Boolean(env.EXCEL_ARTIFACT_URL);
   const publicationFailure = qualityStatus !== "failure"
     && (pagesPublicationFailed || !reportAvailable || !reportPublished || !excelReady || !excelPublished);
-  const statusLabel = qualityStatus === "failure"
-    ? "BŁĄD"
-    : publicationFailure
-      ? "BŁĄD PUBLIKACJI"
-      : "GOTOWE";
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
   const missingMmStartDates = listStartDatesWithoutMm(options.results);
   const missingMmAlert = missingMmStartDates.length
@@ -300,7 +296,7 @@ function buildTelegramSummary(options = {}) {
     const preparationReason = getPreparationFailureMessage(preparationFailureStage);
     const reason = preparationReason || blockingAlerts[0] || alerts[0] || "brak szczegółów - sprawdź GitHub Actions";
     return [
-      `DiscoverCars | ${statusLabel}`,
+      "DiscoverCars | BŁĄD",
       "",
       ...freshnessLines,
       "Excel nie został opublikowany.",
@@ -320,7 +316,7 @@ function buildTelegramSummary(options = {}) {
 
   if (publicationFailure) {
     const reason = pagesPublicationFailed
-      ? "publikacja raportu i plików Excel na GitHub Pages nie powiodła się"
+      ? "nie udało się odświeżyć panelu na GitHub Pages"
       : !reportAvailable
         ? "raport HTML nie został wygenerowany"
         : !reportPublished
@@ -329,7 +325,7 @@ function buildTelegramSummary(options = {}) {
             ? "nie wygenerowano obu wymaganych plików Excel"
             : "pliki Excel nie zostały udostępnione";
     return [
-      `DiscoverCars | ${statusLabel}`,
+      filesReadyPanelStale ? "DiscoverCars | Excele gotowe, panel jeszcze nieodświeżony" : "DiscoverCars | BŁĄD PUBLIKACJI",
       "",
       ...freshnessLines,
       `Powód: ${reason}.`,
@@ -340,6 +336,7 @@ function buildTelegramSummary(options = {}) {
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
       "",
+      ...(filesReadyPanelStale ? [`Pobierz nowe pliki (import i rekomendacje): ${env.EXCEL_ARTIFACT_URL}`] : []),
       `Raport: ${reportUrl}`,
       `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
       `Panel: ${panelUrl}`

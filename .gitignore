@@ -32,6 +32,8 @@
 !.github/
 !.github/workflows/
 !.github/workflows/**
+!.github/actions/
+!.github/actions/**
 
 !src/
 !src/**

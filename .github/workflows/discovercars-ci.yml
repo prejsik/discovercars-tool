@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/**'
+      - '.github/actions/**'
       - 'src/**'
       - 'tools/**'
       - 'tests/**'

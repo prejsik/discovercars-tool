@@ -976,14 +976,18 @@ jobs:
     needs: [scrape, assemble]
     if: always() && needs.scrape.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     concurrency:
       group: discovercars-pages-site
       cancel-in-progress: false
       queue: max
     environment:
       name: github-pages
-      url: ${{ steps.pages-deployment.outputs.page_url }}
+      url: ${{ steps.pages-first.outcome == 'success' && steps.pages-first.outputs.page_url || steps.pages-retry.outcome == 'success' && steps.pages-retry.outputs.page_url || '' }}
+    env:
+      RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
+      PAGE_URL: ${{ needs.scrape.outputs.page_url }}
+      QUALITY_STATUS: ${{ needs.assemble.outputs.quality_status || 'failure' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1002,232 +1006,25 @@ jobs:
           name: discovercars-results-${{ github.run_number }}
           path: output
 
-      - name: Prepare GitHub Pages site
-        id: pages-site
+      - name: Publish GitHub Pages
+        id: pages-first
         if: steps.bundle.outcome == 'success' && needs.scrape.outputs.should_run == 'true' && needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure'
+        continue-on-error: true
+        uses: ./.github/actions/publish-discovercars-pages
+        with:
+          attempt: '1'
+
+      - name: Wait before retrying GitHub Pages publication
+        if: steps.pages-first.outcome == 'failure'
         shell: bash
-        env:
-          RUN_TYPE: ${{ needs.scrape.outputs.run_type }}
-          PAGE_URL: ${{ needs.scrape.outputs.page_url }}
-          QUALITY_STATUS: ${{ needs.assemble.outputs.quality_status || 'failure' }}
-        run: |
-          mkdir -p pages
-          node src/publicResults.js output/results-latest.json output/results-public.json
+        run: sleep 15
 
-          page_base="${PAGE_URL%/}"
-          preserve_file() {
-            local rel_path="$1"
-            local destination="pages/$rel_path"
-            if [[ -z "$page_base" ]]; then
-              return
-            fi
-            mkdir -p "$(dirname "$destination")"
-            local status
-            status=$(curl --silent --show-error --location --retry 2 --max-time 45 \
-              --header "Cache-Control: no-cache" --write-out "%{http_code}" \
-              "$page_base/$rel_path?publication=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output "$destination") || {
-              echo "::error::Could not preserve $rel_path; keeping the existing site."
-              exit 1
-            }
-            case "$status" in
-              200) ;;
-              404) rm -f "$destination" ;;
-              *) echo "::error::Could not preserve $rel_path (HTTP $status); keeping the existing site."; exit 1 ;;
-            esac
-          }
-
-          for rel_path in \
-            index.html \
-            report.html \
-            manual-reports/index.html \
-            manual-reports/lipiec-2026/report.html \
-            manual-reports/sierpien-2026/report.html \
-            latest-full/report.html \
-            latest-full/results-latest.json \
-            latest-full/pricing-recommendations.json \
-            latest-full/final-pricing-recommendations.json \
-            latest-full/dom-recommendation-verification-summary.json \
-            latest-full/recommendation-workload.json \
-            latest-full/rates-updated.xlsx \
-            latest-full/rates-import-ready.xlsx \
-            latest-full/excel-rate-update-summary.json \
-            latest-full/mm-rate-sanity-check.json \
-            latest-full/broker-markup-calibration.json \
-            latest-full/quality-alerts.json \
-            latest-full/run-manifest.json \
-            latest-full/run-log.txt \
-            latest-excel/rates-import-ready.xlsx \
-            latest-excel/rates-updated.xlsx \
-            latest-excel/final-pricing-recommendations.json \
-            latest-excel/excel-rate-update-summary.json \
-            latest-excel/mm-rate-sanity-check.json \
-            latest-excel/broker-markup-calibration.json \
-            latest-excel/quality-alerts.json \
-            latest-excel/run-manifest.json; do
-            preserve_file "$rel_path"
-          done
-
-          for rel_path in report.html results-latest.json pricing-recommendations.json final-pricing-recommendations.json \
-            rates-updated.xlsx rates-import-ready.xlsx quality-alerts.json run-manifest.json run-log.txt; do
-            preserve_file "latest-smoke/$rel_path"
-          done
-
-          if [[ -d manual-reports ]]; then
-            mkdir -p pages/manual-reports
-            cp -R manual-reports/. pages/manual-reports/
-          fi
-
-          if [[ "$RUN_TYPE" == "full" ]]; then
-            run_dir="latest-full"
-          else
-            run_dir="latest-smoke"
-          fi
-
-          if [[ ( -f "pages/$run_dir/report.html" && ! -f "pages/$run_dir/run-manifest.json" ) ||
-                ( -f pages/latest-excel/rates-import-ready.xlsx && ! -f pages/latest-excel/run-manifest.json ) ]]; then
-            echo "::error::Missing existing publication manifest; refusing an unverifiable overwrite."
-            exit 1
-          fi
-          node src/publicationPolicy.js --candidate=output/run-manifest.json --preserved-root=pages --expected-status="$QUALITY_STATUS" \
-            --current-report="pages/$run_dir/run-manifest.json" \
-            --current-excel=pages/latest-excel/run-manifest.json > output/publication-decision.json
-          promote_report=$(node -e "process.stdout.write(String(require('./output/publication-decision.json').promote_report))")
-          promote_excel=$(node -e "process.stdout.write(String(require('./output/publication-decision.json').promote_excel))")
-
-          if [[ "$promote_report" == "true" ]]; then
-          mkdir -p "pages/$run_dir"
-          # Never retain optional files from an older bundle under a new manifest.
-            rm -f \
-              "pages/$run_dir/pricing-recommendations.json" \
-              "pages/$run_dir/final-pricing-recommendations.json" \
-              "pages/$run_dir/dom-recommendation-verification-summary.json" \
-              "pages/$run_dir/recommendation-workload.json" \
-              "pages/$run_dir/rates-updated.xlsx" \
-              "pages/$run_dir/rates-import-ready.xlsx" \
-              "pages/$run_dir/excel-rate-update-summary.json" \
-              "pages/$run_dir/mm-rate-sanity-check.json" \
-              "pages/$run_dir/broker-markup-calibration.json"
-          cp output/report.html "pages/$run_dir/report.html"
-          cp output/results-public.json "pages/$run_dir/results-latest.json"
-          cp output/run-log.txt "pages/$run_dir/run-log.txt"
-          if [[ "$QUALITY_STATUS" != "failure" ]]; then
-            if [[ -f output/pricing-recommendations.json ]]; then
-              cp output/pricing-recommendations.json "pages/$run_dir/pricing-recommendations.json"
-            fi
-            if [[ -f output/final-pricing-recommendations.json ]]; then
-              cp output/final-pricing-recommendations.json "pages/$run_dir/final-pricing-recommendations.json"
-            fi
-            if [[ -f output/dom-recommendation-verification-summary.json ]]; then
-              cp output/dom-recommendation-verification-summary.json "pages/$run_dir/dom-recommendation-verification-summary.json"
-            fi
-            if [[ -f output/recommendation-workload.json ]]; then
-              cp output/recommendation-workload.json "pages/$run_dir/recommendation-workload.json"
-            fi
-            if [[ -f output/rates-updated.xlsx ]]; then
-              cp output/rates-updated.xlsx "pages/$run_dir/rates-updated.xlsx"
-            fi
-            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
-              cp output/rates-import-ready.xlsx "pages/$run_dir/rates-import-ready.xlsx"
-            fi
-            if [[ -f output/excel-rate-update-summary.json ]]; then
-              cp output/excel-rate-update-summary.json "pages/$run_dir/excel-rate-update-summary.json"
-            fi
-            if [[ -f output/mm-rate-sanity-check.json ]]; then
-              cp output/mm-rate-sanity-check.json "pages/$run_dir/mm-rate-sanity-check.json"
-            fi
-            if [[ -f output/broker-markup-calibration.json ]]; then
-              cp output/broker-markup-calibration.json "pages/$run_dir/broker-markup-calibration.json"
-            fi
-          fi
-          if [[ -f output/quality-alerts.json ]]; then
-            cp output/quality-alerts.json "pages/$run_dir/quality-alerts.json"
-          fi
-          if [[ -f output/run-manifest.json ]]; then
-            cp output/run-manifest.json "pages/$run_dir/run-manifest.json"
-          fi
-
-          fi
-
-          if [[ "$promote_excel" == "true" && ( "$RUN_TYPE" == "full" || "$RUN_TYPE" == "manual" ) && "$QUALITY_STATUS" != "failure" ]]; then
-            mkdir -p pages/latest-excel
-            for name in rates-updated.xlsx rates-import-ready.xlsx final-pricing-recommendations.json \
-              excel-rate-update-summary.json mm-rate-sanity-check.json broker-markup-calibration.json \
-              quality-alerts.json run-manifest.json; do
-              rm -f "pages/latest-excel/$name"
-            done
-            if [[ -f output/rates-updated.xlsx ]]; then
-              cp output/rates-updated.xlsx pages/latest-excel/rates-updated.xlsx
-            fi
-            if [[ "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
-              cp output/rates-import-ready.xlsx pages/latest-excel/rates-import-ready.xlsx
-            fi
-            if [[ -f output/final-pricing-recommendations.json ]]; then
-              cp output/final-pricing-recommendations.json pages/latest-excel/final-pricing-recommendations.json
-            fi
-            if [[ -f output/excel-rate-update-summary.json ]]; then
-              cp output/excel-rate-update-summary.json pages/latest-excel/excel-rate-update-summary.json
-            fi
-            if [[ -f output/mm-rate-sanity-check.json ]]; then
-              cp output/mm-rate-sanity-check.json pages/latest-excel/mm-rate-sanity-check.json
-            fi
-            if [[ -f output/broker-markup-calibration.json ]]; then
-              cp output/broker-markup-calibration.json pages/latest-excel/broker-markup-calibration.json
-            fi
-            if [[ -f output/quality-alerts.json ]]; then
-              cp output/quality-alerts.json pages/latest-excel/quality-alerts.json
-            fi
-            if [[ -f output/run-manifest.json ]]; then
-              cp output/run-manifest.json pages/latest-excel/run-manifest.json
-            fi
-          fi
-
-          if [[ "$promote_report" == "true" ]]; then
-          if [[ "$RUN_TYPE" == "full" || ! -f pages/latest-full/report.html ]]; then
-            cp output/report.html pages/index.html
-            cp output/report.html pages/report.html
-          else
-            cp pages/latest-full/report.html pages/index.html
-            cp pages/latest-full/report.html pages/report.html
-          fi
-
-          fi
-          if [[ -n "$page_base" ]]; then
-            if [[ "$promote_report" == "true" ]]; then
-              echo "run_report_url=$page_base/$run_dir/report.html" >> "$GITHUB_OUTPUT"
-            fi
-            echo "full_report_url=$page_base/latest-full/report.html" >> "$GITHUB_OUTPUT"
-            if [[ "$promote_excel" == "true" && "$QUALITY_STATUS" != "failure" && -f output/rates-import-ready.xlsx ]]; then
-              echo "excel_url=$page_base/latest-excel/rates-import-ready.xlsx" >> "$GITHUB_OUTPUT"
-            fi
-            if [[ "$promote_excel" == "true" && "$QUALITY_STATUS" != "failure" && -f output/rates-updated.xlsx ]]; then
-              echo "excel_report_url=$page_base/latest-excel/rates-updated.xlsx" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Validate completed Pages bundles
-        id: pages-validation
-        if: steps.pages-site.outcome == 'success'
-        run: node src/publicationPolicy.js --validate-only=pages
-
-      - name: Configure GitHub Pages
-        id: pages-configure
-        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success'
-        uses: actions/configure-pages@v5
-
-      - name: Upload GitHub Pages artifact
-        id: pages-upload
-        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success' && steps.pages-configure.outcome == 'success'
-        uses: actions/upload-pages-artifact@v3
+      - name: Retry GitHub Pages publication from the same report bundle
+        id: pages-retry
+        if: steps.pages-first.outcome == 'failure'
+        uses: ./.github/actions/publish-discovercars-pages
         with:
-          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
-          path: pages
-
-      - name: Deploy GitHub Pages
-        id: pages-deployment
-        if: steps.pages-site.outcome == 'success' && steps.pages-validation.outcome == 'success' && steps.pages-upload.outcome == 'success'
-        uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+          attempt: '2'
 
       - name: Notify Telegram
         if: always() && needs.scrape.outputs.should_run == 'true'
@@ -1235,10 +1032,10 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PAGE_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.run_report_url || '' }}
-          PAGES_EXCEL_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_url || '' }}
-          PAGES_EXCEL_REPORT_URL: ${{ steps.pages-deployment.outcome == 'success' && steps.pages-site.outputs.excel_report_url || '' }}
-          PAGES_PUBLICATION_FAILED: ${{ needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure' && steps.pages-deployment.outcome != 'success' }}
+          PAGE_URL: ${{ steps.pages-first.outcome == 'success' && steps.pages-first.outputs.run_report_url || steps.pages-retry.outcome == 'success' && steps.pages-retry.outputs.run_report_url || '' }}
+          PAGES_EXCEL_URL: ${{ steps.pages-first.outcome == 'success' && steps.pages-first.outputs.excel_url || steps.pages-retry.outcome == 'success' && steps.pages-retry.outputs.excel_url || '' }}
+          PAGES_EXCEL_REPORT_URL: ${{ steps.pages-first.outcome == 'success' && steps.pages-first.outputs.excel_report_url || steps.pages-retry.outcome == 'success' && steps.pages-retry.outputs.excel_report_url || '' }}
+          PAGES_PUBLICATION_FAILED: ${{ needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure' && steps.pages-first.outcome != 'success' && steps.pages-retry.outcome != 'success' }}
           ARTIFACT_URL: ${{ needs.assemble.outputs.artifact_url }}
           EXCEL_ARTIFACT_URL: ${{ needs.assemble.outputs.excel_artifact_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -1280,7 +1077,7 @@ jobs:
           echo "Final quality status: $QUALITY_STATUS"
 
       - name: Record published scheduled report
-        if: success() && needs.scrape.outputs.schedule_key != '' && steps.pages-deployment.outcome == 'success' && needs.assemble.outputs.excel_artifact_url != '' && needs.assemble.outputs.quality_status != 'failure'
+        if: success() && needs.scrape.outputs.schedule_key != '' && (steps.pages-first.outcome == 'success' || steps.pages-retry.outcome == 'success') && needs.assemble.outputs.excel_artifact_url != '' && needs.assemble.outputs.quality_status != 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: discovercars-schedule-published-${{ needs.scrape.outputs.schedule_key }}
