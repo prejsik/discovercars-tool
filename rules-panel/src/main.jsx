@@ -949,6 +949,10 @@ function RuleCells({ rule, title, family, model, changed }) {
   const minimum = Math.min(...amounts);
   const maximum = Math.max(...amounts);
   const amount = minimum === maximum ? money(minimum) : `${money(minimum)}–${money(maximum)}`;
+  const locationFloor = model.pricing.pricing.locationTypeFloorsPlnDay;
+  const airportFloor = locationFloor?.airportMinimumRate8To20PlnDay == null
+    ? money(locationFloor?.minimumRatesByKind.airport)
+    : `${money(locationFloor.minimumRatesByKind.airport)} (1–7 dni) / ${money(locationFloor.airportMinimumRate8To20PlnDay)} (8–20 dni)`;
   return <>
     <div className="rule-primary"><div>
       <div className="rule-title">{title ?? rule.title}{changed && <span className="draft-tag">Szkic</span>}</div>
@@ -958,7 +962,7 @@ function RuleCells({ rule, title, family, model, changed }) {
     </div></div>
     <div className="rate-cell" data-label="Minimum / dobę">
       {amounts.length ? <><strong>{amount}</strong><span> PLN</span></> : <span className="muted">Bez zmiany cen</span>}
-      {rule.category === "priority" && <small className="subordinate-floor">Nadrzędne: lotnisko {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport)} · miasto {money(model.pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city)} PLN</small>}
+      {rule.category === "priority" && locationFloor && <small className="subordinate-floor">Nadrzędne: lotnisko {airportFloor} · miasto {money(locationFloor.minimumRatesByKind.city)} PLN</small>}
     </div>
     <div className="duration-cell" data-label="Najem">{family ? <span className="family-bands">{family.map(item=><span key={item.id}>{item.minDays===item.maxDays?`${item.minDays} d`:`${item.minDays}–${item.maxDays}`} <strong>{money(item.amount)}</strong></span>)}</span> : rule.minDays ? days(rule) : "Wszystkie długości"}</div>
     <div className="dates-cell" data-label="Daty startu">{period(rule)}

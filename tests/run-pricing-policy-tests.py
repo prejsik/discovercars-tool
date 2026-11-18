@@ -1210,6 +1210,23 @@ class LocationTypeFloorTests(unittest.TestCase):
                 self.assertEqual(prices["CDMV", "WA1", "2026-10-01"], 60)
                 self.assertEqual(prices["EDMV", "WA1", "2026-10-01"], 11)
 
+    def test_airport_floor_changes_between_excel_duration_columns(self):
+        rules = load_fixture_pricing_rules()
+        rule = rules["pricing"]["locationTypeFloorsPlnDay"]
+        rule["minimumRatesByKind"]["airport"] = 22
+        rule["airportMinimumRate8To20PlnDay"] = 35
+        path = self.root / "airport-bands.json"
+        path.write_text(json.dumps(rules), encoding="utf-8")
+        _, review, imported = self.run_updates(
+            [], self.workbook(city_rate=10, airport_rate=10),
+            {**self.config, "pricing_rules_file": str(path)},
+        )
+        for workbook in (review, imported):
+            for column, airport_minimum in ((12, 22), (13, 35), (14, 10)):
+                prices = self.rates(workbook, column)
+                self.assertEqual(prices["CDMV", "WALO", "2026-10-01"], airport_minimum)
+                self.assertEqual(prices["CDMV", "WA1", "2026-10-01"], 60 if column < 14 else 10)
+
     def test_registry_mirrors_not_names_determine_kind(self):
         registry = json.loads(FIXTURE_REGISTRY_PATH.read_text(encoding="utf-8"))
         for location in registry["locations"]:

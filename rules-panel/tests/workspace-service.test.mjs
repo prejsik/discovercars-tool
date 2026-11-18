@@ -46,6 +46,18 @@ test('workspace service is an executable public interface', () => {
   assert.equal(typeof workspace.WorkspaceService, 'function');
 });
 
+test('both airport amounts can be saved independently through the panel', async () => {
+  const { service } = setup();
+  const original = createModel(snapshot.documents);
+  const short = updateRule(original, 'location:airport', { amount: 23 });
+  const both = updateRule(short, 'location:airport:8-20', { amount: 36 });
+  const result = await service.save(input(both), actor);
+  const floor = result.draft.model.pricing.pricing.locationTypeFloorsPlnDay;
+  assert.equal(floor.minimumRatesByKind.airport, 23);
+  assert.equal(floor.airportMinimumRate8To20PlnDay, 36);
+  assert.equal(floor.minimumRatesByKind.city, 40);
+});
+
 test('large amount confirmation is stored privately with verified actor and exact values',async()=>{
   const {service}=setup();const model=updateRule(createModel(snapshot.documents),'location:airport',{amount:4999});
   await assert.rejects(service.save(input(model),actor),error=>error.status===422&&/Potwierdź/.test(error.message));

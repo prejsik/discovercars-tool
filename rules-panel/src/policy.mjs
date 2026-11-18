@@ -78,11 +78,19 @@ function ruleEntries(model) {
   const location = pricing.locationTypeFloorsPlnDay;
   if (object(location)) {
     for (const kind of ['city', 'airport']) {
+      const splitAirport = kind === 'airport' && Object.hasOwn(location, 'airportMinimumRate8To20PlnDay');
       append(`location:${kind}`, 'location', kind === 'city' ? 'Miasto: stawka minimalna' : 'Lotnisko: stawka minimalna', location,
         `${root}.locationTypeFloorsPlnDay`, {
-          groups: clone(array(location.groups)), kind, minDays: location.minDays, maxDays: location.maxDays,
+          groups: clone(array(location.groups)), kind, minDays: location.minDays, maxDays: splitAirport ? 7 : location.maxDays,
           amount: location.minimumRatesByKind?.[kind] ?? null,
         }, { type: 'location', kind });
+      if (splitAirport) {
+        append('location:airport:8-20', 'location', 'Lotnisko: stawka minimalna · 8–20 dni', location,
+          `${root}.locationTypeFloorsPlnDay`, {
+            groups: clone(array(location.groups)), kind, minDays: 8, maxDays: 20,
+            amount: location.airportMinimumRate8To20PlnDay,
+          }, { type: 'location', kind, amountField: 'airportMinimumRate8To20PlnDay' });
+      }
     }
   }
   for (const [type, field] of [['group', 'mandatoryGroupFloorsPlnDay'], ['zone', 'mandatoryZoneFloorsPlnDay']]) {
@@ -183,7 +191,8 @@ export function updateRule(model, id, patch) {
     if (entry.type === 'scoped') {
       target[key === 'amount' ? 'minimumRatePlnDay' : key] = clone(value);
     } else if (entry.type === 'location') {
-      if (key === 'amount') target.minimumRatesByKind[entry.kind] = value;
+      if (key === 'amount' && entry.amountField) target[entry.amountField] = value;
+      else if (key === 'amount') target.minimumRatesByKind[entry.kind] = value;
       else target[key] = value;
     } else if (entry.type === 'priority') {
       if (key === 'minDays' || key === 'maxDays') target.durationBands[entry.bandIndex][key === 'minDays' ? 0 : 1] = value;
@@ -301,6 +310,7 @@ function lockedParts(model) {
     delete location.minDays;
     delete location.maxDays;
     delete location.minimumRatesByKind;
+    delete location.airportMinimumRate8To20PlnDay;
   }
   for (const rule of array(pricing.priorityTop1Rules)) {
     if (!object(rule)) continue;
@@ -364,6 +374,10 @@ export function validateModel(model, originalModel = model) {
       }
       for (const kind of ['city', 'airport']) {
         if (!positive(location.minimumRatesByKind?.[kind])) error(`${root}.locationTypeFloorsPlnDay.minimumRatesByKind.${kind}`, 'Kwota musi być skończoną liczbą większą od zera');
+      }
+      if (Object.hasOwn(location, 'airportMinimumRate8To20PlnDay')
+        && (location.minDays !== 1 || location.maxDays !== 20 || !positive(location.airportMinimumRate8To20PlnDay))) {
+        error(`${root}.locationTypeFloorsPlnDay.airportMinimumRate8To20PlnDay`, 'Minimum lotniskowe dla 8–20 dni wymaga dodatniej kwoty i podstawowego zakresu 1–20 dni');
       }
     }
   }
