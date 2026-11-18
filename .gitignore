@@ -7,6 +7,8 @@
 !package-lock.json
 !README.md
 !README-USER.txt
+!AGENTS.md
+!CLAUDE.md
 !DISCOVERCARS_README.md
 !discovercars.config.example.json
 !excel-rate-update.config.example.json
