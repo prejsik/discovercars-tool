@@ -684,9 +684,12 @@ runTest("public results keep report views while removing duplicated technical pa
 });
 
 runTest("GitHub Pages publishes compact results while Actions keeps the full artifact", () => {
-  const workflow = fs.readFileSync(path.join(__dirname, "..", ".github", "workflows", "discovercars-daily.yml"), "utf8");
-  assert.match(workflow, /node src\/publicResults\.js output\/results-latest\.json output\/results-public\.json/);
-  assert.match(workflow, /cp output\/results-public\.json "pages\/\$run_dir\/results-latest\.json"/);
+  const githubDir = path.join(__dirname, "..", ".github");
+  const workflow = fs.readFileSync(path.join(githubDir, "workflows", "discovercars-daily.yml"), "utf8");
+  const publication = fs.readFileSync(path.join(githubDir, "actions", "publish-discovercars-pages", "action.yml"), "utf8");
+  assert.match(workflow, /uses: \.\/\.github\/actions\/publish-discovercars-pages/);
+  assert.match(publication, /node src\/publicResults\.js output\/results-latest\.json output\/results-public\.json/);
+  assert.match(publication, /cp output\/results-public\.json "pages\/\$run_dir\/results-latest\.json"/);
   assert.match(workflow, /name: Upload scraper results[\s\S]*output\/results-latest\.json/);
 });
 
