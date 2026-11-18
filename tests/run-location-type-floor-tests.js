@@ -109,6 +109,17 @@ test('pricing loader reads the fixed permanent floor policy', () => {
   });
 });
 
+test('configured airport floors change between days 7 and 8', () => {
+  const production = loadPricingRules(require('node:path').join(__dirname, '../pricing-rules.config.example.json'));
+  for (const group of floors.groups) {
+    for (const [days, minimum] of [[1, 22], [7, 22], [8, 35], [20, 35], [21, 0]]) {
+      assert.equal(resolveLocationTypeFloorPlnDay('airport', days, production, group), minimum);
+    }
+    assert.equal(resolveLocationTypeFloorPlnDay('city', 7, production, group), 40);
+    assert.equal(resolveLocationTypeFloorPlnDay('city', 8, production, group), 40);
+  }
+});
+
 test('retired permanent minima are absent while dated minima remain unchanged', () => {
   const excel = excelPolicy;
   assert.deepEqual(excel.minimum_rates.scoped_overrides, []);

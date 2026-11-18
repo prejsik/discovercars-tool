@@ -1,4 +1,4 @@
-import { createModel, toDocuments, validateModel } from '../src/policy.mjs';
+import { createModel, restoreAirportFloorBands, toDocuments, validateModel } from '../src/policy.mjs';
 import { diffDocuments } from '../src/draft.mjs';
 import { confirmedChanges,requiredConfirmations,sameConfirmation } from '../src/change-review.mjs';
 
@@ -105,6 +105,6 @@ export class WorkspaceService {
     if (!record?.model) throw new PanelError(404, 'Nie znaleziono wersji szkicu.');
     const snapshot = await this.store.snapshot();
     return this.save({ sourceRevision: snapshot.source.revision, sourceHash: snapshot.source.policyHash,
-      expectedRevision: input.expectedRevision, model: record.model, amountConfirmations:record.amountConfirmations??[], reason: `Przywrocenie szkicu ${input.revision.slice(0, 8)}: ${record.reason}`.slice(0, 500) }, actor, 'rollback', input.revision);
+      expectedRevision: input.expectedRevision, model: restoreAirportFloorBands(record.model, snapshot.documents), amountConfirmations:record.amountConfirmations??[], reason: `Przywrocenie szkicu ${input.revision.slice(0, 8)}: ${record.reason}`.slice(0, 500) }, actor, 'rollback', input.revision);
   }
 }

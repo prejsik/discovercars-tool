@@ -13,8 +13,9 @@
       "maxDays": 20,
       "minimumRatesByKind": {
         "city": 40,
-        "airport": 31.5
-      }
+        "airport": 22
+      },
+      "airportMinimumRate8To20PlnDay": 35
     },
     "mandatoryGroupFloorsPlnDay": {
       "PDAH": [

@@ -6,6 +6,7 @@ const short = value => value ? String(value).slice(0,12) : 'Brak danych';
 const actionLabels = {save:'Zapis szkicu',approval_pending:'Rozpoczęcie zatwierdzenia',publish:'Publikacja konfiguracji',rollback:'Przywrócenie do szkicu'};
 const fieldLabel = path => ({
   'pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.airport':'Minimum lotniska (PLN/dobę)',
+  'pricing.pricing.locationTypeFloorsPlnDay.airportMinimumRate8To20PlnDay':'Minimum lotniska 8–20 dni (PLN/dobę)',
   'pricing.pricing.locationTypeFloorsPlnDay.minimumRatesByKind.city':'Minimum poza lotniskami (PLN/dobę)',
   'excel.apply_groups':'Klasy dopuszczone do rekomendacji',
   'excel.excluded_groups':'Klasy wyłączone z rekomendacji',

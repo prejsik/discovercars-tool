@@ -1476,8 +1476,15 @@ def get_location_type_floors(config: dict[str, Any]) -> dict[str, Any]:
         or set(rates) != {"city", "airport"}
         or any(type(rate) not in {int, float} or not math.isfinite(rate) or rate <= 0 for rate in rates.values())):
         raise ValueError("Invalid locationTypeFloorsPlnDay groups, duration or minimumRatesByKind.")
-    return {"groups": [normalize_code(group) for group in groups], "minDays": int(low), "maxDays": int(high),
-            "minimumRatesByKind": {kind: float(rate) for kind, rate in rates.items()}}
+    floors = {"groups": [normalize_code(group) for group in groups], "minDays": int(low), "maxDays": int(high),
+              "minimumRatesByKind": {kind: float(rate) for kind, rate in rates.items()}}
+    if "airportMinimumRate8To20PlnDay" in rule:
+        airport_long_rate = rule["airportMinimumRate8To20PlnDay"]
+        if (low != 1 or high != 20 or type(airport_long_rate) not in {int, float}
+                or not math.isfinite(airport_long_rate) or airport_long_rate <= 0):
+            raise ValueError("Invalid locationTypeFloorsPlnDay airport minimum for days 8-20.")
+        floors["airportMinimumRate8To20PlnDay"] = float(airport_long_rate)
+    return floors
 
 
 def get_location_type_floor(
@@ -1493,7 +1500,11 @@ def get_location_type_floor(
         or date_is_rate_protected(pickup_date, get_protected_rate_periods(config))):
         return None
     kind = (config.get("zone_location_kinds") or {}).get(normalize_code(zone))
-    return rule["minimumRatesByKind"].get(kind)
+    rate = rule["minimumRatesByKind"].get(kind)
+    airport_long_rate = rule.get("airportMinimumRate8To20PlnDay")
+    if kind == "airport" and airport_long_rate is not None and max_days >= 8:
+        return airport_long_rate if min_days >= 8 else max(rate, airport_long_rate)
+    return rate
 
 
 def get_mandatory_zone_floors(config: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -1932,15 +1943,24 @@ def get_grouped_groups(changes: list[dict[str, Any]]) -> str:
     return ", ".join(groups)
 
 
+def describe_location_floor_rates(location_floors: dict[str, Any]) -> str:
+    rates = location_floors["minimumRatesByKind"]
+    city = format_rate_for_comment(rates["city"])
+    airport = format_rate_for_comment(rates["airport"])
+    if "airportMinimumRate8To20PlnDay" in location_floors:
+        airport_long = format_rate_for_comment(location_floors["airportMinimumRate8To20PlnDay"])
+        return f"miasto {city} PLN, lotnisko 1-7 dni: {airport} PLN, 8-20 dni: {airport_long} PLN"
+    return f"miasto {city} PLN, lotnisko {airport} PLN"
+
+
 def get_floor_legend_text(config: dict[str, Any]) -> str:
     rules = config.get("minimum_rates") or {}
     parts: list[str] = []
     location_floors = get_location_type_floors(config)
     if location_floors:
-        rates = location_floors["minimumRatesByKind"]
         parts.append(
             "Obowiazkowe minimum wedlug typu lokalizacji z rejestru (takze zone_mirrors), bezterminowo: "
-            f"miasto {format_rate_for_comment(rates['city'])} PLN, lotnisko {format_rate_for_comment(rates['airport'])} PLN; "
+            f"{describe_location_floor_rates(location_floors)}; "
             f"duration {location_floors['minDays']}-{location_floors['maxDays']}; klasy "
             + ", ".join(location_floors["groups"])
             + ". Tylko klasy dopuszczone i niewykluczone, poza chronionymi datami. "
@@ -2359,8 +2379,7 @@ def write_changed_positions_sheet(
         if (location_floors and set(rule["groups"]) <= set(location_floors["groups"])
             and all(location_floors["minDays"] <= low <= high <= location_floors["maxDays"]
                     for low, high in rule["durationBands"])):
-            rates = location_floors["minimumRatesByKind"]
-            floor_text = f"miasto {format_rate_for_comment(rates['city'])} PLN, lotnisko {format_rate_for_comment(rates['airport'])} PLN"
+            floor_text = describe_location_floor_rates(location_floors)
         color, label, description = recommendation_legend_items[-1]
         recommendation_legend_items[-1] = (color, label, description + " Priorytet top1 - automaty: " +
             f"{rule['startDate']}-{rule['endDate']} wlacznie; strefy {'wszystkie lokalizacje' if '*' in rule['zones'] else ', '.join(rule['zones'])}; "

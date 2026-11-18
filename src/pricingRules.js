@@ -60,12 +60,20 @@ function validateLocationTypeFloorsPlnDay(rule) {
       || ["city", "airport"].some((kind) => !Number.isFinite(rule.minimumRatesByKind?.[kind]) || rule.minimumRatesByKind[kind] <= 0)) {
     throw new Error("Invalid locationTypeFloorsPlnDay groups, duration or city/airport minimum.");
   }
+  if (Object.hasOwn(rule, "airportMinimumRate8To20PlnDay")
+      && (rule.minDays !== 1 || rule.maxDays !== 20
+          || !Number.isFinite(rule.airportMinimumRate8To20PlnDay) || rule.airportMinimumRate8To20PlnDay <= 0)) {
+    throw new Error("Invalid locationTypeFloorsPlnDay airport minimum for days 8-20.");
+  }
 }
 
 function resolveLocationTypeFloorPlnDay(kind, rentalDays, pricingRules, group) {
   const rule = pricingRules.locationTypeFloorsPlnDay;
   if (!rule || (group != null && !rule.groups.includes(group))
       || rentalDays < rule.minDays || rentalDays > rule.maxDays) return 0;
+  if (kind === "airport" && rentalDays >= 8 && rule.airportMinimumRate8To20PlnDay !== undefined) {
+    return rule.airportMinimumRate8To20PlnDay;
+  }
   return rule.minimumRatesByKind[kind] || 0;
 }
 
