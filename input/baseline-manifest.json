@@ -2,15 +2,15 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-19T10:12:30.355Z",
+  "approved_at": "2026-11-19T10:34:00.213Z",
   "workbook_sha256": "762ed37ea88494304d1780a31b40b61b40072e095cbba8d06069de08aff550d2",
-  "source_filename": "rates-import-ready.xlsx (przebieg 44420248701)",
-  "confirmed": false,
-  "previous_baseline_sha256": "702a225144f936d072a41d72c88844849a468db21beaee61d2b2d90fb25e2691",
+  "source_filename": "rates-import-ready (5).xlsx",
+  "confirmed": true,
+  "previous_baseline_sha256": "762ed37ea88494304d1780a31b40b61b40072e095cbba8d06069de08aff550d2",
   "source_baseline": {
     "status": "user_supplied",
     "workbook_sha256": "762ed37ea88494304d1780a31b40b61b40072e095cbba8d06069de08aff550d2",
-    "source_filename": "rates-import-ready.xlsx (przebieg 44420248701)"
+    "source_filename": "rates-import-ready (5).xlsx"
   },
   "coverage": {
     "sha256": "762ed37ea88494304d1780a31b40b61b40072e095cbba8d06069de08aff550d2",
@@ -401,5 +401,5 @@
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
-  "note": "Plik z przebiegu 44420248701 bez FVMD na GDLO, POLO i WRLO; przywraca decyzje z #17 po wgraniu 19.11 rano starszego pliku z busami. Import do DiscoverCars do potwierdzenia w panelu."
+  "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
