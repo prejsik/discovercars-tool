@@ -2,19 +2,19 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-20T10:55:28.647Z",
-  "workbook_sha256": "e109d3f1e14dd205b76664f05873f964259e685b5ba16ae756f853797e730b47",
-  "source_filename": "rates-import-ready (9).xlsx",
+  "approved_at": "2026-11-20T13:43:10.129Z",
+  "workbook_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26.xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "5aafb5b3416fe8772aa2e705f58c4757ab82473b37813e83a9483fcaacd7c819",
+  "previous_baseline_sha256": "e109d3f1e14dd205b76664f05873f964259e685b5ba16ae756f853797e730b47",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "e109d3f1e14dd205b76664f05873f964259e685b5ba16ae756f853797e730b47",
-    "source_filename": "rates-import-ready (9).xlsx"
+    "workbook_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26.xlsx"
   },
   "coverage": {
-    "sha256": "e109d3f1e14dd205b76664f05873f964259e685b5ba16ae756f853797e730b47",
-    "rowCount": 33334,
+    "sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
+    "rowCount": 33265,
     "groups": [
       "CDMV",
       "CFAV",
