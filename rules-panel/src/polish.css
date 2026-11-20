@@ -1,0 +1,373 @@
+/*
+ * Warstwa wykończenia interfejsu (tylko wygląd). Importowana jako ostatnia.
+ * Nie zmienia struktury, danych ani zachowania: ujednolica typografię, kontrolki,
+ * tabele i stany (hover, focus, disabled) w ramach systemu z DESIGN.md.
+ */
+
+/* 1. Tokeny ------------------------------------------------------------- */
+:root {
+  --line-strong: #cbd0d8;
+  --line-hover: #aeb5c0;
+  /* Ramka pól: kontrast co najmniej 3:1 względem bieli i tła strony (WCAG 1.4.11). */
+  --field-line: #848b98;
+  --field-line-hover: #5b6271;
+  --accent-hover: #1c47b5;
+  --accent-active: #173c99;
+  --accent-soft: #eaf0fd;
+  --surface-hover: #f7f8fa;
+  --focus: var(--accent);
+  --radius: 6px;
+  --radius-lg: 8px;
+  --shadow-raised: 0 1px 2px rgb(20 23 28 / 0.05);
+  --shadow-pop: 0 16px 40px rgb(20 23 28 / 0.16), 0 2px 6px rgb(20 23 28 / 0.06);
+  --warn-bg: #fff4d8;
+  --warn-line: #e8c873;
+  --warn-ink: #5d4100;
+  --danger-line: #b42318;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 2. Typografia: wczytane są tylko grubości 400/500/600 ------------------ */
+h1 { font-size: 24px; font-weight: 600; line-height: 1.25; }
+h2 { font-weight: 600; }
+h3 { font-weight: 600; }
+strong, b { font-weight: 600; }
+dd { font-weight: 500; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+::selection { background: #cfdcfa; color: var(--ink); }
+
+/* 3. Nawigacja boczna ----------------------------------------------------- */
+.brand { border-radius: var(--radius); }
+.brand strong { font-weight: 600; }
+@media (min-width: 901px) {
+  .sidebar { padding: 20px 12px 16px; }
+  .brand { margin: 0 8px 24px; }
+}
+.nav-item {
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: background 0.12s, color 0.12s;
+}
+.nav-item svg { color: var(--muted); transition: color 0.12s; }
+.nav-item:hover { background: var(--bg); color: var(--ink); }
+.nav-item.active svg, .nav-item:hover svg { color: var(--ink); }
+.nav-count {
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+/* 4. Nagłówek strony ------------------------------------------------------ */
+.page-heading { margin-bottom: 20px; }
+.context-line { font-size: 12px; margin: -8px 0 20px; }
+
+/* 5. Przyciski ------------------------------------------------------------ */
+.button {
+  border-color: var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-raised);
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--line-hover); }
+.button:active:not(:disabled) { background: var(--nav-active); box-shadow: none; }
+.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.button.primary:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
+.button:disabled,
+.button.primary:disabled {
+  opacity: 1;
+  background: var(--line-soft);
+  border-color: var(--line);
+  color: var(--muted);
+  box-shadow: none;
+}
+.icon-button { border-radius: var(--radius); transition: background 0.12s, color 0.12s; }
+.icon-button:hover:not(:disabled) { background: var(--nav-active); color: var(--ink); }
+.text-button { font-size: 13px; font-weight: 500; }
+
+/* 6. Pola formularzy: jeden wygląd w całym panelu ------------------------- */
+select:not([multiple]):not([size]),
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+label > textarea,
+.event-form textarea {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  transition: border-color 0.12s;
+}
+select:not([multiple]):not([size]):hover,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+label > textarea:hover { border-color: var(--field-line-hover); }
+select:not([multiple]):not([size]):focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus-visible,
+label > textarea:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+select:not([multiple]):not([size]) {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235B6271' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 16px;
+  text-overflow: ellipsis;
+}
+input[aria-invalid="true"]:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { border-color: var(--danger-line); }
+input:read-only:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="date"]) { background-color: var(--line-soft); color: var(--muted); }
+::placeholder { color: #6b7280; opacity: 1; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+/* Pola osadzone w ramce (szukaj, filtr listy) zachowują jedną wspólną ramkę. */
+.search-control, .filter-control { border-color: var(--field-line); border-radius: var(--radius); transition: border-color 0.12s; }
+.search-control:hover, .filter-control:hover { border-color: var(--field-line-hover); }
+.search-control:focus-within, .filter-control:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: -1px; }
+.search-control input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.filter-control select:not([multiple]):not([size]) {
+  min-height: 0;
+  border: 0;
+  background-color: transparent;
+  outline: none;
+}
+.search-control input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { padding: 9px 0; }
+.filter-control select:not([multiple]):not([size]) { padding: 8px 24px 8px 2px; background-position: right 2px center; }
+
+.market-filters label, .price-filters label, .price-date-filters label,
+.calendar-month label, .event-form label, .filter-label { font-size: 12px; font-weight: 500; color: var(--muted); }
+.field-error { font-size: 12px; }
+
+/* 7. Przełączniki segmentowe i chipy --------------------------------------- */
+.segmented button, .rules-view-switch .button {
+  border-color: var(--line-strong);
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+  transition: background 0.12s, color 0.12s;
+}
+.segmented button + button, .rules-view-switch .button + .button { margin-left: -1px; }
+.segmented button:first-child, .rules-view-switch .button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.segmented button:last-child, .rules-view-switch .button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.segmented button:hover:not([aria-pressed="true"]),
+.rules-view-switch .button:hover:not([aria-pressed="true"]) { background: var(--surface-hover); }
+.segmented button[aria-pressed="true"],
+.rules-view-switch .button[aria-pressed="true"],
+.rules-view-switch .button[aria-pressed="true"]:hover {
+  position: relative;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.duration-chips button, .duration-chips summary {
+  border-color: var(--line-strong);
+  border-radius: var(--radius);
+  transition: background 0.12s, border-color 0.12s;
+}
+.duration-chips button:hover:not([aria-pressed="true"]), .duration-chips summary:hover { background: var(--surface-hover); border-color: var(--line-hover); }
+.duration-chips button[aria-pressed="true"] { border-color: var(--ink); }
+.range-picker > summary, .top-one-locations > summary, .duration-select summary {
+  border-color: var(--field-line);
+  border-radius: var(--radius);
+  transition: border-color 0.12s;
+}
+.range-picker > summary:hover, .top-one-locations > summary:hover, .duration-select summary:hover { border-color: var(--field-line-hover); }
+.range-picker > div, .top-one-options, .duration-select fieldset, .duration-chips details > div {
+  border-color: var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  margin-top: 4px;
+}
+
+/* 8. Zakładki --------------------------------------------------------------- */
+.view-tabs { gap: 4px 24px; }
+.view-tabs button { font-size: 13px; font-weight: 500; margin-bottom: -1px; transition: color 0.12s, border-color 0.12s; }
+.view-tabs button:hover { color: var(--ink); }
+.view-tabs button:focus-visible { outline-offset: -2px; }
+.view-tabs [aria-selected="true"] { font-weight: 600; }
+.market-toolbar { border-bottom: 1px solid var(--line); gap: 0 16px; }
+.market-toolbar .view-tabs { border-bottom: 0; }
+
+/* 9. Tabele ----------------------------------------------------------------- */
+.table-head, .group-head, .diff-head { font-size: 12px; font-weight: 500; color: var(--muted); background: #eceef2; }
+.prices-table th, .attention-table th, .diagnostic-table th, .location-directory th,
+.location-onboarding-table th, .markup-table th, .baseline-table-scroll th,
+.change-review-table thead th, .history-diff th, .dashboard-urgent thead th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+/* Nagłówek nad liczbami stoi po tej samej stronie co liczby. */
+.prices-table th:not(:first-child) { text-align: right; }
+@media (min-width: 761px) {
+  .prices-table th { padding-inline: 6px; }
+  .prices-view .price-filters label { flex: 0 1 280px; }
+}
+.prices-table tbody tr:not(.decision-row),
+.location-directory tbody tr, .attention-table tbody tr,
+.diagnostic-table tbody tr, .dashboard-urgent tbody tr { transition: background 0.12s; }
+.prices-table tbody tr:not(.decision-row):hover,
+.location-directory tbody tr:hover, .attention-table tbody tr:hover,
+.diagnostic-table tbody tr:hover, .dashboard-urgent tbody tr:hover { background: rgb(255 255 255 / 0.7); }
+.prices-table small { color: var(--muted); }
+.location-directory th, .location-directory td { font-size: 13px; }
+
+/* 10. Lista reguł ------------------------------------------------------------ */
+.rule-table, .group-table { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.rule-table > :last-child, .rule-table > :last-child > :last-child, .group-table > :last-child { border-bottom: 0; }
+.switch-label input:checked + .switch-track { background: var(--accent); }
+.switch-label input:focus-visible + .switch-track { outline: 2px solid var(--focus); outline-offset: 2px; }
+.rule-row:hover { background: var(--surface-hover); }
+.rule-family[open] > summary { background: var(--bg); }
+.rule-title { font-size: 14px; font-weight: 600; }
+.rule-scope { font-size: 13px; }
+.rule-groups { font-size: 12px; color: var(--muted); }
+.rate-cell strong { font-weight: 600; }
+.rate-cell > span { font-size: 12px; }
+.duration-cell, .dates-cell { font-size: 13px; }
+.exception-label, .status-label, .subordinate-floor { font-size: 12px; }
+.draft-tag { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.family-bands { font-size: 13px; }
+.table-caption, .footnote, .section-title > span, .field-detail, .matrix-selection,
+.dialog-header p, .rule-summary > span, .history-list li > div > span,
+.source-list small, .preview-disclaimer, .editor-scope span { font-size: 12px; }
+.badge { padding: 3px 8px; font-size: 11px; font-weight: 500; }
+.code { padding: 1px 6px; border-radius: 4px; color: var(--ink-2); }
+.hash { font-family: var(--font-mono); font-size: 12px; }
+
+/* 11. Pulpit ----------------------------------------------------------------- */
+.dashboard-status { gap: 0; padding: 16px 0; }
+.dashboard-status > div { padding: 0 20px; border-left: 1px solid var(--line); }
+.dashboard-status > div:first-child { padding-left: 0; border-left: 0; }
+.dashboard-status strong { font-weight: 600; }
+.dashboard-status .text-button {
+  min-height: 24px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.dashboard-heading h2 { font-size: 20px; }
+.dashboard-metrics { grid-template-rows: repeat(4, auto); }
+.dashboard-metric {
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  row-gap: 6px;
+  border-color: var(--line);
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.dashboard-metric > span:first-child { min-height: 0; font-weight: 500; color: var(--ink-2); }
+.dashboard-metric > strong { font-size: 30px; line-height: 1.15; font-weight: 600; }
+.dashboard-metric .metric-bars { margin-top: 8px; }
+.dashboard-metric .metric-bars i { border-radius: 1px 1px 0 0; }
+.dashboard-metric:hover { border-color: var(--ink); }
+
+/* 12. Mapa i macierz cen ------------------------------------------------------ */
+.attention-map .map-cell { border-radius: 4px; transition: box-shadow 0.1s; }
+.attention-map button.map-cell:hover { box-shadow: inset 0 0 0 2px var(--ink); }
+.attention-map button:focus-visible, .band-matrix .band-cell:focus-visible { outline-offset: -2px; }
+.attention-map th:first-child button:hover .map-branch-name { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.attention-map small { font-size: 11px; }
+.band-matrix .band-cell { border-radius: 4px; transition: background 0.1s, border-color 0.1s; }
+.band-matrix .band-cell:hover { background: var(--accent-soft); border-color: #bacded; }
+.band-unavailable { font-size: 10px; }
+.branch-header > p { font-size: 12px; }
+.band-detail[open] { border-color: var(--line); border-radius: var(--radius-lg); }
+.band-key-rates dd { text-align: left; font-weight: 600; }
+.market-detail[open] { box-shadow: var(--shadow-pop); }
+
+/* 13. Kalendarze --------------------------------------------------------------- */
+.calendar-week span:nth-last-child(-n + 2) { background: var(--nav-active); border-radius: 4px; }
+.market-calendar-grid::before { background: var(--nav-active); border-radius: var(--radius); }
+.market-calendar-grid .market-day { border-radius: var(--radius); transition: border-color 0.12s; }
+.market-calendar-grid .outside-report { border: 1px solid var(--line); }
+.calendar-day { border-radius: var(--radius); transition: background 0.12s, border-color 0.12s; }
+.calendar-day:hover { background: var(--accent-soft); border-color: #bacded; }
+.calendar-day[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.calendar-month .icon-button { color: var(--ink-2); }
+
+/* 14. Okna, komunikaty, puste stany ---------------------------------------------- */
+.editor-dialog { border-color: var(--line); border-radius: 10px; box-shadow: var(--shadow-pop); }
+.editor-dialog::backdrop { background: rgb(20 23 28 / 0.45); }
+.dialog-header h2 { font-size: 18px; }
+.dialog-footer { background: var(--bg); }
+.scope-options .checkbox-label { border-radius: 4px; padding-inline: 6px; }
+.scope-options .checkbox-label:hover { background: var(--bg); }
+.checkbox-label, .switch-label, .readonly-field, .editor-scope, .reason-list li,
+.result-facts > div, .diff-head, .diff-row, .group-row, .warning-list { font-size: 13px; }
+.alert, .notice, .info-line { font-size: 13px; border-radius: var(--radius); }
+.alert { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.alert.error { background: #fdf0f1; border-color: #edc4c9; color: #8e2230; }
+.alert .button { margin-left: 12px; }
+.empty-state { border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.empty-state h2 { font-weight: 600; }
+.supplementary-rules > summary, .technical-details > summary { transition: color 0.12s; }
+.supplementary-rules > summary:hover, .technical-details > summary:hover { color: var(--ink); }
+.boot { min-height: 100vh; align-content: center; }
+.boot svg { color: var(--muted); }
+.baseline-drop { border-color: var(--field-line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.12s, background 0.12s; }
+.baseline-drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+/* 15. Dane źródłowe: etykieta i wartość obok siebie ------------------------------- */
+.source-list dd { text-align: left; }
+.source-list > div { font-size: 13px; }
+
+/* 16. Telefon --------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .page-heading h1 { font-size: 22px; }
+}
+@media (max-width: 1100px) {
+  .dashboard-status { row-gap: 16px; }
+  .dashboard-status > div:nth-child(odd) { padding-left: 0; border-left: 0; }
+}
+@media (max-width: 760px) {
+  select:not([multiple]):not([size]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { min-height: 44px; }
+  .search-control input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  .filter-control select:not([multiple]):not([size]) { min-height: 0; }
+  /* Zakładki w jednym wierszu, przewijane palcem, zamiast osieroconej drugiej linii. */
+  .view-tabs {
+    flex-wrap: nowrap;
+    gap: 20px;
+    min-width: 0;
+    max-width: 100%;
+    padding-right: 24px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .view-tabs::-webkit-scrollbar { display: none; }
+  .view-tabs button { flex: none; margin-bottom: 0; white-space: nowrap; }
+  .market-toolbar { min-width: 0; border-bottom: 0; }
+  .market-toolbar .view-tabs { flex: 1 1 100%; border-bottom: 1px solid var(--line); }
+  .scope-tools .button { padding-inline: 10px; font-size: 12px; }
+  .sidebar .nav-item { font-size: 11px; font-weight: 500; line-height: 1.2; }
+  .sidebar .nav-item.active { font-weight: 600; }
+  .sidebar .nav-count { font-size: 11px; line-height: 16px; padding: 0 5px; max-width: 44px; }
+  .dashboard-status > div { padding-right: 12px; }
+  .dashboard-status > div:nth-child(even) { padding-left: 12px; }
+  .dashboard-metric > strong { font-size: 26px; }
+  .footnote, .rule-summary > span, .history-list li > div > span { font-size: 12px; }
+}
