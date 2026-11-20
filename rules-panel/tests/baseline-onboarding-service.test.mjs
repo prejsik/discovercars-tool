@@ -12,7 +12,7 @@ function workbook(zones) {
     '[Content_Types].xml':'<Types><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
     'xl/workbook.xml':'<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" r:id="rId1"/></sheets></workbook>',
     'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>',
-    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${row(2,['Min days','','','','Date format:','','','',1,2,3,5,8,21])}${row(3,['Max days','','','','dd-MM-yy','','','',1,2,4,7,20,35])}${row(4,headers)}${zones.map((zone,i)=>row(i+5,['CDMV','','',zone,'01-01-26','31-12-27','31-10-26','31-12-27',500,500,500,500,500,500])).join('')}</sheetData></worksheet>`,
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${row(2,['Min days','','','','Date format:','','','',1,2,3,5,8,21])}${row(3,['Max days','','','','dd-MM-yy','','','',1,2,4,7,20,35])}${row(4,headers)}${zones.map((entry,i)=>row(i+5,[...(Array.isArray(entry)?[entry[0],'','',entry[1]]:['CDMV','','',entry]),'01-01-26','31-12-27','31-10-26','31-12-27',500,500,500,500,500,500])).join('')}</sheetData></worksheet>`,
   }).map(([name, value]) => [name, strToU8(value)])));
 }
 
@@ -124,4 +124,38 @@ test('a manually checked non-daily point works when the registry has no daily pr
   assert.equal(result.onboarding.ready, true);
   assert.equal(result.onboarding.addedLocations[0].daily, false);
   assert.equal(ctx.writes.length, 0);
+});
+
+test('removing a class from a location requires confirming exactly the removed pairs', async () => {
+  const ctx = await setup();
+  ctx.snapshot.documents.excel.apply_groups = ['CDMV', 'FVMD'];
+  ctx.snapshot.documents.locations.locations.push({ id: 'krakow', scraper_label: 'Krakow Airport (KRK)', city: 'Krakow', kind: 'airport', zones: ['KRLO'], discovercars: { place_id: 200 } });
+  const previousBytes = workbook([['CDMV', 'WALO'], ['CDMV', 'KRLO'], ['FVMD', 'WALO'], ['FVMD', 'KRLO']]);
+  const previous = await inspectBaseline(previousBytes, ctx.snapshot.documents);
+  ctx.snapshot.baseline.sha256 = previous.sha256;
+  ctx.repository.baselineBytes = async () => previousBytes;
+  const input = { ...ctx.input, content: Buffer.from(workbook([['CDMV', 'WALO'], ['CDMV', 'KRLO'], ['FVMD', 'WALO']])).toString('base64') };
+  const check = await processBaseline({ ...ctx, input, actor: 'director@example.com' });
+  assert.deepEqual(check.removedPairs, ['FVMD/KRLO']);
+  const approved = { ...input, sourceRevision: check.sourceRevision, previousSha256: check.previousSha256, checkedSha256: check.summary.sha256 };
+  for (const acceptedRemovedPairs of [undefined, [], ['FVMD/WALO'], ['FVMD/KRLO', 'CDMV/KRLO'], 'FVMD/KRLO']) {
+    await assert.rejects(processBaseline({ ...ctx, input: { ...approved, acceptedRemovedPairs }, publish: true, actor: 'director@example.com' }),
+      error => error.status === 422 && /FVMD\/KRLO/.test(error.message));
+  }
+  assert.equal(ctx.writes.length, 0);
+  await processBaseline({ ...ctx, input: { ...approved, acceptedRemovedPairs: ['FVMD/KRLO'] }, publish: true, actor: 'director@example.com' });
+  assert.equal(ctx.writes.length, 1);
+  assert.deepEqual(ctx.writes[0].removedPairs, ['FVMD/KRLO']);
+  const audit = await ctx.storage.get(`baseline-audit:${'b'.repeat(40)}`);
+  assert.deepEqual(audit.removedPairs, ['FVMD/KRLO']);
+});
+
+test('unchanged coverage reports no removed pairs and publishes without confirmation', async () => {
+  const ctx = await setup();
+  const input = { ...ctx.input, content: Buffer.from(workbook(['WALO', 'WALO'])).toString('base64') };
+  const check = await processBaseline({ ...ctx, input });
+  assert.deepEqual(check.removedPairs, []);
+  await processBaseline({ ...ctx, publish: true, input: { ...input, sourceRevision: check.sourceRevision,
+    previousSha256: check.previousSha256, checkedSha256: check.summary.sha256 } });
+  assert.deepEqual(ctx.writes[0].removedPairs, []);
 });

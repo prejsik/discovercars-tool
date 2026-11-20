@@ -172,7 +172,17 @@ export async function inspectBaseline(bytes, documents, { allowUnknownZones = fa
     ...(allowUnknownZones === true ? { unknownZones: [...zones].filter(zone => !expectedZones.includes(zone)).sort() } : {}) };
 }
 
-export function compareBaselineCoverage(next, previous) {
-  const missing = previous.pairs.filter(pair => !next.pairs.includes(pair));
-  if (missing.length) fail(`W porownaniu z obecna baza brakuje: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ` oraz ${missing.length - 12} kolejnych` : ''}.`);
+export const removedBaselinePairs = (next, previous) => previous.pairs.filter(pair => !next.pairs.includes(pair)).sort();
+
+const missingMessage = missing => `W porownaniu z obecna baza brakuje: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ` oraz ${missing.length - 12} kolejnych` : ''}.`;
+
+// A pair (class/location) may leave the baseline only when the director confirmed exactly this list.
+export function compareBaselineCoverage(next, previous, acceptedRemovedPairs) {
+  const missing = removedBaselinePairs(next, previous);
+  if (!missing.length) return [];
+  const accepted = Array.isArray(acceptedRemovedPairs) && acceptedRemovedPairs.every(pair => typeof pair === 'string')
+    ? [...new Set(acceptedRemovedPairs)].sort() : null;
+  if (accepted?.length === missing.length && accepted.every((pair, index) => pair === missing[index])) return missing;
+  if (accepted?.length) fail(`Lista potwierdzonych usuniec nie zgadza sie z plikiem. ${missingMessage(missing)} Sprawdz plik ponownie.`);
+  fail(missingMessage(missing));
 }
