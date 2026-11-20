@@ -24,6 +24,14 @@ Active navigation is gray; tabs use an underline; segments use a dark selection.
 Each surface has one primary action. Repeated metric items may have a 6px radius;
 sections remain unframed with hairline separators.
 
+## Finish layer
+`src/polish.css` is imported last and carries presentation only. Loaded weights are
+400/500/600, so no intermediate weights. Text is at least 12px (11px inside dense
+grids). Fields share one 40px control (44px on phones) with a 3:1 border, a drawn
+chevron and an accent focus edge; buttons use the single `--accent` blue. Numeric
+headers align with their numbers. Rule and class lists sit in one 8px-radius sheet.
+On phones, tabs stay on one scrollable row.
+
 ## Price language
 The source gap is competitor minus MM; presentation is always MM minus competitor.
 Positive is MM more expensive, negative cheaper. Preserve the actual sign even

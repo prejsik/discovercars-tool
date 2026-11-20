@@ -85,6 +85,7 @@ import {
   withDraftLock,
   DRAFT_KEY,
 } from "./draft.mjs";
+import "./polish.css";
 
 const money = (value) =>
   new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(value);
