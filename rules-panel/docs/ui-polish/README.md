@@ -39,3 +39,11 @@ Dane na zrzutach są testowe (te same, których używają testy), nie produkcyjn
 | Stawki w Excelu | [1440 px](06-stawki-excel-1440.png) |
 | Zasady cenowe | [1440 px](07-zasady-1440.png) · [390 px](07-zasady-390.png) |
 | Nowa reguła | [1440 px](10-nowa-regula-1440.png) |
+
+## Raport HTML (osobna zmiana)
+
+Dzienny raport (`src/reportHtml.js`) dostał poprawki samego bloku stylów: linie tylko poziome w tabelach, jednakowe pola filtrów z rysowaną strzałką, zaokrąglone tabele i karty na telefonie. Ciemny motyw, czcionka, kolory oznaczeń, wysokość wiersza (28 px) i struktura HTML zostają bez zmian.
+
+| Widok | Zestawienie |
+|---|---|
+| Raport | [1440 px](20-raport-1440.png) · [390 px](20-raport-390.png) |

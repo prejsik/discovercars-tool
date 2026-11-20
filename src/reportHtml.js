@@ -571,6 +571,9 @@ function buildHtmlReport(payload, options = {}) {
       --panel: #121820;
       --panel-raised: #18212b;
       --line: #34404d;
+      --line-soft: #252e39;
+      --control-line: #4a5665;
+      --radius: 6px;
       --text: #edf2f7;
       --muted: #a9b4c0;
       --focus: #79b8ff;
@@ -603,14 +606,21 @@ function buildHtmlReport(payload, options = {}) {
       background: var(--bg);
       color: var(--text);
       font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
       padding: 24px;
       font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
     }
+
+    ::selection { background: #2f5fb8; color: #ffffff; }
 
     h1 {
       margin: 0 0 6px;
-      font-size: 24px;
-      font-weight: 700;
+      font-size: 22px;
+      font-weight: 650;
+      line-height: 1.25;
+      letter-spacing: -0.01em;
     }
 
     .meta {
@@ -623,7 +633,7 @@ function buildHtmlReport(payload, options = {}) {
     .legend-panel {
       margin: 0 0 14px;
       border: 1px solid var(--line);
-      border-radius: 4px;
+      border-radius: var(--radius);
       background: var(--panel);
     }
 
@@ -650,10 +660,10 @@ function buildHtmlReport(payload, options = {}) {
       gap: 10px;
       align-items: end;
       margin: 0 0 18px;
-      padding: 12px;
+      padding: 12px 14px;
       border: 1px solid var(--line);
-      border-radius: 4px;
-      background: rgba(12, 16, 21, 0.94);
+      border-radius: 8px;
+      background: rgba(18, 24, 32, 0.94);
       position: sticky;
       top: 0;
       z-index: 15;
@@ -665,27 +675,40 @@ function buildHtmlReport(payload, options = {}) {
       display: block;
       margin-top: 4px;
       min-height: 36px;
-      border: 1px solid #596273;
-      border-radius: 4px;
-      background: var(--panel);
+      border: 1px solid var(--control-line);
+      border-radius: var(--radius);
+      background: var(--bg);
       color: var(--text);
-      padding: 6px 8px;
+      padding: 6px 10px;
+      font: inherit;
+      font-size: 13px;
+      transition: border-color 120ms;
+    }
+    .toolbar select:hover, .toolbar input[type="date"]:hover, .multi-filter > summary:hover { border-color: #7b8797; }
+    .toolbar select {
+      appearance: none;
+      padding-right: 30px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a9b4c0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 16px;
     }
 
     button {
       min-height: 36px;
-      border: 1px solid #667284;
-      border-radius: 4px;
+      border: 1px solid var(--control-line);
+      border-radius: var(--radius);
       background: var(--panel-raised);
       color: var(--text);
       padding: 7px 12px;
       font: inherit;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
+      transition: background 120ms, border-color 120ms;
     }
 
-    button:hover { background: #243140; }
+    button:hover { background: #243140; border-color: #7b8797; }
     button:disabled { cursor: default; opacity: 0.55; }
 
     :focus-visible {
@@ -703,8 +726,17 @@ function buildHtmlReport(payload, options = {}) {
       line-height: 22px;
     }
     .multi-filter > summary::-webkit-details-marker { display: none; }
-    .multi-filter > summary::after { content: "▾"; float: right; margin-left: 12px; }
-    .multi-filter[open] > summary::after { content: "▴"; }
+    .multi-filter > summary::after {
+      content: "";
+      float: right;
+      width: 6px;
+      height: 6px;
+      margin: 6px 3px 0 14px;
+      border-right: 1.5px solid var(--muted);
+      border-bottom: 1.5px solid var(--muted);
+      transform: rotate(45deg);
+    }
+    .multi-filter[open] > summary::after { margin-top: 10px; transform: rotate(-135deg); }
     .multi-options {
       position: absolute;
       z-index: 20;
@@ -714,19 +746,20 @@ function buildHtmlReport(payload, options = {}) {
       max-width: 340px;
       max-height: 280px;
       overflow-y: auto;
-      border: 1px solid #596273;
-      border-radius: 4px;
+      border: 1px solid var(--control-line);
+      border-radius: 8px;
       background: var(--panel);
-      box-shadow: 0 8px 20px #00000066;
+      box-shadow: 0 12px 28px #00000080;
       padding: 6px;
     }
     .multi-option {
       display: flex;
       align-items: flex-start;
       gap: 8px;
-      padding: 7px 6px;
+      padding: 7px 8px;
+      border-radius: 4px;
       color: var(--text);
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
     }
     .multi-option:hover { background: #242b35; }
@@ -824,16 +857,19 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     h2 {
-      margin: 0 0 4px;
-      font-size: 16px;
-      font-weight: 700;
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 650;
     }
 
     table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       background: var(--panel);
       border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
       table-layout: fixed;
     }
 
@@ -846,8 +882,9 @@ function buildHtmlReport(payload, options = {}) {
     col.col-count { width: 11%; }
 
     th, td {
-      border: 1px solid var(--line);
-      padding: 6px 7px;
+      border: 0;
+      border-bottom: 1px solid var(--line-soft);
+      padding: 6px 9px;
       text-align: left;
       white-space: normal;
       vertical-align: middle;
@@ -856,17 +893,20 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     th {
-      color: var(--text);
-      font-weight: 700;
+      color: var(--muted);
+      font-weight: 600;
       background: #171e27;
+      border-bottom-color: var(--line);
       font-size: 11px;
     }
 
     td {
       color: var(--text);
-      font-weight: 500;
+      font-weight: 400;
       font-size: 12px;
     }
+
+    tbody tr:last-child td { border-bottom: 0; }
 
     tbody tr:hover td:not(.view-cell) { background-color: #18212b; }
 
@@ -877,7 +917,7 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     .view-cell { padding: 0; }
-    .offer-view { display: block; padding: 6px 7px; min-height: 100%; }
+    .offer-view { display: block; padding: 6px 9px; min-height: 100%; }
     .offer-view-automatic { display: none; }
     body[data-offer-view="automatic"] .offer-view-all { display: none; }
     body[data-offer-view="automatic"] .offer-view-automatic { display: block; }
@@ -889,8 +929,8 @@ function buildHtmlReport(payload, options = {}) {
     }
 
     td.location {
-      color: #d7e2ee;
-      font-weight: 650;
+      color: var(--text);
+      font-weight: 600;
     }
 
     .mm {
@@ -935,8 +975,9 @@ function buildHtmlReport(payload, options = {}) {
     .empty-state {
       margin: 24px 0;
       padding: 24px;
-      border: 1px dashed #596273;
-      border-radius: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
       color: var(--muted);
       text-align: center;
     }
@@ -970,10 +1011,10 @@ function buildHtmlReport(payload, options = {}) {
       .results-status { margin-top: 0; }
       .scenario { margin-bottom: 26px; contain-intrinsic-block-size: auto calc(42px + var(--scenario-row-count) * 288px); }
       table, tbody, tr, td { display: block; width: 100%; }
-      table { border: 0; background: transparent; }
+      table { border: 0; border-radius: 0; background: transparent; overflow: visible; }
       colgroup, thead { display: none; }
       tbody { display: grid; gap: 10px; }
-      tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(105px, 36%); border: 1px solid var(--line); background: var(--panel); }
+      tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(105px, 36%); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
       td, td.index,
       td:nth-child(4), td:nth-child(6), td:nth-child(8), td:nth-child(9), td:nth-child(10), td:nth-child(11) {
         display: block;
