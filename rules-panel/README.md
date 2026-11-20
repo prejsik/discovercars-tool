@@ -151,6 +151,16 @@ w DiscoverCars, usuniete dotychczasowe dane albo konflikt wersji nie publikuja
 zadnej czesci zmiany. W jednym pliku mozna skonfigurowac do 12 nowych symboli.
 Wyszukiwarka obsluguje konkretne punkty w Polsce, bez pozycji `all locations`.
 
+## Usuniecie klasy z lokalizacji
+
+Nowa baza nie moze po cichu zgubic pary klasa/lokalizacja (np. `FVMD/GDLO`)
+obecnej w dotychczasowej bazie. Kontrola pliku pokazuje liste takich par,
+a `Ustaw jako baze` wymaga osobnego potwierdzenia, ze tych klas nie oferujemy
+juz w tych lokalizacjach. Serwer zapisuje baze tylko wtedy, gdy potwierdzona
+lista jest identyczna z wyliczona z pliku; inaczej zwraca dotychczasowy blad.
+Usuniete pary trafiaja do manifestu (`removed_pairs`) i audytu panelu. Cala
+klasa ani caly kod strefy nie moga zniknac z bazy ta droga.
+
 ## Prywatnosc i publikacja
 
 Repozytorium `prejsik/discovercars-tool` jest publiczne. Szkice, uzasadnienia,

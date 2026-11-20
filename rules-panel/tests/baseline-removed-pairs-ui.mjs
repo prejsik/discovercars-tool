@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';import {mkdir} from 'node:fs/promises';import {fileURLToPath} from 'node:url';import {chromium} from '../../node_modules/playwright/index.mjs';
+const origin=process.env.PANEL_URL??'http://127.0.0.1:4317';const browser=await chromium.launch();
+const dir=new URL('../docs/baseline-removed-pairs/',import.meta.url);await mkdir(dir,{recursive:true});
+const removedPairs=['FVMD/GDLO','FVMD/POLO','FVMD/WRLO'];
+try{for(const width of [1440,390]){
+ const context=await browser.newContext({viewport:{width,height:width===1440?1000:844}}),page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const snapshot=await(await page.request.get(`${origin}/policy-snapshot.json`)).json();
+ const summary={...snapshot.baseline.coverage,sha256:'b'.repeat(64),rowCount:snapshot.baseline.coverage.rowCount-78};
+ const sha='c'.repeat(64),workspace={snapshot,draft:null,history:[],capabilities:{sharedDraft:true,publish:true},status:{excel:{runId:'123',sourceStartedAt:'2026-11-20T00:34:00Z',generatedAt:'2026-11-20T01:00:00Z',files:{'rates-import-ready.xlsx':sha}},links:{import:'/import.xlsx'}}};
+ await page.route('**/api/workspace',r=>r.fulfill({json:workspace}));const published=[];
+ await page.route('**/api/baseline/check',r=>r.fulfill({json:{summary,sourceRevision:'source',previousSha256:'old',removedPairs}}));
+ await page.route('**/api/baseline/publish',r=>{published.push(r.request().postDataJSON());return r.fulfill({json:{revision:'saved'}});});
+ await page.route('**/api/report-baseline/check',r=>r.fulfill({json:{summary,sourceRevision:'source',previousSha256:'old',removedPairs:[]}}));
+ await page.goto(`${origin}/?view=baseline`);await page.getByRole('heading',{name:'Podmień bazę'}).waitFor();
+ const report=page.locator('.report-baseline');await report.getByRole('button',{name:'Sprawdź plik z ostatniego przebiegu'}).click();await report.getByRole('region',{name:'Nowa baza a obecna'}).waitFor();
+ assert.equal(await report.getByRole('region',{name:'Pary usuwane z bazy'}).count(),0,'no removal notice without removed pairs');
+ await report.getByRole('button',{name:'Anuluj'}).click();
+ await page.getByLabel('Nowy plik bazowy').setInputFiles(fileURLToPath(new URL('../../input/mm-cars-rental-rates-inclusive-fp.xlsx',import.meta.url)));
+ await page.locator('.baseline-option:not(.report-baseline)').getByRole('button',{name:'Sprawdź plik'}).click();
+ const notice=page.getByRole('region',{name:'Pary usuwane z bazy'});await notice.waitFor();
+ const text=await notice.innerText();assert.match(text,/3 par/);for(const pair of removedPairs)assert.match(text,new RegExp(pair.replace('/',' · ')));
+ const publish=page.getByRole('button',{name:'Ustaw jako bazę'});assert.equal(await publish.isDisabled(),true,'publish blocked before removal confirmation');
+ await notice.scrollIntoViewIfNeeded();await page.screenshot({path:fileURLToPath(new URL(`removed-pairs-${width}.png`,dir))});
+ await notice.getByRole('checkbox').check();assert.equal(await publish.isDisabled(),false);
+ const box=await notice.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width+1,JSON.stringify(box));
+ await publish.click();await page.getByText('Nowa baza zapisana na GitHubie').waitFor();
+ assert.equal(published.length,1);assert.deepEqual(published[0].acceptedRemovedPairs,removedPairs);
+ assert.deepEqual(errors,[]);await context.close();
+}}finally{await browser.close();}
+console.log('baseline removed pairs UI ok');

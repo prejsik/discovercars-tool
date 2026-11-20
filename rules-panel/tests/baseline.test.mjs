@@ -31,6 +31,9 @@ test('valid workbook produces scope and accepts unchanged complete coverage', as
   assert.equal(summary.rowCount,2); assert.equal(summary.firstDate,'2026-10-16');
   compareBaselineCoverage(summary,summary);
   assert.throws(()=>compareBaselineCoverage(summary,{pairs:['CDMV/WA2']}),/CDMV\/WA2/);
+  assert.deepEqual(compareBaselineCoverage(summary,{pairs:['CDMV/WA2',...summary.pairs]},['CDMV/WA2']),['CDMV/WA2']);
+  assert.throws(()=>compareBaselineCoverage(summary,{pairs:['CDMV/WA2','FVMD/WA2']},['CDMV/WA2']),/nie zgadza sie/);
+  assert.throws(()=>compareBaselineCoverage(summary,{pairs:['CDMV/WA2']},['CDMV/WA2','FVMD/WA2']),/nie zgadza sie/);
 });
 for (const [name,edit] of [
   ['wrong headers',text=>text.replace('>Zone<','>Location<')],
@@ -89,7 +92,20 @@ test('baseline publication writes only original binary and its matching manifest
   const tree=calls.find(call=>call.path==='/git/trees').body.tree;
   assert.deepEqual(tree.map(file=>file.path),['input/mm-cars-rental-rates-inclusive-fp.xlsx','input/baseline-manifest.json']);
   assert.equal(JSON.parse(tree[1].content).workbook_sha256,'a'.repeat(64));
+  assert.equal(Object.hasOwn(JSON.parse(tree[1].content),'removed_pairs'),false);
   assert.equal(calls.at(-1).body.force,false);
+});
+
+test('confirmed pair removal is recorded in the published manifest',async()=>{
+  const calls=[];
+  const repository=new GitHubRepository({}, {api:async(path,options={})=>{
+    calls.push({path,...options});
+    if(path.startsWith('/git/commits/')&&!options.method)return {tree:{sha:'old-tree'}};
+    return path==='/git/commits'?{sha:'b'.repeat(40)}:{sha:'x'};
+  }});
+  await repository.publishBaseline({input:{content:'ORIGINAL_BYTES',filename:'rates.xlsx',importConfirmed:true},summary:{sha256:'a'.repeat(64)},snapshot:{source:{revision:'c'.repeat(40)},baseline:{sha256:'d'.repeat(64)}},approvedAt:'2026-11-20T15:00:00Z',removedPairs:['FVMD/GDLO','FVMD/POLO']});
+  const manifest=JSON.parse(calls.find(call=>call.path==='/git/trees').body.tree[1].content);
+  assert.deepEqual(manifest.removed_pairs,['FVMD/GDLO','FVMD/POLO']);
 });
 
 test('location onboarding publishes baseline, registry and frozen markup with one main update', async () => {

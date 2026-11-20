@@ -1,4 +1,4 @@
-import { decodeBaseline, inspectBaseline, compareBaselineCoverage } from './baseline.mjs';
+import { decodeBaseline, inspectBaseline, compareBaselineCoverage, removedBaselinePairs } from './baseline.mjs';
 import { prepareLocationAdditions, MAX_LOCATION_ADDITIONS } from './location-onboarding.mjs';
 import { searchDiscovercarsLocations } from './location-search.mjs';
 import { hashJson, PanelError } from './workspace-service.mjs';
@@ -105,15 +105,17 @@ export async function processBaseline({ repository, storage, input, actor, publi
     if (previous.sha256 !== snapshot.baseline.sha256) reject(409, 'Obecna baza nie zgadza sie z manifestem.');
     await storage.put(cacheKey, previous);
   }
-  compareBaselineCoverage(summary, previous);
   if (!publish) return { summary, sourceRevision: snapshot.source.revision, previousSha256: snapshot.baseline.sha256,
+    removedPairs: removedBaselinePairs(summary, previous),
     ...(onboardingInfo ? { onboarding: onboardingInfo, onboardingHash } : {}) };
+  const removedPairs = compareBaselineCoverage(summary, previous, input.acceptedRemovedPairs);
   if (onboardingInfo && !onboardingInfo.ready) reject(422, 'Uzupelnij nowe lokalizacje. Dotychczasowa konfiguracja pozostaje aktywna.');
   const approvedAt = clock().toISOString();
-  const receipt = await repository.publishBaseline({ input, summary, snapshot, approvedAt, onboarding });
+  const receipt = await repository.publishBaseline({ input, summary, snapshot, approvedAt, onboarding, removedPairs });
   try {
     await storage.put(`baseline-coverage:${summary.sha256}`, summary);
     await storage.put(`baseline-audit:${receipt.revision}`, { ...receipt, actor, approvedAt, filename: input.filename,
+      ...(removedPairs.length ? { removedPairs } : {}),
       ...(onboardingInfo ? { locations: onboardingInfo.addedLocations } : {}) });
   } catch { console.warn(JSON.stringify({ event: 'baseline_audit_storage_failed', revision: receipt.revision })); }
   return receipt;

@@ -166,7 +166,7 @@ export class GitHubRepository {
     return (await this.reportEvidence(record, 'report'))['report.html'];
   }
 
-  async publishBaseline({ input, summary, snapshot, approvedAt, onboarding }) {
+  async publishBaseline({ input, summary, snapshot, approvedAt, onboarding, removedPairs = [] }) {
     const parent = await this.api(`/git/commits/${snapshot.source.revision}`);
     const blob = await this.api('/git/blobs', { method: 'POST', body: { content: input.content, encoding: 'base64' } });
     const manifest = { schema_version: 1, status: 'user_approved_baseline', approved_by: 'user', approved_at: approvedAt,
@@ -174,6 +174,7 @@ export class GitHubRepository {
       previous_baseline_sha256: snapshot.baseline.sha256,
       source_baseline: { status: 'user_supplied', workbook_sha256: summary.sha256, source_filename: input.filename },
       coverage: summary,
+      ...(removedPairs.length ? { removed_pairs: removedPairs } : {}),
       ...(onboarding ? { location_onboarding: onboarding.additions.map(item => Object.fromEntries(
         ['zone', 'existingLocationId', 'placeId', 'markupSourceZone', 'daily'].filter(key => Object.hasOwn(item, key)).map(key => [key, item[key]]))), onboarding_hash: onboarding.hash,
         onboarding_request_hash: onboarding.requestHash } : {}),

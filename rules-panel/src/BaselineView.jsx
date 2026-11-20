@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, FileCheck2, CheckCheck } from 'lucide-react';
 import {baselineRange} from './baseline-presentation.mjs';
-import {BaselineComparison} from './BaselineComparison.jsx';
+import {BaselineComparison,RemovedPairs} from './BaselineComparison.jsx';
 import {ReportBaseline} from './ReportBaseline.jsx';
 import {LocationDirectory} from './LocationDirectory.jsx';
 import { timestamp } from './display.mjs';
@@ -13,6 +13,7 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
   const [onboarding, setOnboarding] = useState(null);
   const [additions, setAdditions] = useState({});
   const [confirmed, setConfirmed] = useState(false);
+  const [removalConfirmed, setRemovalConfirmed] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [published, setPublished] = useState(null);
@@ -23,6 +24,8 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
   const configured = hasNewZones && assignments.every(Boolean);
   const checked = check?.version === selection.current ? check.result : null;
   const ready = Boolean(checked && (!hasNewZones || (checked.onboarding?.ready === true && checked.onboardingHash)));
+  const removedPairs = checked?.removedPairs ?? [];
+  const removalReady = !removedPairs.length || removalConfirmed;
   const configure = (zone, assignment) => {
     selection.current++;
     setCheck(null); setError(''); setPublished(null);
@@ -31,7 +34,7 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
   };
   const choose = async event => {
     const version = ++selection.current;
-    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(false);
+    setCheck(null); setFile(null); setError(''); setPublished(null); setConfirmed(false); setRemovalConfirmed(false);
     setOnboarding(null); setAdditions({}); setBusy('');
     const selected = event.target.files?.[0];
     if (event.target instanceof HTMLInputElement) event.target.value = '';
@@ -49,7 +52,7 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
     if (!file || busy || !enabled || (hasNewZones && !configured)) return;
     const version = ++selection.current;
     const locationAdditions = hasNewZones ? assignments : undefined;
-    setBusy('check'); setError(''); setCheck(null);
+    setBusy('check'); setError(''); setCheck(null); setRemovalConfirmed(false);
     try {
       const result = await service.checkBaseline({ ...file, ...(locationAdditions ? { locationAdditions } : {}) });
       if (version !== selection.current) return;
@@ -65,13 +68,13 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
     finally { if (version === selection.current) setBusy(''); }
   };
   const publish = async () => {
-    if (!file || !ready || busy || !enabled) return;
+    if (!file || !ready || !removalReady || busy || !enabled) return;
     const version = selection.current;
     setBusy('publish'); setError('');
     try {
-      const result = await service.publishBaseline({ ...file, ...(check.locationAdditions ? { locationAdditions: check.locationAdditions, checkedOnboardingHash: checked.onboardingHash } : {}), sourceRevision: checked.sourceRevision, previousSha256: checked.previousSha256, checkedSha256: checked.summary.sha256, importConfirmed: confirmed });
+      const result = await service.publishBaseline({ ...file, ...(check.locationAdditions ? { locationAdditions: check.locationAdditions, checkedOnboardingHash: checked.onboardingHash } : {}), sourceRevision: checked.sourceRevision, previousSha256: checked.previousSha256, checkedSha256: checked.summary.sha256, ...(removedPairs.length ? { acceptedRemovedPairs: removedPairs } : {}), importConfirmed: confirmed });
       if (version !== selection.current) return;
-      setPublished(result); setCheck(null); setFile(null);
+      setPublished(result); setCheck(null); setFile(null); setRemovalConfirmed(false);
       setOnboarding(null); setAdditions({});
       await onPublished();
     } catch (error) { if (version === selection.current) { setError(error.message); setCheck(null); } }
@@ -103,12 +106,13 @@ export function BaselineView({ snapshot, workspace, market, service, enabled, on
       <div className="alert baseline-success" role="status"><CheckCheck size={18} />Plik przeszedł kontrolę układu, dat, stawek, klas i lokalizacji.</div>
       <p>Sprawdzony plik: <strong>{file.filename}</strong></p>
       <BaselineComparison before={snapshot.baseline.coverage} after={checked.summary} model={snapshot.documents}/>
+      <RemovedPairs pairs={removedPairs} model={snapshot.documents} confirmed={removalConfirmed} disabled={Boolean(busy)} onChange={setRemovalConfirmed}/>
       {hasNewZones && <VerifiedLocations onboarding={checked.onboarding} />}
       <label className="baseline-confirm"><input type="checkbox" checked={confirmed} disabled={Boolean(busy)} onChange={event => setConfirmed(event.target.checked)} />Ten plik jest już wgrany do DiscoverCars</label>
       <p>Kolejne uruchomienia ({__SCRAPER_PLAN__.map(slot=>slot.time).join(' i ')}) użyją tego pliku po ustawieniu jako bazę.</p>
       <div className="baseline-publish-actions">
-      <button className="button primary" disabled={Boolean(busy) || !enabled} onClick={publish}><Upload size={18} />{busy === 'publish' ? 'Zapisywanie bazy…' : 'Ustaw jako bazę'}</button>
-      <button className="button" disabled={Boolean(busy)} onClick={()=>{selection.current++;setCheck(null);setFile(null);setOnboarding(null);setAdditions({});setConfirmed(false);}}>Anuluj</button>
+      <button className="button primary" disabled={Boolean(busy) || !enabled || !removalReady} onClick={publish}><Upload size={18} />{busy === 'publish' ? 'Zapisywanie bazy…' : 'Ustaw jako bazę'}</button>
+      <button className="button" disabled={Boolean(busy)} onClick={()=>{selection.current++;setCheck(null);setFile(null);setOnboarding(null);setAdditions({});setConfirmed(false);setRemovalConfirmed(false);}}>Anuluj</button>
       </div>
     </>}
     {published && <div className="alert baseline-success" role="status">Nowa baza zapisana na GitHubie. Kolejne uruchomienia użyją jej do obu plików Excel.{published.url && <> <a href={published.url} target="_blank" rel="noreferrer">Zobacz zapis</a></>}</div>}

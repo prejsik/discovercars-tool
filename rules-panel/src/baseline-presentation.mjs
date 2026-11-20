@@ -1,10 +1,15 @@
 import {dayLabel,countLabel} from './operations.mjs';
 import {locationOptions} from './editor.mjs';
 export const baselineRange=c=>c?.firstDate&&c?.lastDate?`${dayLabel(c.firstDate)} – ${dayLabel(c.lastDate)}`:'Brak danych';
+function zoneName(z,labels){let label=labels.find(l=>l.value===z)?.label??'brak powiązania';const suffix=` (${z})`;if(label.endsWith(suffix))label=label.slice(0,-suffix.length);if(label.startsWith(`${z} · `))label=label.slice(z.length+3);return label;}
+export function removedPairLabels(pairs,model){
+ const labels=locationOptions(model);
+ return (pairs??[]).map(pair=>{const [group,zone]=pair.split('/');return `${group} · ${zone} · ${zoneName(zone,labels)}`;});
+}
 export function baselineWarnings(before,after,model){
  if(!before||!after)return [];
  const labels=locationOptions(model);
- return [...(before.zones??[]).filter(z=>!(after.zones??[]).includes(z)).map(z=>{let label=labels.find(l=>l.value===z)?.label??'brak powiązania';const suffix=` (${z})`;if(label.endsWith(suffix))label=label.slice(0,-suffix.length);if(label.startsWith(`${z} · `))label=label.slice(z.length+3);return `Brakuje kodu ${z} · ${label}`;}),...(before.groups??[]).filter(g=>!(after.groups??[]).includes(g)).map(g=>`Brakuje klasy ${g}`),...(before.lastDate&&after.lastDate&&after.lastDate<before.lastDate?[`Zakres dat kończy się wcześniej: ${dayLabel(after.lastDate)} zamiast ${dayLabel(before.lastDate)}`]:[])];
+ return [...(before.zones??[]).filter(z=>!(after.zones??[]).includes(z)).map(z=>`Brakuje kodu ${z} · ${zoneName(z,labels)}`),...(before.groups??[]).filter(g=>!(after.groups??[]).includes(g)).map(g=>`Brakuje klasy ${g}`),...(before.lastDate&&after.lastDate&&after.lastDate<before.lastDate?[`Zakres dat kończy się wcześniej: ${dayLabel(after.lastDate)} zamiast ${dayLabel(before.lastDate)}`]:[])];
 }
 export function baselineDelta(before,after){if(!Number.isFinite(before)||!Number.isFinite(after))return 'Brak danych porównawczych';const n=after-before;return n===0?'bez zmian':`${n<0?'−':'+'}${Math.abs(n).toLocaleString('pl-PL',{useGrouping:'always'})}`;}
 export function codesDelta(before,after){if(!Array.isArray(before)||!Array.isArray(after))return 'Brak danych porównawczych';const removed=before.filter(v=>!after.includes(v)),added=after.filter(v=>!before.includes(v));return [removed.length?`−${removed.length}: ${removed.join(', ')}`:'',added.length?`+${added.length}: ${added.join(', ')}`:''].filter(Boolean).join('; ')||'bez zmian';}
