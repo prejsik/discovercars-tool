@@ -2,19 +2,19 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-20T13:43:10.129Z",
-  "workbook_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26.xlsx",
+  "approved_at": "2026-11-20T14:28:39.417Z",
+  "workbook_sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
+  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26 (1).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "e109d3f1e14dd205b76664f05873f964259e685b5ba16ae756f853797e730b47",
+  "previous_baseline_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26.xlsx"
+    "workbook_sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
+    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26 (1).xlsx"
   },
   "coverage": {
-    "sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
-    "rowCount": 33265,
+    "sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
+    "rowCount": 33187,
     "groups": [
       "CDMV",
       "CFAV",
@@ -311,17 +311,14 @@
       "EDMV/WRLO",
       "EDMV/WSTW",
       "EDMV/WWTE",
-      "FVMD/GDLO",
       "FVMD/KALO",
       "FVMD/KRDW",
       "FVMD/KRGA",
       "FVMD/KRLO",
       "FVMD/KRTI",
-      "FVMD/POLO",
       "FVMD/WA1",
       "FVMD/WA2",
       "FVMD/WALO",
-      "FVMD/WRLO",
       "PDAH/BYLO",
       "PDAH/BYT",
       "PDAH/GD1",
@@ -404,5 +401,10 @@
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
+  "removed_pairs": [
+    "FVMD/GDLO",
+    "FVMD/POLO",
+    "FVMD/WRLO"
+  ],
   "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
