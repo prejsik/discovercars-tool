@@ -2,18 +2,18 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-20T14:28:39.417Z",
-  "workbook_sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
-  "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26 (1).xlsx",
+  "approved_at": "2026-11-21T19:43:54.656Z",
+  "workbook_sha256": "ffe1266362efb66e0d14797744c675d3e6ea477b2ab3958050da7407df0e6ab8",
+  "source_filename": "rates-import-ready (10).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "edb0f462c147d96201c4306136c7c9ecaefeec0c32b0cee574ed9a9ee7c5b9af",
+  "previous_baseline_sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
-    "source_filename": "MM Cars Rental Rental Rates ( INCLUSIVE FP ) 20-Nov-26 (1).xlsx"
+    "workbook_sha256": "ffe1266362efb66e0d14797744c675d3e6ea477b2ab3958050da7407df0e6ab8",
+    "source_filename": "rates-import-ready (10).xlsx"
   },
   "coverage": {
-    "sha256": "63c78e8ceb8bf148d73b48cb44a8dd362bcf4238cbd2d396d13f996a037f8892",
+    "sha256": "ffe1266362efb66e0d14797744c675d3e6ea477b2ab3958050da7407df0e6ab8",
     "rowCount": 33187,
     "groups": [
       "CDMV",
@@ -401,10 +401,5 @@
     "firstDate": "2026-10-16",
     "lastDate": "2027-12-21"
   },
-  "removed_pairs": [
-    "FVMD/GDLO",
-    "FVMD/POLO",
-    "FVMD/WRLO"
-  ],
   "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
