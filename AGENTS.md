@@ -11,7 +11,7 @@ Ten plik czytają oba narzędzia; `CLAUDE.md` tylko go importuje. Repozytorium j
 ## Co uruchamia scalenie
 
 - „DiscoverCars daily run” startuje z `main` codziennie rano i wieczorem: pobiera ceny, przygotowuje rekomendacje do arkusza stawek, publikuje raport na GitHub Pages i wysyła podsumowanie na Telegram. Scalona zmiana działa od najbliższego przebiegu.
-- Zmiana rekomendacji, minimów, narzutów lub plików w `input/` wpływa na ceny MM Cars Rental: to wysokie ryzyko.
+- Zmiana rekomendacji, minimów, narzutów lub plików w `input/` wpływa na ceny MM Cars Rental: to wysokie ryzyko. Po zielonym CI zapytaj użytkownika przed scaleniem.
 - `gh workflow run` i wdrożenie `rules-panel` (Wrangler) uruchamiaj tylko na wyraźną prośbę.
 
 ## Testy
