@@ -88,7 +88,12 @@ async function main() {
   assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim',night.key)}]), null);
   assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key),expired:true}]), null);
   assert.equal((await findDuplicate(night, [{id:2,status:'in_progress'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
-  assert.equal(await findDuplicate(night, [{id:2,status:'queued'}], async () => [{name:markerName('claim',night.key)}]), null);
+  // Verification waves (max-parallel) report the whole claimed run as queued; it is still active.
+  assert.equal((await findDuplicate(night, [{id:2,status:'queued'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
+  assert.equal((await findDuplicate(night, [{id:2,status:'waiting'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
+  // A run still waiting before its gate has no claim and must not block a fallback.
+  assert.equal(await findDuplicate(night, [{id:2,status:'queued'}], async () => []), null);
+  assert.equal(await findDuplicate(night, [{id:2,status:'queued'}], async () => [{name:markerName('claim',night.key),expired:true}]), null);
   // Cloudflare, cron fallbacks and delayed/manual night runs share the same key.
   for (const context of [
     dueSchedule('2026-09-28T16:07:00Z'),
