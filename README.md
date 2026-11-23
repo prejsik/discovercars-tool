@@ -73,7 +73,7 @@ Nieprawidlowe reguly produkcyjne nadal blokuja rozpoczecie scrapowania.
 Jak dziala:
 
 - docelowy start Cloudflare to `09:37` dla dnia (20 dni) oraz `18:07` dla nocy (45 dni), zawsze `Europe/Warsaw`. Noc ma date raportu nastepnego dnia lokalnego; dzien ma date biezaca. Zapasowe triggery GitHub to `09:42`/`10:02` i `18:12`/`18:32`; bramka odrzuca nieaktywny wariant UTC lato/zima dla obu slotow. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
-- bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu lub dowodzie opublikowania kompletu wynikow,
+- bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu (kazdy niezakonczony run z artefaktem claim, takze `queued` podczas fal weryfikacji) lub dowodzie opublikowania kompletu wynikow,
 - zbieranie jest podzielone na dwa niezalezne runnery, lacznie do osmiu aktywnych stron; wyniki sa scalane do jednego raportu. Checkpoint pozwala wznowic swieze, zgodne fragmenty tego samego runa,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,

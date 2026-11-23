@@ -27,10 +27,10 @@ function markerName(kind,key) {
 
 async function findDuplicate(context,runs,getArtifacts) {
   for (const run of runs) {
-    const active = run.status === 'in_progress';
-    // A failed collection shard can still produce a validated partial publication.
-    const complete = run.status === 'completed';
-    if (!active && !complete) continue;
+    // Any unfinished run counts: GitHub reports a claimed run as queued while
+    // verification waves wait for max-parallel slots. Runs before their gate have no claim.
+    // A completed run counts only with a publication marker; a failed shard can still publish.
+    const active = run.status !== 'completed';
     const artifacts = await getArtifacts(run.id);
     const name = markerName(active ? 'claim' : 'published',context.key);
     if (artifacts.some(a=>a.name === name && !a.expired)) return run;
