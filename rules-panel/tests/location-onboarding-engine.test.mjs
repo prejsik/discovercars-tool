@@ -20,17 +20,17 @@ test('onboarded points work in the real scraper registry, pricing engine and bot
     locations: await read('locations.config.json') };
   const frozen = await read('input/broker-markup-frozen.json');
   const points = [
-    { zone: 'RZLO', placeId: 6144, query: 'Rzeszow', markupSourceZone: 'WALO', daily: true },
+    { zone: 'RZAP', placeId: 6144, query: 'Rzeszow', markupSourceZone: 'WALO', daily: true },
     { zone: 'RZ1', placeId: 355145, query: 'Rzeszow', markupSourceZone: 'WA1', daily: true },
   ];
-  const plan = prepareLocationAdditions({ documents, frozen, additions: points, unknownZones: ['RZLO','RZ1'], candidates: {
-    RZLO: { placeId: 6144, label: 'Rzeszow Airport (RZE)', city: 'Rzesz\u00f3w', kind: 'airport' },
+  const plan = prepareLocationAdditions({ documents, frozen, additions: points, unknownZones: ['RZAP','RZ1'], candidates: {
+    RZAP: { placeId: 6144, label: 'Rzeszow Airport (RZE)', city: 'Rzesz\u00f3w', kind: 'airport' },
     RZ1: { placeId: 355145, label: 'Rzeszow Train Station', city: 'Rzeszow', kind: 'city' },
   } });
   const registry = plan.documents.locations;
   assert.ok(getDailyLocations(registry).includes('Rzeszow Train Station'));
   assert.equal(buildPinnedLocationIds(registry)['Rzeszow Airport (RZE)'], 6144);
-  const newPoints = registry.locations.filter(location => location.zones.some(zone => ['RZLO','RZ1'].includes(zone)));
+  const newPoints = registry.locations.filter(location => location.zones.some(zone => ['RZAP','RZ1'].includes(zone)));
   assert.equal(newPoints.length, 2);
   for (const point of newPoints) {
     const offer = (provider_name, rate) => ({ provider_name, total_price: rate * 3, rental_days: 3, currency: 'PLN' });
@@ -53,6 +53,7 @@ test('onboarded points work in the real scraper registry, pricing engine and bot
   try {
     await writeFile(join(directory, 'locations.json'), JSON.stringify(registry));
     await writeFile(join(directory, 'excel.json'), JSON.stringify({ ...documents.excel, baseline_manifest_file: '',
+      pickup_date_expansion: { ...documents.excel.pickup_date_expansion, start_date: '2026-11-03' },
       location_registry_file: join(directory, 'locations.json'), pricing_rules_file: join(root, 'pricing-rules.config.example.json') }));
     const script = `import json,sys
 from pathlib import Path
@@ -60,15 +61,15 @@ from datetime import date
 import openpyxl
 from tools import update_excel_rates as e
 p=Path(sys.argv[1]);c=e.load_config(p/'excel.json')
-assert c['zone_location_kinds']['RZLO']=='airport' and c['zone_location_kinds']['RZ1']=='city'
-assert c['city_zone_airport_zones']['RZ1']==['RZLO']
+assert c['zone_location_kinds']['RZAP']=='airport' and c['zone_location_kinds']['RZ1']=='city'
+assert c['city_zone_airport_zones']['RZ1']==['RZAP']
 assert 'Rzeszow Train Station' in c['daily_locations']
 w=openpyxl.Workbook();s=w.active;s.title='Sheet1'
 s.append(['Rental rates for packages: INCLUSIVE POA'])
 s.append(['Min days']+[None]*7+[1,2,3,5,8,21]);s.append(['Max days']+[None]*7+[1,2,4,7,20,35])
 s.append(['Group','Description','Rate code','Zone','Booking start date','Booking end date','Pickup start date','Pickup end date']+['Per day']*6)
 recommendations=[]
-for zone,label in [('RZLO','Rzeszow Airport (RZE)'),('RZ1','Rzeszow Train Station')]:
+for zone,label in [('RZAP','Rzeszow Airport (RZE)'),('RZ1','Rzeszow Train Station')]:
  for day in [date(2026,12,15),date(2026,11,3)]:
   s.append(['CDMV',None,None,zone,date(2026,1,1),date(2027,12,31),day,day]+[500]*6)
   recommendations.append(dict(action='decrease',recommendation_type='top1_undercut',location=label,start_date=day.isoformat(),rental_days=2,suggested_rate_pln_day=80,benchmark_rate_pln_day=81))
