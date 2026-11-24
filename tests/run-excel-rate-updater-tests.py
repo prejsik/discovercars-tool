@@ -1,11 +1,9 @@
 import json
 import sys
 import tempfile
-import zipfile
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import openpyxl
@@ -74,34 +72,15 @@ def header_rows_snapshot(ws, rows=4):
     }
 
 
-def workbook_zones(path):
-    namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    zones = set()
-    with zipfile.ZipFile(path) as archive:
-        shared_strings = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
-            for item in shared_root.findall("x:si", namespace):
-                shared_strings.append("".join(text.text or "" for text in item.findall(".//x:t", namespace)))
-
-        sheet_root = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
-        for row in sheet_root.findall(".//x:sheetData/x:row", namespace):
-            if int(row.attrib.get("r", "0")) < 5:
-                continue
-            for cell in row.findall("x:c", namespace):
-                reference = cell.attrib.get("r", "")
-                column = "".join(char for char in reference if char.isalpha())
-                if column != "D":
-                    continue
-                value_node = cell.find("x:v", namespace)
-                if value_node is None or value_node.text is None:
-                    continue
-                value = value_node.text
-                if cell.attrib.get("t") == "s":
-                    value = shared_strings[int(value)]
-                if str(value).strip():
-                    zones.add(str(value).strip().upper())
-    return zones
+def workbook_zones(path: Path) -> set[str]:
+    """Read zone codes regardless of how Excel stores the sheet strings."""
+    workbook = openpyxl.load_workbook(path, read_only=True)
+    try:
+        return {str(zone).strip().upper() for (zone,) in workbook["Sheet1"].iter_rows(
+            min_row=5, min_col=4, max_col=4, values_only=True,
+        ) if zone}
+    finally:
+        workbook.close()
 
 
 def build_workbook(path):
@@ -352,8 +331,61 @@ def test_preserved_source_ranges():
     print("Source range preservation, scoped market changes and holiday boundaries passed.")
 
 
+def test_import_cutoff_and_fixed_zones():
+    """Exercise both export files with past, active and fixed pickup ranges."""
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        source, recommendations, pricing = (directory / name for name in ("source.xlsx", "recommendations.json", "pricing.json"))
+        report, import_file = (directory / name for name in ("report.xlsx", "import.xlsx"))
+        pricing.write_text(json.dumps({"pricing": {"mandatoryGroupFloorsPlnDay": {
+            "CDMV": [{"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 80}]
+        }}}), encoding="utf-8")
+        config = merge_fixture_config({
+            "baseline_manifest_file": "", "pricing_rules_file": str(pricing),
+            "location_zones": {"Market": ["WALO", "BBDO"]}, "fixed_import_zones": ["BBDO"],
+            "apply_groups": ["CDMV"], "excluded_groups": [],
+            "city_top1_airport_cap": {"enabled": False}, "group_price_parity": {"enabled": False},
+            "protected_rate_periods": [{"start_date": "2026-12-15", "end_date": "2027-01-02"}],
+            "pickup_date_expansion": {"enabled": True, "mode": "source_ranges", "start_date": "2026-11-24",
+                                      "drop_rows_before_start_date": True},
+            "max_import_bytes": 1_000_000,
+        })
+        fixed = ("CDMV", None, None, "BBDO", "01-01-26", "31-12-27", "01-11-26", "31-12-27", *([47] * 6))
+        build_minimal_workbook(source, [
+            ["CDMV", None, None, "WALO", "01-01-26", "23-11-26", "22-11-26", "23-11-26", *([200] * 6)],
+            ["CDMV", None, None, "WALO", "01-01-26", "30-11-26", "24-11-26", "30-11-26", *([150] * 6)],
+            fixed,
+        ])
+        recommendations.write_text(json.dumps({"recommendations": [{
+            "action": "decrease", "recommendation_type": "top1_undercut", "location": "Market",
+            "start_date": "2026-11-26", "rental_days": 2, "suggested_rate_pln_day": 100,
+            "benchmark_rate_pln_day": 101, "data_quality_status": "ok",
+        }]}), encoding="utf-8")
+        summary = apply_updates(source, recommendations, report, config, None, False, import_output_path=import_file)
+        for output in (report, import_file):
+            workbook = openpyxl.load_workbook(output, read_only=True)
+            rows = list(workbook["Sheet1"].iter_rows(min_row=5, values_only=True))
+            workbook.close()
+            assert_equal([row for row in rows if row[3] == "BBDO"],
+                         [(*fixed[:6], "24-11-26", *fixed[7:])], "fixed prices and a single live range")
+            assert all(parse_date_value(row[6]) >= date(2026, 11, 24) for row in rows)
+            assert_equal([row[9] for row in rows if row[3:4] == ("WALO",) and row[6] == "26-11-26"],
+                         [100], "market recommendation still reaches the original zone")
+        assert all(item["status"] != "FAIL" for item in summary["validation"])
+        previous_bytes = import_file.read_bytes()
+        try:
+            apply_updates(source, recommendations, report, {**config, "max_import_bytes": 100}, None, False,
+                          import_output_path=import_file)
+        except ValueError as error:
+            assert "100 bytes" in str(error)
+        else:
+            raise AssertionError("Oversized workbook must fail export")
+        assert_equal(import_file.read_bytes(), previous_bytes, "previous import stays intact")
+
+
 def main():
     test_preserved_source_ranges()
+    test_import_cutoff_and_fixed_zones()
     for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
         try:
             merge_fixture_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
@@ -1119,6 +1151,8 @@ def main():
     assert_equal(sorted(set(production_config["zone_location_labels"]) - covered_zones), [],
                  "all registered zones are covered by location_zones")
     unmapped_source_zones = real_zones - covered_zones
+    fixed_import_zones = set(production_config["fixed_import_zones"])
+    assert_equal(fixed_import_zones, unmapped_source_zones, "all import-only baseline zones have fixed rates")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
@@ -2288,6 +2322,10 @@ def main():
         before_snapshot = header_rows_snapshot(real_ws)
         expected_pickup_start = min(parse_date_value(real_ws.cell(row, 7).value)
                                     for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
+        cutoff = expected_pickup_start + timedelta(days=1)
+        production_config = {**production_config, "pickup_date_expansion": {
+            **production_config["pickup_date_expansion"], "start_date": cutoff.isoformat(),
+        }}
         expected_pickup_end = max(parse_date_value(real_ws.cell(row, 8).value)
                                   for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
@@ -2298,8 +2336,13 @@ def main():
             group = str(real_ws.cell(row, 1).value or "").strip().upper()
             zone = str(real_ws.cell(row, 4).value or "").strip().upper()
             pickup_date = parse_date_value(real_ws.cell(row, 7).value)
+            if pickup_date is None:
+                continue
+            end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
+            if end_date < cutoff:
+                continue
+            pickup_date = max(pickup_date, cutoff)
             if zone in unmapped_source_zones and pickup_date is not None:
-                end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
                 unmapped_source_rates.setdefault((group, zone), []).append((
                     pickup_date, end_date, tuple(real_ws.cell(row, col).value for col in range(9, 15)),
                 ))
@@ -2308,7 +2351,7 @@ def main():
                     real_ws.cell(row, col).value for col in range(9, 15)
                 )
                 frozen_source_intervals.setdefault((group, zone), []).append((
-                    pickup_date, parse_date_value(real_ws.cell(row, 8).value) or pickup_date,
+                    pickup_date, end_date,
                     frozen_source_rates[group, zone, pickup_date],
                 ))
         for group in frozen_groups:
@@ -2326,9 +2369,10 @@ def main():
         floor_boundaries = sorted(floor_boundaries)
         for (group, zone), source_rates in unmapped_source_rates.items():
             for pickup_date, pickup_end, rates in source_rates:
-                cuts = [day for day in floor_boundaries if pickup_date < day <= pickup_end]
+                cuts = [] if zone in fixed_import_zones else [day for day in floor_boundaries if pickup_date < day <= pickup_end]
                 for start, end in zip([pickup_date, *cuts], [day - timedelta(days=1) for day in cuts] + [pickup_end]):
-                    expected_rates = expected_production_floor_rates(group, zone, start, rates, production_floor_config)
+                    expected_rates = (rates if zone in fixed_import_zones else
+                                      expected_production_floor_rates(group, zone, start, rates, production_floor_config))
                     expected_unmapped_rows[(group, zone, start, end, expected_rates)] += 1
         baseline_real_recommendations_path = tmpdir / "baseline-real-recommendations.json"
         baseline_real_output_path = tmpdir / "baseline-real-recommendations.xlsx"
@@ -2382,7 +2426,8 @@ def main():
                         source = next((item for item in source_intervals if item[0] <= pickup_date <= pickup_end <= item[1]), None)
                         assert source is not None, f"Frozen output interval outside the baseline: {group}/{zone}/{pickup_date}/{pickup_end}"
                         for boundary in (pickup_date, pickup_end):
-                            expected = expected_production_floor_rates(group, zone, boundary, source[2], production_floor_config)
+                            expected = (source[2] if zone in fixed_import_zones else
+                                        expected_production_floor_rates(group, zone, boundary, source[2], production_floor_config))
                             assert_equal(tuple(values[8:14]), expected, f"current production floor or preserved frozen rate {group}/{zone}/{boundary}")
                         output_coverage[group, zone, pickup_date] += 1
                         output_coverage[group, zone, pickup_end + timedelta(days=1)] -= 1
@@ -2393,13 +2438,14 @@ def main():
                          {key: count for key, count in source_coverage.items() if count},
                          "frozen baseline intervals and multiplicities survive mandatory scoped-floor splits")
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
-                         "all unmapped baseline classes, zones, full pickup intervals and row multiplicities retained; only approved minima change rates")
+                         "import-only zones preserve every live row and rate without market or minimum changes")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
             assert_equal(baseline_real_ws.max_row, baseline_real_summary["import_row_count"], "all generated rows exported")
-            assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
+            assert_equal(min(pickup_dates), cutoff, "real workbook starts at the export cutoff")
             assert_equal(max(pickup_ends), expected_pickup_end, "real workbook retains the entire future pickup range")
             for key, expected_rates in frozen_source_rates.items():
-                expected_rates = expected_production_floor_rates(*key, expected_rates, production_floor_config)
+                if key[1] not in fixed_import_zones:
+                    expected_rates = expected_production_floor_rates(*key, expected_rates, production_floor_config)
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
         assert_equal(engine.sha256_file(real_workbook_path), real_source_sha256, "actual production baseline bytes preserved")
 

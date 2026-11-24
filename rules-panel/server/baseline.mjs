@@ -112,6 +112,7 @@ export async function inspectBaseline(bytes, documents, { allowUnknownZones = fa
   const groups = new Set(); const zones = new Set(); const pairs = new Set();
   const expectedGroups = [...new Set([...documents.excel.apply_groups, ...documents.excel.excluded_groups])];
   const expectedZones = (documents.locations.locations ?? documents.locations).flatMap(location => location.zones);
+  const knownZones = new Set([...expectedZones, ...(documents.excel.fixed_import_zones ?? [])]);
   const headers = ['Group', 'Description', 'Rate code', 'Zone', 'Booking start date', 'Booking end date', 'Pickup start date', 'Pickup end date', ...Array(6).fill('Per day')];
   const minimums = [1, 2, 3, 5, 8, 21]; const maximums = [1, 2, 4, 7, 20, 35];
   let row = {}; let rowDateStyles = {}; let rowNumber; let cell; let type; let style; let value = ''; let capture = false; let formula = false;
@@ -125,7 +126,7 @@ export async function inspectBaseline(bytes, documents, { allowUnknownZones = fa
     if (rowNumber < 5 || Object.values(row).every(value => clean(value) === '')) return;
     const group = clean(row.A); const zone = clean(row.D);
     if (!expectedGroups.includes(group)) fail(`Nieznana klasa ${group || '(pusta)'} w wierszu ${rowNumber}. Najpierw uzgodnij klasy w zasadach.`);
-    if (!expectedZones.includes(zone) && !(allowUnknownZones === true && /^[A-Z0-9]{2,12}$/.test(zone))) fail(`Nieznana lokalizacja ${zone || '(pusta)'} w wierszu ${rowNumber}.`);
+    if (!knownZones.has(zone) && !(allowUnknownZones === true && /^[A-Z0-9]{2,12}$/.test(zone))) fail(`Nieznana lokalizacja ${zone || '(pusta)'} w wierszu ${rowNumber}.`);
     const dates = Object.fromEntries(['E', 'F', 'G', 'H'].map(column => [column, dateValue(row[column], date1904, rowDateStyles[column])]));
     for (const column of ['E', 'F', 'G', 'H']) if (!dates[column]) fail(`Nieprawidlowa data w ${column}${rowNumber}.`);
     const pickup = dates.G; const end = dates.H;
@@ -169,7 +170,7 @@ export async function inspectBaseline(bytes, documents, { allowUnknownZones = fa
   if (missing.length) fail(`Brakuje klas/lokalizacji: ${missing.join(', ')}.`);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return { sha256: [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join(''), rowCount, groups: [...groups].sort(), zones: [...zones].sort(), pairs: [...pairs].sort(), firstDate, lastDate,
-    ...(allowUnknownZones === true ? { unknownZones: [...zones].filter(zone => !expectedZones.includes(zone)).sort() } : {}) };
+    ...(allowUnknownZones === true ? { unknownZones: [...zones].filter(zone => !knownZones.has(zone)).sort() } : {}) };
 }
 
 export const removedBaselinePairs = (next, previous) => previous.pairs.filter(pair => !next.pairs.includes(pair)).sort();
