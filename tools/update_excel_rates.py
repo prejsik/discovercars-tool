@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from statistics import median
+from tempfile import TemporaryDirectory
 from textwrap import wrap
 from typing import Any, Iterator
 from urllib.parse import urlsplit
@@ -626,18 +627,19 @@ def filter_recommendations_to_pickup_date_range(
     config: dict[str, Any],
     expansion_summary: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], int]:
-    if not expansion_summary.get("enabled") or expansion_summary.get("mode") == "source_ranges":
+    if not expansion_summary.get("enabled"):
         return recommendations, 0
 
     settings = config.get("pickup_date_expansion") or {}
-    start_date = (
+    source_ranges = expansion_summary.get("mode") == "source_ranges"
+    start_date = parse_date_value(expansion_summary.get("pickup_cutoff_date")) if source_ranges else (
         parse_date_value(expansion_summary.get("start_date"))
         if settings.get("drop_rows_before_start_date")
         else None
     )
     end_date = (
         parse_date_value(expansion_summary.get("end_date"))
-        if settings.get("drop_rows_after_end_date")
+        if not source_ranges and settings.get("drop_rows_after_end_date")
         else None
     )
     filtered: list[dict[str, Any]] = []
@@ -1720,8 +1722,11 @@ def enforce_mandatory_floors(
     bands_by_col = {col: (label, low, high) for col, label, low, high in duration_columns.values()}
     virtual_rates = {change["cell"]: change["new_rate"] for change in existing_changes}
     changes = []
+    fixed_zones = set(config.get("fixed_import_zones", []))
     for row in range(int(config["data_start_row"]), ws.max_row + 1):
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
+        if zone in fixed_zones:
+            continue
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
         pickup = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         scoped_bands = [rule for rule in scoped_floors if group in rule["groups"] and zone in rule["zones"]]
@@ -2662,6 +2667,7 @@ def build_validation_rows(
     pickup_end_col = int(columns["pickup_end_date"])
     rate_cols = sorted({value[0] for value in duration_columns.values()})
     excluded_groups = {normalize_code(item) for item in config.get("excluded_groups", [])}
+    fixed_zones = set(config.get("fixed_import_zones", []))
     approved_groups = resolve_apply_groups(config, None)
     unknown_groups: set[str] = set()
     bands_by_col = {col: (low, high) for col, _label, low, high in duration_columns.values()}
@@ -2718,6 +2724,8 @@ def build_validation_rows(
             value = parse_number(ws.cell(row, col).value)
             if value is None:
                 missing_rates.append(f"row {row} {get_column_letter(col)}")
+            if zone in fixed_zones:
+                continue
             minimum = get_mandatory_zone_floor(zone, *bands_by_col[col], config)
             final_rate = parse_number(virtual_rates.get(ws.cell(row, col).coordinate, value))
             if (minimum is not None and not date_is_rate_protected(pickup_start, protected_periods)
@@ -3006,6 +3014,7 @@ def build_targets(
     candidates_by_cell: dict[tuple[str, date, int], list[dict[str, Any]]] = defaultdict(list)
     skipped: list[dict[str, Any]] = []
     protected_periods = get_protected_rate_periods(config)
+    fixed_zones = set(config.get("fixed_import_zones", []))
     api_days = config.get("_api_only_constraint_rental_days")
     if not isinstance(api_days, set):
         api_days = get_api_only_constraint_rental_days(config)
@@ -3054,6 +3063,8 @@ def build_targets(
 
         col, duration_band, duration_min_days, duration_max_days = duration_column
         for zone in zones:
+            if zone in fixed_zones:
+                continue
             site_cap_rate = parse_number(item.get("site_cap_rate_pln_day"))
             if site_cap_rate is None and maximum_rate is not None:
                 site_cap_rate = predict_site_rate(maximum_rate, item)
@@ -3706,7 +3717,13 @@ def remove_omitted_group_zone_rows(ws: Any, config: dict[str, Any]) -> dict[str,
 
 
 def preserve_pickup_date_ranges(ws: Any, config: dict[str, Any], recommendation_dates: set[date]) -> dict[str, Any]:
-    # Isolate market dates and rule boundaries without expanding the unobserved future into daily rows.
+    """Keep tariff ranges compact and optionally trim pickup dates before the export day."""
+    settings = config.get("pickup_date_expansion") or {}
+    cutoff = (resolve_config_date(settings.get("start_date", "today"), settings.get("time_zone") or "Europe/Warsaw")
+              if settings.get("drop_rows_before_start_date") else None)
+    fixed_zones = set(config.get("fixed_import_zones", []))
+    if cutoff is not None:
+        recommendation_dates = {day for day in recommendation_dates if day >= cutoff}
     boundaries = set(recommendation_dates)
     boundaries.update(day + timedelta(days=1) for day in recommendation_dates if day < date.max)
     periods = get_protected_rate_periods(config)
@@ -3726,6 +3743,7 @@ def preserve_pickup_date_ranges(ws: Any, config: dict[str, Any], recommendation_
     output = []
     pairs = set()
     source_count = 0
+    expired_count = 0
     for row in range(data_start, ws.max_row + 1):
         group = normalize_code(ws.cell(row, int(columns["group"])).value)
         zone = normalize_code(ws.cell(row, int(columns["zone"])).value)
@@ -3735,10 +3753,16 @@ def preserve_pickup_date_ranges(ws: Any, config: dict[str, Any], recommendation_
             continue
         if not group or not zone or start is None or end is None or start > end:
             raise ValueError(f"Invalid source pickup range in row {row}; Sheet1 was not modified.")
+        source_count += 1
+        if cutoff is not None:
+            if end < cutoff:
+                expired_count += 1
+                continue
+            start = max(start, cutoff)
         snapshot = snapshot_row(ws, row, max_col)
         pairs.add((group, zone))
-        source_count += 1
-        cuts = ordered_boundaries[bisect_right(ordered_boundaries, start):bisect_right(ordered_boundaries, end)]
+        cuts = ([] if zone in fixed_zones else
+                ordered_boundaries[bisect_right(ordered_boundaries, start):bisect_right(ordered_boundaries, end)])
         starts = [start, *cuts]
         ends = [day - timedelta(days=1) for day in cuts] + [end]
         output.extend((snapshot, low, high) for low, high in zip(starts, ends))
@@ -3751,14 +3775,17 @@ def preserve_pickup_date_ranges(ws: Any, config: dict[str, Any], recommendation_
         for column, day in ((start_col, start), (end_col, end)):
             template = snapshot["cells"][column - 1]["value"]
             ws.cell(row, column).value = format_pickup_date_like_template(day, template)
+    if ws.auto_filter.ref:
+        ws.auto_filter.ref = re.sub(r"\d+$", str(ws.max_row), ws.auto_filter.ref)
     return {
         "enabled": True, "mode": "source_ranges",
+        "pickup_cutoff_date": cutoff.isoformat() if cutoff is not None else None,
         "start_date": min(start for _, start, _ in output).isoformat(),
         "end_date": max(end for _, _, end in output).isoformat(),
         "source_row_count": source_count, "expanded_row_count": len(output), "output_row_count": len(output),
-        "split_row_count": len(output) - source_count,
+        "split_row_count": len(output) - source_count + expired_count,
         "preserved_out_of_range_row_count": sum(start != end or start not in recommendation_dates for _, start, end in output),
-        "dropped_before_start_row_count": 0, "dropped_after_end_row_count": 0, "appended_horizon_row_count": 0,
+        "dropped_before_start_row_count": expired_count, "dropped_after_end_row_count": 0, "appended_horizon_row_count": 0,
         "source_groups": sorted({group for group, _ in pairs}),
         "expanded_groups": sorted({group for group, _ in pairs}),
         "source_group_zones": sorted(f"{group}/{zone}" for group, zone in pairs),
@@ -4021,7 +4048,8 @@ def validate_workbook_relationships(path: Path) -> None:
                     )
 
 
-def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path) -> None:
+def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path, max_bytes: int | None = None) -> None:
+    """Publish the one-sheet import only after it passes size and package checks."""
     for sheet in list(workbook.worksheets):
         if sheet.title != sheet_name:
             workbook.remove(sheet)
@@ -4033,8 +4061,14 @@ def save_import_ready_workbook(workbook: Any, sheet_name: str, output_path: Path
     workbook[sheet_name].legacy_drawing = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     clear_frozen_panes(workbook)
-    workbook.save(output_path)
-    validate_workbook_relationships(output_path)
+    with TemporaryDirectory(dir=output_path.parent, prefix=".excel-import-") as temporary:
+        staged = Path(temporary) / output_path.name
+        workbook.save(staged)
+        size = staged.stat().st_size
+        if max_bytes is not None and size > max_bytes:
+            raise ValueError(f"Import workbook is {size} bytes, exceeding the limit of {max_bytes} bytes.")
+        validate_workbook_relationships(staged)
+        staged.replace(output_path)
 
 
 def enforce_group_price_parity(
@@ -4579,7 +4613,7 @@ def apply_updates(
         workbook.save(output_path)
         validate_workbook_relationships(output_path)
         if import_output_path is not None:
-            save_import_ready_workbook(workbook, sheet_name, import_output_path)
+            save_import_ready_workbook(workbook, sheet_name, import_output_path, config.get("max_import_bytes"))
 
     return {
         "workbook": str(workbook_path),

@@ -352,8 +352,61 @@ def test_preserved_source_ranges():
     print("Source range preservation, scoped market changes and holiday boundaries passed.")
 
 
+def test_import_cutoff_and_fixed_zones():
+    """Exercise both export files with past, active and fixed pickup ranges."""
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        source, recommendations, pricing = (directory / name for name in ("source.xlsx", "recommendations.json", "pricing.json"))
+        report, import_file = (directory / name for name in ("report.xlsx", "import.xlsx"))
+        pricing.write_text(json.dumps({"pricing": {"mandatoryGroupFloorsPlnDay": {
+            "CDMV": [{"minDays": 2, "maxDays": 2, "minimumRatePlnDay": 80}]
+        }}}), encoding="utf-8")
+        config = merge_fixture_config({
+            "baseline_manifest_file": "", "pricing_rules_file": str(pricing),
+            "location_zones": {"Market": ["WALO", "BBDO"]}, "fixed_import_zones": ["BBDO"],
+            "apply_groups": ["CDMV"], "excluded_groups": [],
+            "city_top1_airport_cap": {"enabled": False}, "group_price_parity": {"enabled": False},
+            "protected_rate_periods": [{"start_date": "2026-12-15", "end_date": "2027-01-02"}],
+            "pickup_date_expansion": {"enabled": True, "mode": "source_ranges", "start_date": "2026-11-24",
+                                      "drop_rows_before_start_date": True},
+            "max_import_bytes": 1_000_000,
+        })
+        fixed = ("CDMV", None, None, "BBDO", "01-01-26", "31-12-27", "01-11-26", "31-12-27", *([47] * 6))
+        build_minimal_workbook(source, [
+            ["CDMV", None, None, "WALO", "01-01-26", "23-11-26", "22-11-26", "23-11-26", *([200] * 6)],
+            ["CDMV", None, None, "WALO", "01-01-26", "30-11-26", "24-11-26", "30-11-26", *([150] * 6)],
+            fixed,
+        ])
+        recommendations.write_text(json.dumps({"recommendations": [{
+            "action": "decrease", "recommendation_type": "top1_undercut", "location": "Market",
+            "start_date": "2026-11-26", "rental_days": 2, "suggested_rate_pln_day": 100,
+            "benchmark_rate_pln_day": 101, "data_quality_status": "ok",
+        }]}), encoding="utf-8")
+        summary = apply_updates(source, recommendations, report, config, None, False, import_output_path=import_file)
+        for output in (report, import_file):
+            workbook = openpyxl.load_workbook(output, read_only=True)
+            rows = list(workbook["Sheet1"].iter_rows(min_row=5, values_only=True))
+            workbook.close()
+            assert_equal([row for row in rows if row[3] == "BBDO"],
+                         [(*fixed[:6], "24-11-26", *fixed[7:])], "fixed prices and a single live range")
+            assert all(parse_date_value(row[6]) >= date(2026, 11, 24) for row in rows)
+            assert_equal([row[9] for row in rows if row[3:4] == ("WALO",) and row[6] == "26-11-26"],
+                         [100], "market recommendation still reaches the original zone")
+        assert all(item["status"] != "FAIL" for item in summary["validation"])
+        previous_bytes = import_file.read_bytes()
+        try:
+            apply_updates(source, recommendations, report, {**config, "max_import_bytes": 100}, None, False,
+                          import_output_path=import_file)
+        except ValueError as error:
+            assert "100 bytes" in str(error)
+        else:
+            raise AssertionError("Oversized workbook must fail export")
+        assert_equal(import_file.read_bytes(), previous_bytes, "previous import stays intact")
+
+
 def main():
     test_preserved_source_ranges()
+    test_import_cutoff_and_fixed_zones()
     for retired_rule in ("fixed_rate_groups", "mirrored_rate_groups", "competitor_evidence_sheet"):
         try:
             merge_fixture_config({retired_rule: {"CFAV": 200} if retired_rule.endswith("groups") else "Evidence"})
