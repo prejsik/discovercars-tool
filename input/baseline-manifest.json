@@ -6,7 +6,7 @@
   "workbook_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
   "source_filename": "mm-cars-rental-rates-75-stref-z-obnizkami.xlsx",
   "confirmed": false,
-  "previous_baseline_sha256": "16f56382eecfdf9089ec0955170536d890c0fbe97fa4f9153a2ec08fde438da1",
+  "previous_baseline_sha256": "b84da8c538eccb224527ec02e09ef82298e57e38543d9fa8ce0ebe96663a132b",
   "source_baseline": {
     "status": "user_supplied",
     "workbook_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
