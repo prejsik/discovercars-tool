@@ -1172,6 +1172,8 @@ def main():
     assert_equal(sorted(set(production_config["zone_location_labels"]) - covered_zones), [],
                  "all registered zones are covered by location_zones")
     unmapped_source_zones = real_zones - covered_zones
+    fixed_import_zones = set(production_config["fixed_import_zones"])
+    assert_equal(fixed_import_zones, unmapped_source_zones, "all import-only baseline zones have fixed rates")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
@@ -2341,6 +2343,10 @@ def main():
         before_snapshot = header_rows_snapshot(real_ws)
         expected_pickup_start = min(parse_date_value(real_ws.cell(row, 7).value)
                                     for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
+        cutoff = expected_pickup_start + timedelta(days=1)
+        production_config = {**production_config, "pickup_date_expansion": {
+            **production_config["pickup_date_expansion"], "start_date": cutoff.isoformat(),
+        }}
         expected_pickup_end = max(parse_date_value(real_ws.cell(row, 8).value)
                                   for row in range(5, real_ws.max_row + 1) if real_ws.cell(row, 1).value)
         frozen_groups = {"CFAV", "PDAH", "PDAV", "FVMD", "SWAV"}
@@ -2351,8 +2357,13 @@ def main():
             group = str(real_ws.cell(row, 1).value or "").strip().upper()
             zone = str(real_ws.cell(row, 4).value or "").strip().upper()
             pickup_date = parse_date_value(real_ws.cell(row, 7).value)
+            if pickup_date is None:
+                continue
+            end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
+            if end_date < cutoff:
+                continue
+            pickup_date = max(pickup_date, cutoff)
             if zone in unmapped_source_zones and pickup_date is not None:
-                end_date = parse_date_value(real_ws.cell(row, 8).value) or pickup_date
                 unmapped_source_rates.setdefault((group, zone), []).append((
                     pickup_date, end_date, tuple(real_ws.cell(row, col).value for col in range(9, 15)),
                 ))
@@ -2361,7 +2372,7 @@ def main():
                     real_ws.cell(row, col).value for col in range(9, 15)
                 )
                 frozen_source_intervals.setdefault((group, zone), []).append((
-                    pickup_date, parse_date_value(real_ws.cell(row, 8).value) or pickup_date,
+                    pickup_date, end_date,
                     frozen_source_rates[group, zone, pickup_date],
                 ))
         for group in frozen_groups:
@@ -2379,9 +2390,10 @@ def main():
         floor_boundaries = sorted(floor_boundaries)
         for (group, zone), source_rates in unmapped_source_rates.items():
             for pickup_date, pickup_end, rates in source_rates:
-                cuts = [day for day in floor_boundaries if pickup_date < day <= pickup_end]
+                cuts = [] if zone in fixed_import_zones else [day for day in floor_boundaries if pickup_date < day <= pickup_end]
                 for start, end in zip([pickup_date, *cuts], [day - timedelta(days=1) for day in cuts] + [pickup_end]):
-                    expected_rates = expected_production_floor_rates(group, zone, start, rates, production_floor_config)
+                    expected_rates = (rates if zone in fixed_import_zones else
+                                      expected_production_floor_rates(group, zone, start, rates, production_floor_config))
                     expected_unmapped_rows[(group, zone, start, end, expected_rates)] += 1
         baseline_real_recommendations_path = tmpdir / "baseline-real-recommendations.json"
         baseline_real_output_path = tmpdir / "baseline-real-recommendations.xlsx"
@@ -2435,7 +2447,8 @@ def main():
                         source = next((item for item in source_intervals if item[0] <= pickup_date <= pickup_end <= item[1]), None)
                         assert source is not None, f"Frozen output interval outside the baseline: {group}/{zone}/{pickup_date}/{pickup_end}"
                         for boundary in (pickup_date, pickup_end):
-                            expected = expected_production_floor_rates(group, zone, boundary, source[2], production_floor_config)
+                            expected = (source[2] if zone in fixed_import_zones else
+                                        expected_production_floor_rates(group, zone, boundary, source[2], production_floor_config))
                             assert_equal(tuple(values[8:14]), expected, f"current production floor or preserved frozen rate {group}/{zone}/{boundary}")
                         output_coverage[group, zone, pickup_date] += 1
                         output_coverage[group, zone, pickup_end + timedelta(days=1)] -= 1
@@ -2446,13 +2459,14 @@ def main():
                          {key: count for key, count in source_coverage.items() if count},
                          "frozen baseline intervals and multiplicities survive mandatory scoped-floor splits")
             assert_equal(unmapped_output_rows, expected_unmapped_rows,
-                         "all unmapped baseline classes, zones, full pickup intervals and row multiplicities retained; only approved minima change rates")
+                         "import-only zones preserve every live row and rate without market or minimum changes")
             assert_equal(baseline_real_summary["max_import_rows"], None, "real workbook has no row limit")
             assert_equal(baseline_real_ws.max_row, baseline_real_summary["import_row_count"], "all generated rows exported")
-            assert_equal(min(pickup_dates), expected_pickup_start, "real workbook pickup start")
+            assert_equal(min(pickup_dates), cutoff, "real workbook starts at the export cutoff")
             assert_equal(max(pickup_ends), expected_pickup_end, "real workbook retains the entire future pickup range")
             for key, expected_rates in frozen_source_rates.items():
-                expected_rates = expected_production_floor_rates(*key, expected_rates, production_floor_config)
+                if key[1] not in fixed_import_zones:
+                    expected_rates = expected_production_floor_rates(*key, expected_rates, production_floor_config)
                 assert_equal(frozen_output_rates.get(key), expected_rates, f"real frozen baseline rates for {key}")
         assert_equal(engine.sha256_file(real_workbook_path), real_source_sha256, "actual production baseline bytes preserved")
 
