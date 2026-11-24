@@ -1,11 +1,9 @@
 import json
 import sys
 import tempfile
-import zipfile
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import openpyxl
@@ -74,34 +72,15 @@ def header_rows_snapshot(ws, rows=4):
     }
 
 
-def workbook_zones(path):
-    namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    zones = set()
-    with zipfile.ZipFile(path) as archive:
-        shared_strings = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
-            for item in shared_root.findall("x:si", namespace):
-                shared_strings.append("".join(text.text or "" for text in item.findall(".//x:t", namespace)))
-
-        sheet_root = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
-        for row in sheet_root.findall(".//x:sheetData/x:row", namespace):
-            if int(row.attrib.get("r", "0")) < 5:
-                continue
-            for cell in row.findall("x:c", namespace):
-                reference = cell.attrib.get("r", "")
-                column = "".join(char for char in reference if char.isalpha())
-                if column != "D":
-                    continue
-                value_node = cell.find("x:v", namespace)
-                if value_node is None or value_node.text is None:
-                    continue
-                value = value_node.text
-                if cell.attrib.get("t") == "s":
-                    value = shared_strings[int(value)]
-                if str(value).strip():
-                    zones.add(str(value).strip().upper())
-    return zones
+def workbook_zones(path: Path) -> set[str]:
+    """Read zone codes regardless of how Excel stores the sheet strings."""
+    workbook = openpyxl.load_workbook(path, read_only=True)
+    try:
+        return {str(zone).strip().upper() for (zone,) in workbook["Sheet1"].iter_rows(
+            min_row=5, min_col=4, max_col=4, values_only=True,
+        ) if zone}
+    finally:
+        workbook.close()
 
 
 def build_workbook(path):
