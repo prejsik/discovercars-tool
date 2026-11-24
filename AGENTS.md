@@ -8,6 +8,10 @@ Ten plik czytają oba narzędzia; `CLAUDE.md` tylko go importuje. Repozytorium j
 - `src/rentcars/`, `RENTCARS_README.md` i workflow „RentCars manual run” to kopia RentCars z czerwca 2026. Aktualny RentCars jest w repo `prejsik/MMSL-Scrapper-Rentcars`.
 - Działanie i polityka cen: `README.md` i `DISCOVERCARS_README.md`. Panel zasad (Cloudflare Worker): `rules-panel/`.
 
+## Pliki importowe DiscoverCars
+
+- Każdy plik XLSX do importu może mieć maksymalnie 1 MB. Przed przekazaniem do importu sprawdź rozmiar zapisanego pliku i przyjmij 1 000 000 bajtów jako bezpieczny limit. Liczba wierszy jest tylko wskaźnikiem, bo rozmiar zależy od danych i kompresji.
+
 ## Co uruchamia scalenie
 
 - „DiscoverCars daily run” startuje z `main` codziennie rano i wieczorem: pobiera ceny, przygotowuje rekomendacje do arkusza stawek, publikuje raport na GitHub Pages i wysyła podsumowanie na Telegram. Scalona zmiana działa od najbliższego przebiegu.
