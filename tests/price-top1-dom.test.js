@@ -279,3 +279,21 @@ test("price_top1 never marks incomplete coverage, bad controls, pending cards, o
   assert.equal(failedControls.domEvidence.automatic_filter_confirmed, false);
   assert.equal(failedControls.domEvidence.price_sort_confirmed, false);
 });
+
+test("Top1 reread reaches the next page before it can confirm the full listing", async () => {
+  const result = await extractFixture(browser, paginatedResultsPage({
+    pageOneCards: [
+      offerCard({ provider: "MM Cars Rental", price: "50.72", index: 0, id: "full-page1-mm" }),
+      offerCard({ provider: "Budget", price: "225.89", index: 1, id: "full-page1-budget" }),
+      offerCard({ provider: "Budget", price: "235.89", index: 2, id: "full-page1-budget2" })
+    ],
+    pageTwoCards: [
+      offerCard({ provider: "Budget", price: "245.89", index: 0, id: "full-page2-budget" }),
+      offerCard({ provider: "Hertz", price: "275.00", index: 1, id: "full-page2-hertz" }),
+      offerCard({ provider: "Hertz", price: "285.00", index: 2, id: "full-page2-hertz2" })
+    ]
+  }), { requireCompleteDomListing: true, domReadMaxPasses: 12, domReadTimeoutMs: 10_000 });
+  assert.equal(result.domEvidence.listing_complete, true);
+  assert.equal(result.domEvidence.observed_offer_count, 6);
+  assert.ok(result.offers.some(offer => offer.provider === "Hertz"));
+});

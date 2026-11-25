@@ -83,6 +83,26 @@ class PricePopularityMinimumTests(unittest.TestCase):
             for days in (3, 4)
         ]
 
+    def test_unconfirmed_competitor_blocks_large_increase_after_parity(self):
+        ws = openpyxl.Workbook().active
+        for row, group in enumerate(("CDMV", "EDAV"), 5):
+            ws.cell(row, 1, group)
+            ws.cell(row, 4, "WA1")
+            ws.cell(row, 7, "03-11-26")
+            ws.cell(row, 9, 50)
+        pickup = datetime(2026, 11, 3).date()
+        for proposed, expected in ((89.99, False), (90, True)):
+            with self.subTest(proposed=proposed):
+                items = [fallback_item(days, rate=proposed, recommendation_type="force_top1_maintain",
+                                       rank=1, action="increase") for days in (3, 4)]
+                items[1]["unconfirmed_cheaper_api_competitor"] = True
+                targets, skipped = engine.build_targets(items, self.duration_columns, self.config)
+                self.assertFalse(skipped)
+                blocked = engine.find_evidence_blocked_targets(
+                    ws, targets, self.config, {"CDMV", "EDAV"}, {}, set(), {}
+                )
+                self.assertEqual(("WA1", pickup, 9) in blocked, expected)
+
     def test_confirmed_fallback_uses_floor_after_reserve_and_reports_no_rank_goal(self):
         targets, skipped = engine.build_targets(
             self.paired_fallbacks(), self.duration_columns, self.config

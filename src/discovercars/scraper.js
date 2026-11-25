@@ -2426,13 +2426,14 @@ class DiscoverCarsScraper {
       } else {
         delete evidence.ranking_goal;
       }
-      if (evidence.ranking_complete || evidence.listing_complete) break;
+      const requireFullListing = this.config.requireCompleteDomListing === true;
+      if (evidence.listing_complete || (evidence.ranking_complete && !requireFullListing)) break;
 
       if ((!controlsConfirmed || !prefix.length) && controlAttempts < retryLimit + 1) {
         await bounded(this.prepareAutomaticDomSearch(page, deadline));
         controlAttempts += 1;
         await bounded(page.evaluate(() => window.scrollTo(0, 0)).catch(() => {}));
-      } else if (!rankingEligible) {
+      } else if (!rankingEligible || requireFullListing) {
         const localEnd = Math.max(-1, ...state.cards.map(({ index }) => index));
         const pageFullyRead = localEnd >= 0 && prefix.length === pageOffset + localEnd + 1;
         const knownQuoteKeys = [...quoteKeysByIndex.values()];
@@ -3402,6 +3403,7 @@ module.exports = {
   createSharedBrowserProvider,
   DiscoverCarsScraper,
   extractOffersFromSearchApiPayload,
+  normalizeProviderForComparison,
   resolveGeoLocationOverride,
   searchApiPayloadMatchesPeriod
 };

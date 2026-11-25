@@ -134,6 +134,7 @@ DEFAULT_CONFIG = {
     },
 }
 
+LARGE_CHANGE_PLN_DAY = 40
 CONFIRMED_BASELINE_STATUSES = {"confirmed_imported", "verified_live"}
 MANDATORY_FLOOR_TYPES = {"mandatory_zone_floor", "mandatory_group_floor"}
 # Keep the verifier's source-status aliases synchronized with verifyActiveRecommendationsDom.js.
@@ -2247,8 +2248,8 @@ def build_review_notes(changes: list[dict[str, Any]]) -> str:
     notes: list[str] = []
     strongest = get_strongest_delta_change(changes)
     strongest_delta = abs(parse_number(strongest.get("delta")) or 0)
-    if strongest_delta >= 40:
-        notes.append("duza zmiana >= 40 PLN")
+    if strongest_delta >= LARGE_CHANGE_PLN_DAY:
+        notes.append(f"duza zmiana >= {LARGE_CHANGE_PLN_DAY} PLN")
 
     if any(change.get("minimum_reason") for change in changes):
         notes.append("ochrona floor cenowego")
@@ -3298,7 +3299,7 @@ def build_parity_minimum_rates(ws: Any, targets: dict, config: dict[str, Any],
     return minima
 
 
-def find_api_only_cap_blocked_targets(
+def find_evidence_blocked_targets(
     ws: Any,
     targets: dict[str, dict[date, list[dict[str, Any]]]],
     config: dict[str, Any],
@@ -3307,21 +3308,23 @@ def find_api_only_cap_blocked_targets(
     ignored_cap_cells: set[tuple[str, date, int, str]],
     parity_minimum_rates: dict[tuple[str, date, int], float],
 ) -> dict[tuple[str, date, int], str]:
-    api_targets = {
+    """Find duration bands whose market rates fail API or DOM evidence checks."""
+    evidence_targets = {
         (normalize_code(zone), target_date, int(target["rate_col"])): target
         for zone, by_date in targets.items()
         for target_date, row_targets in by_date.items()
         for target in row_targets
-        if any(item.get("_api_only_constraint_validated") for item in target.get("constraint_items", []))
+        if any(item.get("_api_only_constraint_validated") or item.get("unconfirmed_cheaper_api_competitor") is True
+               for item in target.get("constraint_items", []))
     }
-    if not api_targets:
+    if not evidence_targets:
         return {}
 
-    api_targets_by_zone_date: dict[
+    evidence_targets_by_zone_date: dict[
         tuple[str, date], list[tuple[tuple[str, date, int], dict[str, Any]]]
     ] = defaultdict(list)
-    for key, target in api_targets.items():
-        api_targets_by_zone_date[(key[0], key[1])].append((key, target))
+    for key, target in evidence_targets.items():
+        evidence_targets_by_zone_date[(key[0], key[1])].append((key, target))
     proposed_rates: dict[str, float] = {}
     direct_groups_by_cell: dict[tuple[str, date, int], dict[str, str]] = defaultdict(dict)
     rows_by_target: dict[tuple[str, date, int], dict[str, int]] = defaultdict(dict)
@@ -3341,7 +3344,7 @@ def find_api_only_cap_blocked_targets(
         pickup_date = parse_date_value(ws.cell(row, int(columns["pickup_start_date"])).value)
         if not zone or pickup_date is None:
             continue
-        for key, original_target in api_targets_by_zone_date.get((zone, pickup_date), []):
+        for key, original_target in evidence_targets_by_zone_date.get((zone, pickup_date), []):
             rows_by_target[key][group] = row
             if not group_is_allowed(group, allowed_groups):
                 continue
@@ -3392,7 +3395,23 @@ def find_api_only_cap_blocked_targets(
                 final_rates[cell.coordinate] = parity_rate
 
     blocked: dict[tuple[str, date, int], str] = {}
-    for key, original_target in api_targets.items():
+    for key, original_target in evidence_targets.items():
+        disputed = any(item.get("unconfirmed_cheaper_api_competitor") is True
+                       for item in original_target.get("constraint_items", []))
+        if disputed:
+            for row in rows_by_target[key].values():
+                cell = ws.cell(row, key[2])
+                old_rate = money_to_grosze(cell.value)
+                new_rate = money_to_grosze(final_rates.get(cell.coordinate))
+                if old_rate is not None and new_rate is not None and new_rate - old_rate >= LARGE_CHANGE_PLN_DAY * 100:
+                    blocked[key] = (
+                        f"{key[0]}/{key[1]} {original_target['duration_band']}: "
+                        f"wstrzymano podwyzke o co najmniej {LARGE_CHANGE_PLN_DAY} PLN/doba. "
+                        "Brak tanszego konkurenta z API i potwierdzenia pelnej listy ofert."
+                    )
+                    break
+            if key in blocked:
+                continue
         api_refs = [item for item in original_target.get("constraint_items", [])
                     if item.get("_api_only_constraint_validated")]
         for coordinate, group in direct_groups_by_cell.get(key, {}).items():
@@ -4277,7 +4296,7 @@ def apply_updates(
     airport_targets = {zone: dates for zone, dates in targets.items() if normalize_code(zone) in airport_zones}
     # Airport decisions do not depend on city caps. Resolve their evidence vetoes
     # first so a rejected airport price never becomes the city's reference.
-    blocked_airport_targets = find_api_only_cap_blocked_targets(
+    blocked_airport_targets = find_evidence_blocked_targets(
         ws, airport_targets, config, allowed_groups, {}, set(), parity_minimum_rates,
     )
     city_top1_airport_caps, missing_airport_references = build_city_top1_airport_rate_caps(
@@ -4350,18 +4369,18 @@ def apply_updates(
             })
             ignored["groups"] = sorted(set(ignored["groups"]) | affected_groups)
 
-    api_cap_blocked_targets = find_api_only_cap_blocked_targets(
+    evidence_blocked_targets = find_evidence_blocked_targets(
         ws, targets, config, allowed_groups, city_top1_airport_caps,
         ignored_cap_cells, parity_minimum_rates,
     )
-    for key, reason in api_cap_blocked_targets.items():
+    for key, reason in evidence_blocked_targets.items():
         target = next(
             target
             for target in targets[key[0]][key[1]]
             if int(target["rate_col"]) == key[2]
         )
         skipped_targets.append({**target, "skip_reason": reason})
-    group_price_parity_scope.difference_update(api_cap_blocked_targets)
+    group_price_parity_scope.difference_update(evidence_blocked_targets)
 
     preserved_city_cap_rates: dict[str, float] = {}
     for row in range(data_start_row, ws.max_row + 1):
@@ -4399,7 +4418,7 @@ def apply_updates(
 
         for target in row_targets:
             cap_key = (zone, pickup_start, int(target["rate_col"]))
-            if cap_key in api_cap_blocked_targets:
+            if cap_key in evidence_blocked_targets:
                 if cap_key in city_top1_airport_caps:
                     cell = ws.cell(row, int(target["rate_col"]))
                     rate = parse_number(cell.value)
@@ -4560,6 +4579,14 @@ def apply_updates(
         expansion_summary,
         dry_run=dry_run,
     )
+
+    disputed_increases = [reason for reason in evidence_blocked_targets.values()
+                          if "Brak tanszego konkurenta z API" in reason]
+    if disputed_increases:
+        validation_rows.append([
+            "Wstrzymane duze podwyzki Top1 po rozbieznosci API i strony",
+            "WARNING", len(disputed_increases), first_items(disputed_increases),
+        ])
 
     cap_diagnostics: list[dict[str, Any]] = []
     preserved_city_cap_positions: list[dict[str, Any]] = []

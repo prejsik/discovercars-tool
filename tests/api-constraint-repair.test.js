@@ -301,3 +301,34 @@ test("Recommended MM Top1 remains a genuine verified hold and tampered repricing
     assert.equal(isSourceVerified(held, input.source_generated_at, Date.now(), input.options), false);
   });
 });
+
+test("Top1 rereads a partial ranking that lost a cheaper API competitor", async (t) => {
+  const input = pendingInput({
+    apiOnlyConstraintRentalDays: [],
+    locationTypeFloorsPlnDay: { groups: ["GRP1"], minDays: 8, maxDays: 14,
+      minimumRatesByKind: { airport: 40, city: 40 } }
+  });
+  for (const complete of [false, true]) {
+    let reads = 0;
+    await withScraperRun(async function () {
+      reads += 1;
+      const output = domOutput();
+      output.results = output.results.map(offer => ({
+        ...offer, provider: offer.provider === "Budget" ? "Different supplier" : offer.provider,
+        totalPrice: offer.provider === "Budget" ? 450 * 9 : 100 * 9
+      }));
+      if (complete && reads === 2) Object.assign(output.domEvidenceByLocation[location], {
+        listing_complete: true, expected_offer_count: 2, observed_offer_count: 2
+      });
+      return output;
+    }, async () => {
+      const { decisions: [decision] } = await verifyActiveRecommendations(input, {
+        workDir: tempDirectory(t), concurrency: 1
+      });
+      assert.equal(reads, 2);
+      assert.equal(decision.suggested_rate_pln_day, 449);
+      assert.equal(Boolean(decision.unconfirmed_cheaper_api_competitor), !complete);
+      assert.equal(isSourceVerified(decision, input.source_generated_at, Date.now(), input.options), true);
+    });
+  }
+});
