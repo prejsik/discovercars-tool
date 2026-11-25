@@ -25,15 +25,18 @@ function markerName(kind,key) {
   return `discovercars-schedule-${kind}-${key}`;
 }
 
+/**
+ * Returns the first run that already started this slot, or null.
+ * A claim marks a started run, whatever its status: queued during verification waves,
+ * in progress, or completed even with a failure. A late GitHub cron fallback therefore
+ * never repeats a slot that ran; a failed publication is retried with "Re-run failed jobs".
+ * Runs still waiting before their gate have no claim and do not block.
+ */
 async function findDuplicate(context,runs,getArtifacts) {
+  const names = [markerName('claim',context.key),markerName('published',context.key)];
   for (const run of runs) {
-    // Any unfinished run counts: GitHub reports a claimed run as queued while
-    // verification waves wait for max-parallel slots. Runs before their gate have no claim.
-    // A completed run counts only with a publication marker; a failed shard can still publish.
-    const active = run.status !== 'completed';
     const artifacts = await getArtifacts(run.id);
-    const name = markerName(active ? 'claim' : 'published',context.key);
-    if (artifacts.some(a=>a.name === name && !a.expired)) return run;
+    if (artifacts.some(a=>names.includes(a.name) && !a.expired)) return run;
   }
   return null;
 }

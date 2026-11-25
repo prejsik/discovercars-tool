@@ -73,7 +73,7 @@ Nieprawidlowe reguly produkcyjne nadal blokuja rozpoczecie scrapowania.
 Jak dziala:
 
 - docelowy start Cloudflare to `09:37` dla dnia (20 dni) oraz `18:07` dla nocy (45 dni), zawsze `Europe/Warsaw`. Noc ma date raportu nastepnego dnia lokalnego; dzien ma date biezaca. Zapasowe triggery GitHub to `09:42`/`10:02` i `18:12`/`18:32`; bramka odrzuca nieaktywny wariant UTC lato/zima dla obu slotow. GitHub cron nie gwarantuje dokladnej godziny rozpoczecia ani zakonczenia,
-- bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat tylko przy aktywnym uruchomieniu (kazdy niezakonczony run z artefaktem claim, takze `queued` podczas fal weryfikacji) lub dowodzie opublikowania kompletu wynikow,
+- bramka oddzielnie pilnuje daty i slotu dzien/noc; pomija duplikat, gdy jakikolwiek run tego slotu ma artefakt claim (aktywny, `queued` podczas fal weryfikacji albo zakonczony, takze nieudany) lub dowod opublikowania. Zapasowy cron startuje wiec tylko wtedy, gdy slot w ogole nie wystartowal, nawet jesli GitHub opozni go o wiele godzin,
 - zbieranie jest podzielone na dwa niezalezne runnery, lacznie do osmiu aktywnych stron; wyniki sa scalane do jednego raportu. Checkpoint pozwala wznowic swieze, zgodne fragmenty tego samego runa,
 - `final-pricing-recommendations.json` pochodzi bezposrednio z aktualnego pelnego runa,
 - ma tez reczny przycisk `Run workflow`, zeby przetestowac dzialanie bez czekania do porannego harmonogramu,
@@ -143,7 +143,7 @@ Powiadomienie Telegram po zakonczeniu jest celowo krotkie: pokazuje status, zakr
 
 Workflow podaje linki GitHub Pages dopiero po udanym wdrozeniu strony. Gdy Pages zawiedzie, ale artefakty zostana przeslane, Telegram automatycznie poda linki do artefaktow. Brak raportu albo obu plikow Excel nie moze zostac pokazany jako sukces: komunikat otrzyma status `BLAD PUBLIKACJI`.
 
-Status `failure` blokuje publikacje nowego Excela. Raport diagnostyczny i artefakty sa nadal publikowane, jesli ich wygenerowanie bylo mozliwe, a bramka jakosci oznacza run jako nieudany, aby kolejne zapasowe okno crona moglo wykonac ponowna probe.
+Status `failure` blokuje publikacje nowego Excela. Raport diagnostyczny i artefakty sa nadal publikowane, jesli ich wygenerowanie bylo mozliwe, a bramka jakosci oznacza run jako nieudany. Zapasowy cron nie powtarza takiego slotu; publikacje mozna ponowic w GitHub Actions przyciskiem `Re-run failed jobs`, bez ponownego scrapowania.
 
 1. W Telegramie otworz `@BotFather`.
 2. Utworz bota komenda `/newbot` i skopiuj token.
