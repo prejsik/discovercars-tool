@@ -141,7 +141,7 @@ Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektor
 
 Powiadomienie Telegram po zakonczeniu jest celowo krotkie: pokazuje status, zakres, liczbe podwyzek i obnizek, liczbe zmian w Excelu, czas oraz bezposrednie linki do raportu i obu plikow Excel. Przy ostrzezeniu lub bledzie podaje najwazniejszy powod i link do GitHub Actions.
 
-Workflow podaje linki GitHub Pages dopiero po udanym wdrozeniu strony. Gdy Pages zawiedzie, ale artefakty zostana przeslane, Telegram automatycznie poda linki do artefaktow. Brak raportu albo obu plikow Excel nie moze zostac pokazany jako sukces: komunikat otrzyma status `BLAD PUBLIKACJI`.
+Workflow podaje linki GitHub Pages dopiero po udanym wdrozeniu strony. Gdy Excel tego przebiegu nie ma linkow na Pages (Pages zawiedzie albo na stronie jest juz Excel z nowszego przebiegu), Telegram wysyla `rates-import-ready.xlsx` i `rates-updated.xlsx` jako zalaczniki, bo linki do artefaktow GitHub wymagaja logowania i pobieraja ZIP; link do artefaktu zostaje tylko jako kopia. Brak raportu albo obu plikow Excel nie moze zostac pokazany jako sukces: komunikat otrzyma status `BLAD PUBLIKACJI`.
 
 Status `failure` blokuje publikacje nowego Excela. Raport diagnostyczny i artefakty sa nadal publikowane, jesli ich wygenerowanie bylo mozliwe, a bramka jakosci oznacza run jako nieudany. Zapasowy cron nie powtarza takiego slotu; publikacje mozna ponowic w GitHub Actions przyciskiem `Re-run failed jobs`, bez ponownego scrapowania.
 
