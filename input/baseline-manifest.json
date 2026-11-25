@@ -2,19 +2,19 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-24T06:47:18.936Z",
-  "workbook_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
-  "source_filename": "mm-cars-rental-rates-75-stref-z-obnizkami.xlsx",
-  "confirmed": false,
-  "previous_baseline_sha256": "b84da8c538eccb224527ec02e09ef82298e57e38543d9fa8ce0ebe96663a132b",
+  "approved_at": "2026-11-25T23:00:02.977Z",
+  "workbook_sha256": "dc10e86d81cb87ca6b97934f6ded2ec6c2d5e6eaa8cc1b55a88960e6d2b33c50",
+  "source_filename": "rates-import-ready.xlsx",
+  "confirmed": true,
+  "previous_baseline_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
-    "source_filename": "mm-cars-rental-rates-75-stref-z-obnizkami.xlsx"
+    "workbook_sha256": "1c0dee5dc3d6d9997f2aaac199bd71ff8f727dd2aef85cf8df556d223ae94c3b",
+    "source_filename": "rates-import-ready.xlsx"
   },
   "coverage": {
-    "sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
-    "rowCount": 20755,
+    "sha256": "dc10e86d81cb87ca6b97934f6ded2ec6c2d5e6eaa8cc1b55a88960e6d2b33c50",
+    "rowCount": 20427,
     "groups": [
       "CDMV",
       "CFAV",
@@ -798,8 +798,8 @@
       "SWAV/ZAK1",
       "SWAV/ZLLO"
     ],
-    "firstDate": "2026-11-24",
+    "firstDate": "2026-11-25",
     "lastDate": "2027-12-31"
   },
-  "note": "User approved the prepared 75-zone workbook as the new baseline. Import into DiscoverCars has not been confirmed."
+  "note": "User confirmed this workbook was imported into DiscoverCars and selected as the baseline. The workbook was recompressed and the last editor metadata removed; all worksheet data are unchanged. Broker markup is not recalibrated."
 }
