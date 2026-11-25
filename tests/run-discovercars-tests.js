@@ -1791,7 +1791,7 @@ runTest("Telegram degraded summary keeps safe Excel links without generic warnin
   assert.match(message, /Import: https:\/\/example\.test\/import\.xlsx/);
 });
 
-runTest("Telegram falls back to artifacts when GitHub Pages deployment fails", () => {
+runTest("Telegram attaches Excel files when this run has no Pages links", () => {
   const message = buildTelegramSummary({
     env: {
       QUALITY_STATUS: "success",
@@ -1809,8 +1809,9 @@ runTest("Telegram falls back to artifacts when GitHub Pages deployment fails", (
 
   assert.match(message, /^DiscoverCars\n/);
   assert.match(message, /Raport cen: https:\/\/example\.test\/results-artifact/);
-  assert.match(message, /Import: https:\/\/example\.test\/excel-artifact/);
-  assert.match(message, /Rekomendacje: https:\/\/example\.test\/excel-artifact/);
+  assert.doesNotMatch(message, /^(Import|Rekomendacje): /m);
+  assert.match(message, /^Import i rekomendacje: pliki w załącznikach pod tą wiadomością\.$/m);
+  assert.match(message, /Kopia w GitHub \(ZIP, wymaga logowania\): https:\/\/example\.test\/excel-artifact/);
 });
 
 runTest("Telegram reports publication failure instead of false success", () => {

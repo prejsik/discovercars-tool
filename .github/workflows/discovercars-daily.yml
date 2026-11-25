@@ -1038,6 +1038,7 @@ jobs:
           PAGES_PUBLICATION_FAILED: ${{ needs.scrape.outputs.pages_enabled == 'true' && needs.scrape.outputs.scrape_quality_status != 'failure' && steps.pages-first.outcome != 'success' && steps.pages-retry.outcome != 'success' }}
           ARTIFACT_URL: ${{ needs.assemble.outputs.artifact_url }}
           EXCEL_ARTIFACT_URL: ${{ needs.assemble.outputs.excel_artifact_url }}
+          PAGES_SITE_URL: ${{ needs.scrape.outputs.page_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_STARTED_EPOCH: ${{ needs.scrape.outputs.run_started_epoch }}
           SCRAPER_DURATION_SECONDS: ${{ needs.scrape.outputs.scraper_duration_seconds }}
@@ -1063,6 +1064,24 @@ jobs:
             --data-urlencode "disable_web_page_preview=true"; then
             echo "::warning::Telegram notification failed; scraper results were still uploaded."
           fi
+
+          # Excel files without public Pages links go to the chat as documents:
+          # GitHub artifact links need a login and download a ZIP.
+          while IFS=$'\t' read -r label file; do
+            [[ -n "$file" ]] || continue
+            if [[ ! -f "$file" ]]; then
+              echo "::warning::Telegram attachment $file is missing."
+              continue
+            fi
+            if ! curl --fail --show-error --silent \
+              --request POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form-string "caption=${label} – DiscoverCars, przebieg ${GITHUB_RUN_ID}" \
+              --form "document=@${file}"; then
+              echo "::warning::Telegram attachment $label failed."
+            fi
+          done < <(node src/telegramSummary.js --attachments)
 
       - name: Enforce final quality gate
         if: always() && needs.scrape.outputs.should_run == 'true'

@@ -220,7 +220,8 @@ for (const stage of ['pages-site', 'pages-validation', 'pages-configure', 'pages
   assert.equal(exhausted.failed, true);
   assert.equal(exhausted.recorded, false);
   assert.match(exhausted.message, /^DiscoverCars \| Excele gotowe, panel jeszcze nieodświeżony\n/);
-  assert.match(exhausted.message, /Pobierz nowe pliki \(import i rekomendacje\): https:\/\/example\.test\/excel/);
+  assert.match(exhausted.message, /^Import i rekomendacje: pliki w załącznikach pod tą wiadomością\.$/m);
+  assert.match(exhausted.message, /Kopia w GitHub \(ZIP, wymaga logowania\): https:\/\/example\.test\/excel/);
   assert.doesNotMatch(exhausted.message, /example\.test\/public/);
   console.log(`PASS publication retry accepts recovery or warns once after repeated ${stage} failure`);
 }
