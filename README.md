@@ -30,6 +30,8 @@ Produkcyjna polityka `recommendedFallbackToMinimum` stosuje kolejno:
 
 Brak poprawnego odczytu Najpopularniejsze blokuje zmiane rynkowa, zamiast oznaczac brak Top1. Wstepny kandydat minimum (`popularity_pending`) wymaga niezaleznej weryfikacji DOM przed eksportem. Chronione daty, wykluczenia klas i obowiazkowe wyzsze minima pozostaja nadrzedne. Wspolna komorka przedzialu duration pozostaje bez zmian, jezeli ktorykolwiek objety scenariusz wymaga zachowania ceny.
 
+Jeżeli niepełny odczyt strony dla Top1 pomija tańszego konkurenta widocznego w pierwszym odczycie API, scraper podejmuje jedną próbę odczytu całej listy dla tego samego scenariusza. Gdy rozbieżność pozostaje bez pełnego potwierdzenia, Excel wstrzymuje zmianę rynkową w całym przedziale długości najmu, jeśli choć jedna stawka po uwzględnieniu klas wzrosłaby o co najmniej 40 PLN/dobę względem bazy. Powód jest widoczny w arkuszu `Validation`. Obowiązkowe minima działają niezależnie.
+
 ## Struktura projektu
 
 - `package.json`

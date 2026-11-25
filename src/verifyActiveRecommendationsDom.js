@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { DiscoverCarsScraper, createSharedBrowserProvider } = require("./discovercars/scraper");
+const { DiscoverCarsScraper, createSharedBrowserProvider, normalizeProviderForComparison } = require("./discovercars/scraper");
 const { buildPricingRecommendations, hasApiOnlyConstraintRepairMarker: hasPricingRepairMarker,
   isCanonicalApiOnlyConstraintRepairPending, isMmCarsProvider, priceTop1Target, isRecommendedDateInScope } = require("./pricingRecommendations");
 const { resolveBrokerMarkupCalibration } = require('./brokerMarkupCalibration');
@@ -161,6 +161,13 @@ function applyVerdict(item, verdict, pricingOptions) {
   return { ...output, dom_verified_at: verdict.verified_at };
 }
 
+// Verify the same completeness proof for initial reads and rereads.
+function hasCompleteListing(evidence) {
+  const count = evidence?.expected_offer_count;
+  return evidence?.listing_complete === true && Number.isSafeInteger(count) && count > 0
+    && evidence.observed_offer_count === count;
+}
+
 // Rebuild with the same policy, never by editing a stale target or learning a new markup.
 function rebuildDomRecommendation(item, record, pricingOptions) {
   const repairInput = hasApiOnlyConstraintRepairMarker(item);
@@ -185,18 +192,16 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
     || !Number.isFinite(offer.totalPrice) || offer.totalPrice <= 0)) return null;
   const byProvider = new Map();
   for (const offer of offers) {
-    const key = offer.provider.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const key = normalizeProviderForComparison(offer.provider);
     if (!byProvider.has(key) || offer.totalPrice < byProvider.get(key).totalPrice) byProvider.set(key, offer);
   }
   const sorted = [...byProvider.values()].sort((left, right) => left.totalPrice - right.totalPrice);
-  const completeSmallMarket = evidence.listing_complete === true
-    && Number.isSafeInteger(evidence.expected_offer_count) && evidence.expected_offer_count > 0
-    && evidence.observed_offer_count === evidence.expected_offer_count;
+  const completeListing = hasCompleteListing(evidence);
   const completePriceTop1 = pricingOptions.recommendedFallbackToMinimum === true
     && evidence.ranking_goal === 'price_top1'
     && sorted.some(offer => isMmCarsProvider(offer.provider))
     && sorted.some(offer => !isMmCarsProvider(offer.provider));
-  if (sorted.length < 3 && ((!completeSmallMarket && !completePriceTop1) || sorted.length < 2)) return null;
+  if (sorted.length < 3 && ((!completeListing && !completePriceTop1) || sorted.length < 2)) return null;
   const days = Number(item.rental_days);
   if (!Number.isSafeInteger(days) || days < 1 || days > 14) return null;
   const formatted = sorted.map((offer) => ({ provider_name: offer.provider, total_price: offer.totalPrice,
@@ -223,6 +228,16 @@ function rebuildDomRecommendation(item, record, pricingOptions) {
     requires_popularity_verification: false,
     ...decision, dom_verification_status: "confirmed", dom_verification_reasons: [],
     dom_verified_at: record.verified_at, dom_repricing: record };
+  // Keep the evidence on the decision so Excel can compare against its actual base rate.
+  delete rebuilt.unconfirmed_cheaper_api_competitor;
+  if (completePriceTop1 && !completeListing && decision.target_rank === 1
+    && ["increase", "decrease"].includes(decision.action)
+    && toLegacyOffers(item).some(offer => !isMmCarsProvider(offer.provider)
+      && offer.currency === "PLN"
+      && Math.round(offer.totalPrice / days * 100) < Math.round(decision.benchmark_rate_pln_day * 100)
+      && !byProvider.has(normalizeProviderForComparison(offer.provider)))) {
+    rebuilt.unconfirmed_cheaper_api_competitor = true;
+  }
   if (!canonicalRepair) return rebuilt;
 
   delete rebuilt.requires_dom_constraint_repair;
@@ -328,6 +343,7 @@ function finishApiOnlyConstraintRepair(item, { attempted = false, attemptedAt = 
   return output;
 }
 
+// A second pass must prove the full listing before it can replace a disputed ranking.
 async function verifyGroup(group, options) {
   const first = group[0];
   const startDate = String(first.start_date || first.pickup_date).slice(0, 10);
@@ -353,6 +369,7 @@ async function verifyGroup(group, options) {
     apiFirst: false,
     domOnly: true,
     browserProvider: options.browserProvider,
+    requireCompleteDomListing: options.requireCompleteDomListing,
     domRankingGoal: priceTop1Only ? 'price_top1' : undefined,
     requiredDomProvidersByLocation: Object.fromEntries(locations.map((location) => [location,
       priceTop1Only ? [] : [...new Set(group.filter((item) => item.location === location)
@@ -378,7 +395,8 @@ async function verifyGroup(group, options) {
         resolveBrokerMarkupCalibration(item, policy.brokerMarkupCalibration), policy) == null);
     },
     maxProvidersPerLocation: 30,
-    artifactsDir: path.join(options.workDir, `date-${startDate}-${rentalDays}d`)
+    artifactsDir: path.join(options.workDir, `date-${startDate}-${rentalDays}d`,
+      options.requireCompleteDomListing ? "full-listing-reread" : "")
   });
   const output = await scraper.run();
   const resultsByLocation = new Map();
@@ -392,7 +410,7 @@ async function verifyGroup(group, options) {
     if (exact.length) resultsByLocation.set(String(location).toLowerCase(), exact);
   }
 
-  return group.map((item) => {
+  const decisions = group.map((item) => {
     const domOffers = resultsByLocation.get(String(item.location).toLowerCase()) || [];
     if (!domOffers.length) return blockRecommendation(item, "dom_recommendation_failed", ["no_dom_offers"]);
     if (domOffers.some((offer) => offer.source !== "dom" || offer.transmission !== "automatic"
@@ -422,6 +440,21 @@ async function verifyGroup(group, options) {
     }
     return applyVerdict(item, { status: "confirmed", verified_at: new Date().toISOString() });
   });
+  const disputed = group.filter((item, index) => decisions[index].unconfirmed_cheaper_api_competitor === true);
+  if (!disputed.length || options.requireCompleteDomListing || Date.now() >= options.verificationDeadline) {
+    return decisions;
+  }
+  try {
+    const reread = await verifyGroup(disputed, { ...options, requireCompleteDomListing: true });
+    const replacements = new Map(disputed.map((item, index) => [item, reread[index]]));
+    return decisions.map((decision, index) => {
+      const candidate = replacements.get(group[index]);
+      return hasCompleteListing(candidate?.dom_repricing?.evidence) ? candidate : decision;
+    });
+  } catch {
+    // Retain the disputed evidence for the Excel gate if the reread fails.
+    return decisions;
+  }
 }
 
 async function verifyActiveRecommendations(payload, options = {}) {
@@ -575,7 +608,7 @@ async function verifyActiveRecommendations(payload, options = {}) {
         }
         let output;
         try {
-          output = await verifyGroup(liveGroup.map(({ item }) => item), { ...options, workDir, browserProvider, pricingOptions: payload.options });
+          output = await verifyGroup(liveGroup.map(({ item }) => item), { ...options, workDir, browserProvider, pricingOptions: payload.options, verificationDeadline });
         } catch (error) {
           output = liveGroup.map(({ item }) => blockRecommendation(item, "dom_recommendation_failed", [error.message || String(error)]));
         }
