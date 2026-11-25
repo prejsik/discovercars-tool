@@ -80,12 +80,17 @@ async function main() {
   assert.equal(await findDuplicate(night, skipped, async () => []), null);
   const completed = [{id:1,status:'completed',conclusion:'success'}];
   assert.equal(await findDuplicate(night, completed, async () => [{name:markerName('published','day-2026-09-29')}]), null);
-  assert.equal(await findDuplicate(night, completed, async () => [{name:markerName('claim',night.key)}]), null);
+  assert.equal((await findDuplicate(night, completed, async () => [{name:markerName('claim',night.key)}])).id, 1);
   assert.equal((await findDuplicate(night, completed, async () => [{name:markerName('published',night.key)}])).id, 1);
   assert.equal(await findDuplicate(night, completed, async () => [{name:markerName('published',night.key),expired:true}]), null);
   assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key)}])).id, 1);
   assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'cancelled'}], async () => [{name:markerName('published',night.key)}])).id, 1);
-  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim',night.key)}]), null);
+  // The 24.11.2026 incident: the day run claimed, then failed to publish (Pages 503).
+  // GitHub started the 09:42 fallback 11 h late; it must not repeat the whole slot.
+  assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim',night.key)}])).id, 1);
+  assert.equal((await findDuplicate(night, [{...completed[0],conclusion:'cancelled'}], async () => [{name:markerName('claim',night.key)}])).id, 1);
+  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim','day-2026-09-29')}]), null);
+  assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('claim',night.key),expired:true}]), null);
   assert.equal(await findDuplicate(night, [{...completed[0],conclusion:'failure'}], async () => [{name:markerName('published',night.key),expired:true}]), null);
   assert.equal((await findDuplicate(night, [{id:2,status:'in_progress'}], async () => [{name:markerName('claim',night.key)}])).id, 2);
   // Verification waves (max-parallel) report the whole claimed run as queued; it is still active.

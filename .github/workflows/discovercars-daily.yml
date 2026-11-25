@@ -4,7 +4,7 @@ run-name: DiscoverCars ${{ inputs.schedule_slot || github.event.schedule || gith
 on:
   # Cloudflare targets 09:37 (day/20) and 18:07 (night/45) Europe/Warsaw.
   # GitHub fallbacks are +5/+25 minutes. The shared gate rejects the inactive
-  # DST counterpart for both slots and deduplicates claims/publication evidence.
+  # DST counterpart for both slots; any claimed run (even a failed one) blocks fallbacks.
   schedule:
     # Day 09:42/10:02 Warsaw: summer, then winter UTC counterparts.
     - cron: "42 7 * * *"
