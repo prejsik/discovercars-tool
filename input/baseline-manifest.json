@@ -2,19 +2,19 @@
   "schema_version": 1,
   "status": "user_approved_baseline",
   "approved_by": "user",
-  "approved_at": "2026-11-25T23:00:02.977Z",
-  "workbook_sha256": "dc10e86d81cb87ca6b97934f6ded2ec6c2d5e6eaa8cc1b55a88960e6d2b33c50",
-  "source_filename": "rates-import-ready.xlsx",
+  "approved_at": "2026-11-27T10:02:07.590Z",
+  "workbook_sha256": "3554171a56d1b73886de042185032cf3aa33501a1bf3724507d874ae7a15b806",
+  "source_filename": "rates-import-ready (3).xlsx",
   "confirmed": true,
-  "previous_baseline_sha256": "7799393bc29ad73e2fd501ea9bd53662ade9201fb420d40b6193a2713932a35b",
+  "previous_baseline_sha256": "dc10e86d81cb87ca6b97934f6ded2ec6c2d5e6eaa8cc1b55a88960e6d2b33c50",
   "source_baseline": {
     "status": "user_supplied",
-    "workbook_sha256": "1c0dee5dc3d6d9997f2aaac199bd71ff8f727dd2aef85cf8df556d223ae94c3b",
-    "source_filename": "rates-import-ready.xlsx"
+    "workbook_sha256": "3554171a56d1b73886de042185032cf3aa33501a1bf3724507d874ae7a15b806",
+    "source_filename": "rates-import-ready (3).xlsx"
   },
   "coverage": {
-    "sha256": "dc10e86d81cb87ca6b97934f6ded2ec6c2d5e6eaa8cc1b55a88960e6d2b33c50",
-    "rowCount": 20427,
+    "sha256": "3554171a56d1b73886de042185032cf3aa33501a1bf3724507d874ae7a15b806",
+    "rowCount": 19771,
     "groups": [
       "CDMV",
       "CFAV",
@@ -798,8 +798,8 @@
       "SWAV/ZAK1",
       "SWAV/ZLLO"
     ],
-    "firstDate": "2026-11-25",
+    "firstDate": "2026-11-27",
     "lastDate": "2027-12-31"
   },
-  "note": "User confirmed this workbook was imported into DiscoverCars and selected as the baseline. The workbook was recompressed and the last editor metadata removed; all worksheet data are unchanged. Broker markup is not recalibrated."
+  "note": "Baseline selected and approved in the authenticated director panel. Original workbook bytes preserved. Shared by both scheduled runs. Broker markup is not recalibrated."
 }
