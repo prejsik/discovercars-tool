@@ -71,7 +71,8 @@ z innymi brokerami ani zewnetrznego kalendarza wydarzen.
 
 Widok "Ostatnie wyniki" oddziela ostatni rzeczywisty przebieg od ostatnich
 poprawnych plikow Excel. Pominieta proba harmonogramu nie kasuje informacji
-o bledzie poprzedniego scrapera. Link z Telegrama zawiera identyfikator
+o bledzie poprzedniego scrapera. Gdy import jest na Pages, link z Telegrama otwiera
+ceny i rynek (`?view=prices`). W pozostałych przypadkach otwiera diagnostykę
 konkretnego przebiegu (`?view=results&runId=...`).
 
 Przy blokadzie eksportu widoczne sa przyczyna, zalecany nastepny krok oraz
