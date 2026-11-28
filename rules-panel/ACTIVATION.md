@@ -106,4 +106,5 @@ z weryfikacja zgodnosci bazy i digestow obu Exceli. Nie laczyc podsumowania
 wylacznie po hashu bazy, poniewaz kolejne uruchomienia moga uzywac tej samej bazy.
 Ustawienie importu jako bazy wymaga deklaracji wykonania importu, kontroli XLSX
 i osobnego potwierdzenia. Pobranie pliku lub odczyt raportu nie zmienia bazy.
-Kolejne wiadomosci Telegram zawieraja link do panelu z ?view=results.
+Link w Telegramie otwiera ceny i rynek (`?view=prices`), gdy import tego przebiegu jest na Pages.
+W pozostałych przypadkach otwiera diagnostykę przebiegu (`?view=results&runId=...`).

@@ -43,6 +43,9 @@ assert.deepEqual(pipeline.jobs.assemble.needs, ['scrape', 'verify']);
 assert.deepEqual(pipeline.jobs.publish.needs, ['scrape', 'assemble']);
 assert.equal(pipeline.jobs.publish.concurrency.group, 'discovercars-pages-site');
 const publishSteps = pipeline.jobs.publish.steps;
+const telegramStep = publishSteps.find(step => step.name === 'Notify Telegram');
+assert.equal((telegramStep.run.match(/\/sendMessage"/g) ?? []).length, 1);
+assert.doesNotMatch(telegramStep.run, /sendDocument|--attachments/);
 const firstPublication = publishSteps.find(step => step.id === 'pages-first');
 const retryPublication = publishSteps.find(step => step.id === 'pages-retry');
 assert.ok(firstPublication && retryPublication, 'the publish job must have a bounded automatic retry');
@@ -152,9 +155,9 @@ function simulatePublication({ runAttempt = '1', artifacts = [], failures = {}, 
   const messages = [];
   const responses = (attempt) => ({
     run_report_url: `https://example.test/public/report?${attempt}`,
-    excel_url: `https://example.test/public/import?${attempt}`,
-    excel_report_url: `https://example.test/public/recommendations?${attempt}`
+    excel_url: `https://example.test/public/import?${attempt}`
   });
+  const manifest = { run_id: '456', excel_files: { 'rates-import-ready.xlsx': 'a'.repeat(64) } };
   let recorded = false;
   for (const step of publishSteps) {
     if (step === firstPublication || step === retryPublication) {
@@ -187,11 +190,11 @@ function simulatePublication({ runAttempt = '1', artifacts = [], failures = {}, 
       if (outcome === 'failure' && step['continue-on-error'] !== true) context.failed = true;
     }
     if (step.name === 'Notify Telegram' && stepRuns(step, context)) {
-      const env = { QUALITY_STATUS: 'success', ARTIFACT_URL: 'https://example.test/results', EXCEL_ARTIFACT_URL: 'https://example.test/excel' };
-      for (const key of ['PAGES_PUBLICATION_FAILED', 'PAGE_URL', 'PAGES_EXCEL_URL', 'PAGES_EXCEL_REPORT_URL']) {
+      const env = { GITHUB_RUN_ID: '456', QUALITY_STATUS: 'success', ARTIFACT_URL: 'https://example.test/results', EXCEL_ARTIFACT_URL: 'https://example.test/excel' };
+      for (const key of ['PAGES_PUBLICATION_FAILED', 'PAGE_URL', 'PAGES_EXCEL_URL']) {
         env[key] = String(workflowValue(step.env[key], context));
       }
-      messages.push(buildTelegramSummary({ env, reportAvailable: true, excelAvailable: true }));
+      messages.push(buildTelegramSummary({ env, manifest, reportAvailable: true, excelAvailable: true }));
     }
     if (step.name === 'Record published scheduled report') recorded = stepRuns(step, context);
   }
@@ -212,16 +215,15 @@ for (const stage of ['pages-site', 'pages-validation', 'pages-configure', 'pages
   assert.equal(recovered.failed, false);
   assert.equal(recovered.recorded, true);
   assert.match(recovered.message, /^DiscoverCars\n/);
-  assert.match(recovered.message, /Import: https:\/\/example\.test\/public\/import\?2/);
+  assert.match(recovered.message, /^Import \(ZIP z GitHuba, wymaga logowania\): https:\/\/example\.test\/excel$/m);
 
   const exhausted = simulatePublication({ failures: { '1': stage, '2': stage }, runAttempt: '2', artifacts: first.artifacts });
   assert.deepEqual(exhausted.attempts, ['1', '2']);
   assert.deepEqual(exhausted.deployed, []);
   assert.equal(exhausted.failed, true);
   assert.equal(exhausted.recorded, false);
-  assert.match(exhausted.message, /^DiscoverCars \| Excele gotowe, panel jeszcze nieodświeżony\n/);
-  assert.match(exhausted.message, /^Import i rekomendacje: pliki w załącznikach pod tą wiadomością\.$/m);
-  assert.match(exhausted.message, /Kopia w GitHub \(ZIP, wymaga logowania\): https:\/\/example\.test\/excel/);
+  assert.match(exhausted.message, /^DiscoverCars \| Import gotowy, panel jeszcze nieodświeżony\n/);
+  assert.match(exhausted.message, /Import \(ZIP z GitHuba, wymaga logowania\): https:\/\/example\.test\/excel/);
   assert.doesNotMatch(exhausted.message, /example\.test\/public/);
   console.log(`PASS publication retry accepts recovery or warns once after repeated ${stage} failure`);
 }

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { buildCompletionMessages, summarizeDomVerification, getPreparationFailureMessage } = require("./workflowQualityAlerts");
-const PANEL_URL = 'https://discovercars-rules-panel.bartek-prejs.workers.dev/?view=results';
+const PANEL_ORIGIN = 'https://discovercars-rules-panel.bartek-prejs.workers.dev';
 
 function safeReadJson(filePath) {
   try {
@@ -254,39 +254,17 @@ function resolveQualityStatus(env, quality = {}) {
     ? "failure" : quality.status || env.QUALITY_STATUS || "failure";
 }
 
-/**
- * Lists this run's Excel files to send as Telegram documents (label and path), e.g.
- * `listTelegramAttachments({ env, excelAvailable: true }, "output")`.
- * Files are attached only when they are ready but this run has no public GitHub Pages links,
- * because GitHub artifact links need a login and download a ZIP.
- */
-function listTelegramAttachments(options = {}, outputDir = "output") {
-  const env = options.env || process.env;
-  const excelReady = resolveQualityStatus(env, options.qualityAlerts || {}) !== "failure" && options.excelAvailable !== false;
-  if (!excelReady || (env.PAGES_EXCEL_URL && env.PAGES_EXCEL_REPORT_URL)) {
-    return [];
-  }
-  return [
-    { label: "Import", path: path.join(outputDir, "rates-import-ready.xlsx") },
-    { label: "Rekomendacje", path: path.join(outputDir, "rates-updated.xlsx") }
-  ];
-}
-
-/** Message lines that explain attached Excel files and point to the Excel currently on the site. */
-function attachmentLines(options, env) {
-  const siteBase = String(env.PAGES_SITE_URL || "").trim().replace(/\/+$/, "");
-  const newerOnSite = options.publicationDecision?.excel?.reason === "newer_source_already_published";
-  return [
-    "Import i rekomendacje: pliki w załącznikach pod tą wiadomością.",
-    ...(newerOnSite && siteBase ? [`Na stronie jest Excel z nowszego przebiegu: ${siteBase}/latest-excel/rates-import-ready.xlsx`] : []),
-    ...(env.EXCEL_ARTIFACT_URL ? [`Kopia w GitHub (ZIP, wymaga logowania): ${env.EXCEL_ARTIFACT_URL}`] : [])
-  ];
+/** Returns a download URL checked against the run and checksum by the panel. */
+function publishedImportUrl(runId, manifest) {
+  const digest = manifest?.excel_files?.["rates-import-ready.xlsx"];
+  if (!/^\d+$/.test(runId) || String(manifest?.run_id) !== runId || !/^[a-f0-9]{64}$/.test(digest || "")) return "";
+  return `${PANEL_ORIGIN}/api/report/file?kind=import&runId=${runId}&sha256=${digest}`;
 }
 
 function buildTelegramSummary(options = {}) {
   const env = options.env || process.env;
   const runId = String(env.GITHUB_RUN_ID || String(env.RUN_URL || '').match(/^https:\/\/github\.com\/prejsik\/discovercars-tool\/actions\/runs\/(\d+)$/)?.[1] || '');
-  const panelUrl = /^\d+$/.test(runId) ? `${PANEL_URL}&runId=${runId}` : PANEL_URL;
+  const diagnosticsUrl = `${PANEL_ORIGIN}/?view=results${/^\d+$/.test(runId) ? `&runId=${runId}` : ""}`;
   const quality = options.qualityAlerts || {};
   const preparationFailureStage = String(env.PREPARATION_FAILURE_STAGE || "").trim();
   const qualityStatus = resolveQualityStatus(env, quality);
@@ -303,18 +281,21 @@ function buildTelegramSummary(options = {}) {
     `Start procesu: ${Number.isFinite(runSeconds) ? `${formatPolishDateTime(startedEpoch * 1000)} (czas polski)` : "brak danych"}`,
     priceReadingsLabel(options, env, nowEpoch)
   ];
-  const reportUrl = env.PAGE_URL || env.ARTIFACT_URL || "brak linku";
   const reportAvailable = options.reportAvailable !== false;
-  const excelReady = qualityStatus !== "failure" && options.excelAvailable !== false;
   const reportPublished = Boolean(env.PAGE_URL || env.ARTIFACT_URL);
-  // Without both Pages links the ready Excel files go to Telegram as attachments (listTelegramAttachments).
-  const excelLines = env.PAGES_EXCEL_URL && env.PAGES_EXCEL_REPORT_URL
-    ? [`Import: ${env.PAGES_EXCEL_URL}`, `Rekomendacje: ${env.PAGES_EXCEL_REPORT_URL}`]
-    : attachmentLines(options, env);
+  const excelReady = qualityStatus !== "failure" && options.excelAvailable !== false;
   const pagesPublicationFailed = env.PAGES_PUBLICATION_FAILED === "true";
-  const filesReadyPanelStale = pagesPublicationFailed && excelReady;
+  const excelPublished = excelReady && !pagesPublicationFailed && Boolean(env.PAGES_EXCEL_URL);
+  const artifactImport = excelReady ? env.EXCEL_ARTIFACT_URL || env.ARTIFACT_URL : "";
+  const directImport = !artifactImport && excelPublished ? publishedImportUrl(runId, options.manifest) : "";
+  const importLine = artifactImport ? `Import (ZIP z GitHuba, wymaga logowania): ${artifactImport}`
+    : directImport ? `Import (XLSX, do następnej publikacji): ${directImport}` : "";
+  const panelLines = excelPublished
+    ? [`Panel: ${PANEL_ORIGIN}/?view=prices`, "Uzasadnienie: Stawki w Excelu → wybierz pozycję → Dlaczego?"]
+    : [`Panel: ${diagnosticsUrl}`, ...(importLine ? ["Panel nie pokazuje uzasadnień z tego przebiegu."] : [])];
+  const filesReadyPanelStale = pagesPublicationFailed && Boolean(importLine);
   const publicationFailure = qualityStatus !== "failure"
-    && (pagesPublicationFailed || !reportAvailable || !reportPublished || !excelReady);
+    && (pagesPublicationFailed || !reportAvailable || !reportPublished || !importLine);
   const timeLabel = `${formatDuration(runSeconds)} (scraper ${formatDuration(env.SCRAPER_DURATION_SECONDS)})`;
   const missingMmStartDates = listStartDatesWithoutMm(options.results);
   const missingMmAlert = missingMmStartDates.length
@@ -341,22 +322,18 @@ function buildTelegramSummary(options = {}) {
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
       "",
-      `Raport: ${reportUrl}`,
-      `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
-      `Panel: ${panelUrl}`
+      `Panel: ${diagnosticsUrl}`
     ].join("\n");
   }
 
   if (publicationFailure) {
-    const reason = pagesPublicationFailed
-      ? "nie udało się odświeżyć panelu na GitHub Pages"
-      : !reportAvailable
-        ? "raport HTML nie został wygenerowany"
-        : !reportPublished
-          ? "raport nie został udostępniony"
-          : "nie wygenerowano obu wymaganych plików Excel";
+    const reason = !reportAvailable ? "raport HTML nie został wygenerowany"
+      : !excelReady ? "nie wygenerowano obu wymaganych plików Excel"
+      : !importLine ? "brak linku do pliku importowego"
+      : pagesPublicationFailed ? "nie udało się odświeżyć panelu na GitHub Pages"
+      : "raport nie został udostępniony";
     return [
-      filesReadyPanelStale ? "DiscoverCars | Excele gotowe, panel jeszcze nieodświeżony" : "DiscoverCars | BŁĄD PUBLIKACJI",
+      filesReadyPanelStale ? "DiscoverCars | Import gotowy, panel jeszcze nieodświeżony" : "DiscoverCars | BŁĄD PUBLIKACJI",
       "",
       ...freshnessLines,
       `Powód: ${reason}.`,
@@ -367,10 +344,8 @@ function buildTelegramSummary(options = {}) {
       ...(recommendationSurgeAlert ? [recommendationSurgeAlert] : []),
       `Czas: ${timeLabel}`,
       "",
-      ...(excelReady ? excelLines : []),
-      `Raport: ${reportUrl}`,
-      `GitHub Actions: ${env.RUN_URL || "brak linku"}`,
-      `Panel: ${panelUrl}`
+      ...(importLine ? [importLine] : []),
+      ...panelLines
     ].join("\n");
   }
 
@@ -416,11 +391,10 @@ function buildTelegramSummary(options = {}) {
       ...(minimumGroupScope?.start_date && minimumGroupScope?.end_date
         ? [`Zakres korekt minimum ${minimumGroupLabel}: ${formatIsoDate(minimumGroupScope.start_date)}–${formatIsoDate(minimumGroupScope.end_date)}.`] : [])
     ] : []),
-    ...(conflictCount > 0 ? [`Pominięto ${conflictCount} przedziałów stawek ze względu na zasady cenowe. Szczegóły w rekomendacjach.`] : []),
+    ...(conflictCount > 0 ? [`Pominięto ${conflictCount} przedziałów stawek ze względu na zasady cenowe.`] : []),
     "",
-    ...excelLines,
-    `Raport cen: ${reportUrl}`,
-    `Panel: ${panelUrl}`
+    importLine,
+    ...panelLines
   ];
   return lines.join("\n");
 }
@@ -436,7 +410,7 @@ function telegramOptionsFromFiles(env = process.env) {
     recommendationWorkload: safeReadJson(path.join(outputDir, "recommendation-workload.json")),
     results: safeReadJson(path.join(outputDir, "results-latest.json")),
     expectedScope: safeReadJson(path.join(outputDir, "scrape-scope.json")),
-    publicationDecision: safeReadJson(path.join(outputDir, "publication-decision.json")),
+    manifest: safeReadJson(path.join(outputDir, "run-manifest.json")),
     reportAvailable: fs.existsSync(path.join(outputDir, "report.html")),
     excelAvailable: fs.existsSync(path.join(outputDir, "rates-import-ready.xlsx"))
       && fs.existsSync(path.join(outputDir, "rates-updated.xlsx"))
@@ -447,16 +421,8 @@ function buildTelegramSummaryFromFiles(env = process.env) {
   return buildTelegramSummary(telegramOptionsFromFiles(env));
 }
 
-// CLI: prints the message; with --attachments prints "label<TAB>path" lines of files to send as documents.
 if (require.main === module) {
-  if (process.argv.includes("--attachments")) {
-    const outputDir = path.resolve(process.env.OUTPUT_DIR || "output");
-    for (const file of listTelegramAttachments(telegramOptionsFromFiles(), outputDir)) {
-      process.stdout.write(`${file.label}\t${file.path}\n`);
-    }
-  } else {
-    process.stdout.write(`${buildTelegramSummaryFromFiles()}\n`);
-  }
+  process.stdout.write(`${buildTelegramSummaryFromFiles()}\n`);
 }
 
 module.exports = {
@@ -464,7 +430,6 @@ module.exports = {
   buildTelegramSummaryFromFiles,
   formatDuration,
   listStartDatesWithoutMm,
-  listTelegramAttachments,
   recommendationStats,
   summarizeNumberList
 };

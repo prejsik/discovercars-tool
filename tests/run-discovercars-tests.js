@@ -1482,7 +1482,7 @@ runTest("Telegram success summary reports actual Excel changes instead of candid
       SCRAPER_DURATION_SECONDS: "13800",
       PAGE_URL: "https://example.test/report.html",
       PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+      EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
     },
     nowEpoch: 16120,
     excelAvailable: true,
@@ -1520,10 +1520,9 @@ runTest("Telegram success summary reports actual Excel changes instead of candid
     "Zmiany w Excelu: 0 podwyżek i 6 obniżek stawek.",
     "Średnia obniżka względem bazy: 33,16 PLN/dobę.",
     "",
-    "Import: https://example.test/import.xlsx",
-    "Rekomendacje: https://example.test/recommendations.xlsx",
-    "Raport cen: https://example.test/report.html",
-    "Panel: https://discovercars-rules-panel.bartek-prejs.workers.dev/?view=results"
+    "Import (ZIP z GitHuba, wymaga logowania): https://example.test/import-artifact",
+    "Panel: https://discovercars-rules-panel.bartek-prejs.workers.dev/?view=prices",
+    "Uzasadnienie: Stawki w Excelu → wybierz pozycję → Dlaczego?"
   ].join("\n"));
   assert.doesNotMatch(message, /Sprawdzono|rolling|CZĘŚCIOWO GOTOWE|Ostrzeżenia:|Czas:/);
 });
@@ -1644,7 +1643,7 @@ runTest("Telegram successful publication leaves candidate surge diagnostics in t
       DURATIONS: "2,3,4,5,6,7",
       PAGE_URL: "https://example.test/report.html",
       PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+      EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
     },
     excelAvailable: true,
     recommendations: { recommendations: [] },
@@ -1674,7 +1673,7 @@ runTest("Telegram successful publication summarizes policy skips without technic
       DURATIONS: "2,3",
       PAGE_URL: "https://example.test/report.html",
       PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+      EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
     },
     excelAvailable: true,
     recommendations: { recommendations: [] },
@@ -1688,7 +1687,7 @@ runTest("Telegram successful publication summarizes policy skips without technic
   const message = buildTelegramSummary(options);
 
   assert.match(message, /^DiscoverCars\n/);
-  assert.match(message, /Pominięto 5 przedziałów stawek ze względu na zasady cenowe\. Szczegóły w rekomendacjach\./);
+  assert.match(message, /Pominięto 5 przedziałów stawek ze względu na zasady cenowe\./);
   assert.doesNotMatch(message, /floor\/cap|Warsaw City/);
   assert(message.length < 4096);
 
@@ -1719,7 +1718,7 @@ runTest("Telegram alerts only when MM is absent everywhere for a start date", ()
       DURATIONS: "2,3",
       PAGE_URL: "https://example.test/report.html",
       PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+      EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
     },
     excelAvailable: true,
     recommendations: [],
@@ -1765,7 +1764,6 @@ runTest("Telegram failure summary leads with the blocking reason", () => {
   assert.match(message, /Excel nie został opublikowany\./);
   assert.match(message, /Powód: Brak obowiązkowego sanity checku\./);
   assert.match(message, /Zakres: 2 konkretnych dat · najem 2, 5, 10 dni/);
-  assert.match(message, /GitHub Actions: https:\/\/example\.test\/actions\/1/);
   assert.doesNotMatch(message, /Drugi powód|^Import:|^Rekomendacje:/m);
 });
 
@@ -1777,7 +1775,7 @@ runTest("Telegram degraded summary keeps safe Excel links without generic warnin
       DURATIONS: "2,3,4",
       PAGE_URL: "https://example.test/report.html",
       PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-      PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+      EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
     },
     excelAvailable: true,
     recommendations: [],
@@ -1788,10 +1786,10 @@ runTest("Telegram degraded summary keeps safe Excel links without generic warnin
   assert.match(message, /^DiscoverCars\n/);
   assert.doesNotMatch(message, /GOTOWE Z OSTRZEŻENIAMI/);
   assert.doesNotMatch(message, /Ostrzeżenia:/);
-  assert.match(message, /Import: https:\/\/example\.test\/import\.xlsx/);
+  assert.match(message, /^Import \(ZIP z GitHuba, wymaga logowania\): https:\/\/example\.test\/import-artifact$/m);
 });
 
-runTest("Telegram attaches Excel files when this run has no Pages links", () => {
+runTest("Telegram links to the import artifact when this run has no Pages links", () => {
   const message = buildTelegramSummary({
     env: {
       QUALITY_STATUS: "success",
@@ -1808,10 +1806,8 @@ runTest("Telegram attaches Excel files when this run has no Pages links", () => 
   });
 
   assert.match(message, /^DiscoverCars\n/);
-  assert.match(message, /Raport cen: https:\/\/example\.test\/results-artifact/);
-  assert.doesNotMatch(message, /^(Import|Rekomendacje): /m);
-  assert.match(message, /^Import i rekomendacje: pliki w załącznikach pod tą wiadomością\.$/m);
-  assert.match(message, /Kopia w GitHub \(ZIP, wymaga logowania\): https:\/\/example\.test\/excel-artifact/);
+  assert.match(message, /^Import \(ZIP z GitHuba, wymaga logowania\): https:\/\/example\.test\/excel-artifact$/m);
+  assert.doesNotMatch(message, /results-artifact|załącznik|^Rekomendacje:/m);
 });
 
 runTest("Telegram reports publication failure instead of false success", () => {
@@ -1830,8 +1826,7 @@ runTest("Telegram reports publication failure instead of false success", () => {
   });
 
   assert.match(message, /^DiscoverCars \| BŁĄD PUBLIKACJI/);
-  assert.match(message, /Powód: raport nie został udostępniony\./);
-  assert.match(message, /GitHub Actions: https:\/\/example\.test\/actions\/2/);
+  assert.match(message, /Powód: brak linku do pliku importowego\./);
   assert.doesNotMatch(message, /gotowy do importu/);
 });
 
