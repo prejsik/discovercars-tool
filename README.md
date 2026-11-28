@@ -141,9 +141,9 @@ Jesli Pages nie byly jeszcze wlaczone, wejdz w `Settings` -> `Pages` i ustaw `Bu
 
 Uwaga: GitHub Pages moze nie byc dostepne dla prywatnego repozytorium na niektorych planach GitHub. Wtedy workflow pominie publikacje Pages i zostawi link do artifactu jako backup.
 
-Telegram wysyła jedną wiadomość ze statusem i dwoma linkami, gdy import jest gotowy. **Import** pobiera plik dla przebiegu wskazanego w wiadomości. **Panel** prowadzi do cen i rynku. Powód zmiany stawki znajdziesz w „Stawki w Excelu” po wybraniu oddziału, klasy i długości najmu oraz kliknięciu „Dlaczego?” przy dacie.
+Telegram wysyła jedną wiadomość ze statusem i dwoma linkami, gdy import jest gotowy. **Import** prowadzi do paczki ZIP z plikiem danego przebiegu (wymaga zalogowania do GitHuba, jest dostępna przez 14 dni). Kolejne publikacje nie zmieniają zawartości tego linku. **Panel** prowadzi do cen i rynku. Powód zmiany stawki znajdziesz w „Stawki w Excelu” po wybraniu oddziału, klasy i długości najmu oraz kliknięciu „Dlaczego?” przy dacie.
 
-Jeśli GitHub Pages nie udostępnił importu z tego przebiegu, link do importu prowadzi do paczki ZIP z GitHuba (wymaga zalogowania, dostępna przez 14 dni), a panel otwiera diagnostykę przebiegu. Uzasadnienia w widoku cen dotyczą opublikowanych danych. Przy blokadzie jakości lub braku dostępnego importu wiadomość podaje powód. Arkusz rekomendacji jest nadal tworzony jako źródło uzasadnień w panelu.
+Jeśli brakuje paczki ZIP, ale GitHub Pages udostępnił import, wiadomość podaje link XLSX ważny do kolejnej publikacji pliku. Jeśli import z tego przebiegu nie trafił na Pages, panel otwiera jego diagnostykę. Uzasadnienia w widoku cen dotyczą opublikowanych danych. Przy blokadzie jakości lub braku dostępnego importu wiadomość podaje powód. Arkusz rekomendacji jest nadal tworzony jako źródło uzasadnień w panelu.
 
 Status `failure` blokuje publikacje nowego Excela. Raport diagnostyczny i artefakty sa nadal publikowane, jesli ich wygenerowanie bylo mozliwe, a bramka jakosci oznacza run jako nieudany. Zapasowy cron nie powtarza takiego slotu; publikacje mozna ponowic w GitHub Actions przyciskiem `Re-run failed jobs`, bez ponownego scrapowania.
 

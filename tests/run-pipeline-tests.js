@@ -215,7 +215,7 @@ for (const stage of ['pages-site', 'pages-validation', 'pages-configure', 'pages
   assert.equal(recovered.failed, false);
   assert.equal(recovered.recorded, true);
   assert.match(recovered.message, /^DiscoverCars\n/);
-  assert.match(recovered.message, /^Import: https:\/\/[^/]+\/api\/report\/file\?kind=import&runId=456&sha256=a{64}$/m);
+  assert.match(recovered.message, /^Import \(ZIP z GitHuba, wymaga logowania\): https:\/\/example\.test\/excel$/m);
 
   const exhausted = simulatePublication({ failures: { '1': stage, '2': stage }, runAttempt: '2', artifacts: first.artifacts });
   assert.deepEqual(exhausted.attempts, ['1', '2']);

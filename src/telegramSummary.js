@@ -286,10 +286,10 @@ function buildTelegramSummary(options = {}) {
   const excelReady = qualityStatus !== "failure" && options.excelAvailable !== false;
   const pagesPublicationFailed = env.PAGES_PUBLICATION_FAILED === "true";
   const excelPublished = excelReady && !pagesPublicationFailed && Boolean(env.PAGES_EXCEL_URL);
-  const directImport = excelPublished ? publishedImportUrl(runId, options.manifest) : "";
   const artifactImport = excelReady ? env.EXCEL_ARTIFACT_URL || env.ARTIFACT_URL : "";
-  const importLine = directImport ? `Import: ${directImport}`
-    : artifactImport ? `Import (ZIP z GitHuba, wymaga logowania): ${artifactImport}` : "";
+  const directImport = !artifactImport && excelPublished ? publishedImportUrl(runId, options.manifest) : "";
+  const importLine = artifactImport ? `Import (ZIP z GitHuba, wymaga logowania): ${artifactImport}`
+    : directImport ? `Import (XLSX, do następnej publikacji): ${directImport}` : "";
   const panelLines = excelPublished
     ? [`Panel: ${PANEL_ORIGIN}/?view=prices`, "Uzasadnienie: Stawki w Excelu → wybierz pozycję → Dlaczego?"]
     : [`Panel: ${diagnosticsUrl}`, ...(importLine ? ["Panel nie pokazuje uzasadnień z tego przebiegu."] : [])];

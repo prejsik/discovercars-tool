@@ -19,13 +19,22 @@ const options = {
 
 const links = message => message.match(/https:\/\/\S+/g);
 
-test('published message contains only the run-bound import and the price panel', () => {
+test('published message links to a run artifact that survives the next publication', () => {
   const message = buildTelegramSummary(options);
+  assert.deepEqual(links(message), [
+    artifact,
+    `${panel}/?view=prices`
+  ]);
+  assert.match(message, /Stawki w Excelu.*Dlaczego\?/);
+});
+
+test('a run-bound direct download is available when neither artifact was uploaded', () => {
+  const message = buildTelegramSummary({ ...options, env: { ...options.env, EXCEL_ARTIFACT_URL: '' } });
   assert.deepEqual(links(message), [
     `${panel}/api/report/file?kind=import&runId=12345&sha256=${digest}`,
     `${panel}/?view=prices`
   ]);
-  assert.match(message, /Stawki w Excelu.*Dlaczego\?/);
+  assert.match(message, /do następnej publikacji/);
 });
 
 test('unpublished runs link the artifact and this run’s panel diagnostics in the same message', () => {
@@ -42,10 +51,10 @@ test('unpublished runs link the artifact and this run’s panel diagnostics in t
   }
 });
 
-test('a missing or mismatched manifest falls back to the run artifact', () => {
+test('a missing or mismatched manifest blocks direct download', () => {
   for (const manifest of [null, { ...options.manifest, run_id: '99999' }]) {
-    const message = buildTelegramSummary({ ...options, manifest });
-    assert.equal(links(message)[0], artifact);
+    const message = buildTelegramSummary({ ...options, manifest, env: { ...options.env, EXCEL_ARTIFACT_URL: '' } });
+    assert.doesNotMatch(message, /^Import/m);
     assert.doesNotMatch(message, /latest-excel|api\/report\/file/);
   }
 });
