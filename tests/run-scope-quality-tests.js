@@ -62,7 +62,7 @@ const publicationInput = {
 const env = {
   QUALITY_STATUS: "success", ROLLING_DAYS: "60", DURATIONS: "2,3,4,5,6,7,8,9,10,11,12,13,14",
   PAGE_URL: "https://example.test/report.html", PAGES_EXCEL_URL: "https://example.test/import.xlsx",
-  PAGES_EXCEL_REPORT_URL: "https://example.test/recommendations.xlsx"
+  EXCEL_ARTIFACT_URL: "https://example.test/import-artifact"
 };
 
 test("one of 780 scenarios cannot masquerade as 100 percent success", () => {
@@ -254,7 +254,7 @@ test("partial Telegram keeps Excel links and concise nontechnical completion", (
   assert.match(message, /^DiscoverCars\n/);
   assert.match(message, /Dane cenowe uzyskano dla 1\/1 sprawdzeń \(100%\)/);
   assert.match(message, /nie znaleziono lub nie potwierdzono ceny, nie zmieniano stawek/);
-  assert.match(message, /Import: https:\/\/example.test\/import.xlsx/);
+  assert.match(message, /^Import .*https:\/\/example.test\/import-artifact$/m);
   assert.doesNotMatch(message, /\bAPI\b|\bDOM\b|8012.*4424.*8012/);
   assert(message.length < 4096);
 });
@@ -270,7 +270,7 @@ test("a partial scrape completion is bounded and does not hide safe Excel", () =
   const qualityAlerts = buildQualityReport({ ...publicationInput, expectedScope: fullScope, results: { scenarios: [fullResults.scenarios[0]] } });
   const message = buildTelegramSummary({ env, ...publicationInput, qualityAlerts, excelAvailable: true });
   assert.match(message, /Dane cenowe uzyskano dla 2\/1560 sprawdzeń \(0,13%\)/);
-  assert.match(message, /Import:/);
+  assert.match(message, /^Import /m);
   assert(message.length < 4096);
 });
 
